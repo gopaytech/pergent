@@ -15,7 +15,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install opencode
-RUN curl -fsSL https://opencode.ai/install | bash
+ARG OPENCODE_VERSION=1.3.10
+RUN curl -fsSL -o /tmp/opencode.tar.gz \
+    "https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-x64.tar.gz" \
+    && tar -xzf /tmp/opencode.tar.gz -C /usr/local/bin/ \
+    && rm /tmp/opencode.tar.gz \
+    && chmod +x /usr/local/bin/opencode \
+    && opencode --version
 
 COPY --from=builder /pergent /usr/local/bin/pergent
 
