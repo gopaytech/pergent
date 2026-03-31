@@ -20,4 +20,3 @@ RUN curl -fsSL https://opencode.ai/install | bash
 COPY --from=builder /pergent /usr/local/bin/pergent
 
 WORKDIR /workspace
-ENTRYPOINT ["pergent"]
