@@ -1,0 +1,14 @@
+# Example: Run pergent on merge requests
+# Copy this to your repo's .gitlab-ci.yml
+mr-review:
+  stage: review
+  image: ghcr.io/zufardhiyaulhaq/pergent:latest
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  script:
+    - pergent --skill ./skills/code-review.md
+  variables:
+    GITLAB_TOKEN: $GITLAB_TOKEN
+    OPENCODE_PROVIDER: anthropic
+    OPENCODE_API_KEY: $ANTHROPIC_API_KEY
+    OPENCODE_MODEL: claude-sonnet-4
