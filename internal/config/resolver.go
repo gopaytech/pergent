@@ -24,6 +24,7 @@ type GitHubConfig struct {
 	Repo       string
 	PRNumber   int
 	BaseBranch string
+	DiffBase   string
 }
 
 type GitLabConfig struct {
@@ -32,6 +33,7 @@ type GitLabConfig struct {
 	ProjectID  string
 	MRIID      int
 	BaseBranch string
+	DiffBase   string
 }
 
 type Config struct {
@@ -136,12 +138,14 @@ func resolveGitHub() GitHubConfig {
 					Number int    `json:"number"`
 					Base   struct {
 						Ref string `json:"ref"`
+						SHA string `json:"sha"`
 					} `json:"base"`
 				} `json:"pull_request"`
 			}
 			if json.Unmarshal(data, &event) == nil {
 				cfg.PRNumber = event.PullRequest.Number
 				cfg.BaseBranch = event.PullRequest.Base.Ref
+				cfg.DiffBase = event.PullRequest.Base.SHA
 			}
 		}
 	}
@@ -157,6 +161,7 @@ func resolveGitLab() GitLabConfig {
 		ProjectID:  os.Getenv("CI_PROJECT_ID"),
 		MRIID:      mriid,
 		BaseBranch: os.Getenv("CI_MERGE_REQUEST_TARGET_BRANCH_NAME"),
+		DiffBase:   os.Getenv("CI_MERGE_REQUEST_DIFF_BASE_SHA"),
 	}
 }
 

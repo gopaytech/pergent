@@ -98,7 +98,7 @@ func main() {
 	var plat platform.Platform
 
 	if cfg.Local {
-		diff, changedFiles, err = platform.LocalDiff(cfg.RepoPath, cfg.BaseBranch)
+		diff, changedFiles, err = platform.LocalDiff(cfg.RepoPath, "origin/"+cfg.BaseBranch)
 		if err != nil {
 			log.Fatalf("local git diff failed: %v", err)
 		}
@@ -189,22 +189,33 @@ func newPlatform(cfg config.Config) platform.Platform {
 }
 
 func gatherDiff(cfg config.Config, plat platform.Platform) (string, []string, error) {
-	var baseBranch string
+	// Prefer DiffBase SHA (exact merge base commit) over branch name
+	var ref string
 	switch cfg.Platform {
 	case "github":
-		baseBranch = cfg.GitHub.BaseBranch
+		if cfg.GitHub.DiffBase != "" {
+			ref = cfg.GitHub.DiffBase
+		} else if cfg.GitHub.BaseBranch != "" {
+			ref = "origin/" + cfg.GitHub.BaseBranch
+		}
 	case "gitlab":
-		baseBranch = cfg.GitLab.BaseBranch
+		if cfg.GitLab.DiffBase != "" {
+			ref = cfg.GitLab.DiffBase
+		} else if cfg.GitLab.BaseBranch != "" {
+			ref = "origin/" + cfg.GitLab.BaseBranch
+		}
 	}
 
 	// Try local git diff first
-	diff, files, err := platform.LocalDiff(cfg.RepoPath, baseBranch)
-	if err == nil && diff != "" {
-		return diff, files, nil
+	if ref != "" {
+		diff, files, err := platform.LocalDiff(cfg.RepoPath, ref)
+		if err == nil && diff != "" {
+			return diff, files, nil
+		}
+		fmt.Fprintf(os.Stderr, "Local git diff failed (%v), fetching from API\n", err)
 	}
 
 	// Fall back to platform API
-	fmt.Fprintf(os.Stderr, "Local git diff failed (%v), fetching from API\n", err)
 	return plat.FetchDiff()
 }
 

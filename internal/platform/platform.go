@@ -13,20 +13,20 @@ type Platform interface {
 	UpdateComment(commentID int64, body string) error
 }
 
-func LocalDiff(repoPath string, baseBranch string) (diff string, changedFiles []string, err error) {
-	if baseBranch == "" {
-		return "", nil, fmt.Errorf("base branch is empty")
+// LocalDiff runs git diff against a base ref.
+// ref can be a commit SHA, a branch name like "origin/main", or any git ref.
+func LocalDiff(repoPath string, ref string) (diff string, changedFiles []string, err error) {
+	if ref == "" {
+		return "", nil, fmt.Errorf("base ref is empty")
 	}
 
-	ref := "origin/" + baseBranch
-
-	diffCmd := exec.Command("git", "-C", repoPath, "diff", ref+"..HEAD")
+	diffCmd := exec.Command("git", "-C", repoPath, "diff", ref+"...HEAD")
 	diffOut, err := diffCmd.Output()
 	if err != nil {
 		return "", nil, fmt.Errorf("git diff failed: %w", err)
 	}
 
-	filesCmd := exec.Command("git", "-C", repoPath, "diff", "--name-only", ref+"..HEAD")
+	filesCmd := exec.Command("git", "-C", repoPath, "diff", "--name-only", ref+"...HEAD")
 	filesOut, err := filesCmd.Output()
 	if err != nil {
 		return "", nil, fmt.Errorf("git diff --name-only failed: %w", err)
