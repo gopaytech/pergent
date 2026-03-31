@@ -9,12 +9,14 @@ import (
 )
 
 type Options struct {
-	Skills    []string
-	Platform  string
-	MaxTurns  int
-	MaxTokens int
-	Timeout   time.Duration
-	RepoPath  string
+	Skills     []string
+	Platform   string
+	MaxTurns   int
+	MaxTokens  int
+	Timeout    time.Duration
+	RepoPath   string
+	Local      bool
+	BaseBranch string
 }
 
 type GitHubConfig struct {
@@ -33,19 +35,25 @@ type GitLabConfig struct {
 }
 
 type Config struct {
-	Skills    []string
-	Platform  string
-	MaxTurns  int
-	MaxTokens int
-	Timeout   time.Duration
-	RepoPath  string
-	GitHub    GitHubConfig
-	GitLab    GitLabConfig
+	Skills     []string
+	Platform   string
+	MaxTurns   int
+	MaxTokens  int
+	Timeout    time.Duration
+	RepoPath   string
+	Local      bool
+	BaseBranch string
+	GitHub     GitHubConfig
+	GitLab     GitLabConfig
 }
 
 func Resolve(opts Options) (Config, error) {
 	if len(opts.Skills) == 0 {
 		return Config{}, fmt.Errorf("at least one --skill is required")
+	}
+
+	if opts.Local && opts.Platform != "" {
+		return Config{}, fmt.Errorf("--local and --platform are mutually exclusive")
 	}
 
 	cfg := Config{
@@ -54,6 +62,15 @@ func Resolve(opts Options) (Config, error) {
 		MaxTokens: resolveInt(opts.MaxTokens, "PERGENT_MAX_TOKENS", 100000),
 		Timeout:   resolveDuration(opts.Timeout, "PERGENT_TIMEOUT", 10*time.Minute),
 		RepoPath:  resolveString(opts.RepoPath, "", "."),
+		Local:     opts.Local,
+	}
+
+	if cfg.Local {
+		cfg.BaseBranch = opts.BaseBranch
+		if cfg.BaseBranch == "" {
+			cfg.BaseBranch = "main"
+		}
+		return cfg, nil
 	}
 
 	cfg.Platform = resolvePlatform(opts.Platform)

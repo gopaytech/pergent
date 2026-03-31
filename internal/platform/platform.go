@@ -20,13 +20,13 @@ func LocalDiff(repoPath string, baseBranch string) (diff string, changedFiles []
 
 	ref := "origin/" + baseBranch
 
-	diffCmd := exec.Command("git", "-C", repoPath, "diff", ref+"...HEAD")
+	diffCmd := exec.Command("git", "-C", repoPath, "diff", ref+"..HEAD")
 	diffOut, err := diffCmd.Output()
 	if err != nil {
 		return "", nil, fmt.Errorf("git diff failed: %w", err)
 	}
 
-	filesCmd := exec.Command("git", "-C", repoPath, "diff", "--name-only", ref+"...HEAD")
+	filesCmd := exec.Command("git", "-C", repoPath, "diff", "--name-only", ref+"..HEAD")
 	filesOut, err := filesCmd.Output()
 	if err != nil {
 		return "", nil, fmt.Errorf("git diff --name-only failed: %w", err)

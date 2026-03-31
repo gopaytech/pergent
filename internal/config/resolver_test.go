@@ -233,3 +233,56 @@ func TestResolve_GitLabMissingProjectID(t *testing.T) {
 		t.Error("Resolve() should error when GitLab project ID cannot be detected")
 	}
 }
+
+func TestResolve_LocalMode(t *testing.T) {
+	cfg, err := Resolve(Options{
+		Skills: []string{"./skills/code-review.md"},
+		Local:  true,
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error: %v", err)
+	}
+	if !cfg.Local {
+		t.Error("Local should be true")
+	}
+	if cfg.BaseBranch != "main" {
+		t.Errorf("BaseBranch = %q, want %q (default)", cfg.BaseBranch, "main")
+	}
+	if cfg.Platform != "" {
+		t.Errorf("Platform = %q, want empty in local mode", cfg.Platform)
+	}
+}
+
+func TestResolve_LocalModeCustomBaseBranch(t *testing.T) {
+	cfg, err := Resolve(Options{
+		Skills:     []string{"./skills/code-review.md"},
+		Local:      true,
+		BaseBranch: "develop",
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error: %v", err)
+	}
+	if cfg.BaseBranch != "develop" {
+		t.Errorf("BaseBranch = %q, want %q", cfg.BaseBranch, "develop")
+	}
+}
+
+func TestResolve_LocalWithPlatformError(t *testing.T) {
+	_, err := Resolve(Options{
+		Skills:   []string{"./skills/code-review.md"},
+		Local:    true,
+		Platform: "github",
+	})
+	if err == nil {
+		t.Error("Resolve() should error when --local and --platform are both set")
+	}
+}
+
+func TestResolve_LocalNoSkillsError(t *testing.T) {
+	_, err := Resolve(Options{
+		Local: true,
+	})
+	if err == nil {
+		t.Error("Resolve() should error when no skills provided in local mode")
+	}
+}
