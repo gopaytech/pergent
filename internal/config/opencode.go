@@ -8,15 +8,22 @@ import (
 )
 
 type openCodeConfig struct {
-	Model      string                       `json:"model"`
-	Provider   map[string]openCodeProvider   `json:"provider"`
-	Agent      map[string]openCodeAgent      `json:"agent"`
-	Permission map[string]string             `json:"permission"`
+	Schema     string                     `json:"$schema,omitempty"`
+	Model      string                     `json:"model"`
+	Provider   map[string]openCodeProvider `json:"provider"`
+	Agent      map[string]openCodeAgent    `json:"agent"`
+	Permission map[string]string           `json:"permission"`
 }
 
 type openCodeProvider struct {
-	APIKey string                          `json:"apiKey"`
-	Models map[string]openCodeModelLimits  `json:"models,omitempty"`
+	NPM     string                         `json:"npm,omitempty"`
+	Options openCodeProviderOptions        `json:"options"`
+	Models  map[string]openCodeModelLimits `json:"models,omitempty"`
+}
+
+type openCodeProviderOptions struct {
+	APIKey  string `json:"apiKey"`
+	BaseURL string `json:"baseURL,omitempty"`
 }
 
 type openCodeModelLimits struct {
@@ -32,31 +39,53 @@ type openCodeAgent struct {
 	Description string `json:"description"`
 	Model       string `json:"model"`
 	Steps       int    `json:"steps"`
+	Prompt      string `json:"prompt,omitempty"`
 }
 
-func GenerateOpenCodeConfig(maxTurns int, maxTokens int) (string, func(), error) {
+func GenerateOpenCodeConfig(maxTurns int, maxTokens int, skillPrompt string) (string, func(), error) {
 	provider := os.Getenv("OPENCODE_PROVIDER")
 	model := os.Getenv("OPENCODE_MODEL")
 
+	// If no provider set, skip config generation — opencode uses its own config
 	if provider == "" {
-		return "", nil, fmt.Errorf("OPENCODE_PROVIDER is required")
+		noop := func() {}
+		return "", noop, nil
 	}
 	if model == "" {
-		return "", nil, fmt.Errorf("OPENCODE_MODEL is required")
+		return "", nil, fmt.Errorf("OPENCODE_MODEL is required when OPENCODE_PROVIDER is set")
 	}
 
 	fullModel := provider + "/" + model
+	npm := os.Getenv("OPENCODE_NPM")
+	baseURL := os.Getenv("OPENCODE_BASE_URL")
+
+	// Default to openai-compatible SDK when using a custom base URL
+	// This forces /chat/completions instead of /responses
+	if npm == "" && baseURL != "" {
+		npm = "@ai-sdk/openai-compatible"
+	}
+
+	// Cap output tokens to fit within context
+	outputTokens := 10000
+	if maxTokens < 20000 {
+		outputTokens = maxTokens / 4
+	}
 
 	cfg := openCodeConfig{
-		Model: fullModel,
+		Schema: "https://opencode.ai/config.json",
+		Model:  fullModel,
 		Provider: map[string]openCodeProvider{
 			provider: {
-				APIKey: "{env:OPENCODE_API_KEY}",
+				NPM: npm,
+				Options: openCodeProviderOptions{
+					APIKey:  "{env:OPENCODE_API_KEY}",
+					BaseURL: baseURL,
+				},
 				Models: map[string]openCodeModelLimits{
 					model: {
 						Limit: openCodeLimit{
 							Context: maxTokens,
-							Output:  10000,
+							Output:  outputTokens,
 						},
 					},
 				},
@@ -67,6 +96,7 @@ func GenerateOpenCodeConfig(maxTurns int, maxTokens int) (string, func(), error)
 				Description: "pergent review agent",
 				Model:       fullModel,
 				Steps:       maxTurns,
+				Prompt:      skillPrompt,
 			},
 		},
 		Permission: map[string]string{

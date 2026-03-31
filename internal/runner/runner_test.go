@@ -47,7 +47,7 @@ func TestParseOutput_EmptyInput(t *testing.T) {
 
 func TestBuildCommand(t *testing.T) {
 	ctx := context.Background()
-	cmd := BuildCommand(ctx, "/tmp/config.json", "/tmp/diff.patch", "Review this PR", ".")
+	cmd := BuildCommand(ctx, "/tmp/config.json", "/tmp/diff.patch", "Review the attached diff", ".")
 
 	// Verify env contains OPENCODE_CONFIG
 	found := false
@@ -67,26 +67,48 @@ func TestBuildCommand(t *testing.T) {
 	}
 
 	hasRun := false
-	hasFile := false
+	hasDiffFile := false
 	hasFormat := false
+	hasMessage := false
 	for i, arg := range args {
 		if arg == "run" {
 			hasRun = true
 		}
 		if arg == "--file" && i+1 < len(args) && args[i+1] == "/tmp/diff.patch" {
-			hasFile = true
+			hasDiffFile = true
 		}
 		if arg == "--format" && i+1 < len(args) && args[i+1] == "json" {
 			hasFormat = true
+		}
+		if arg == "Review the attached diff" {
+			hasMessage = true
 		}
 	}
 	if !hasRun {
 		t.Error("missing 'run' subcommand")
 	}
-	if !hasFile {
-		t.Error("missing --file flag")
+	if !hasDiffFile {
+		t.Error("missing --file flag for diff")
 	}
 	if !hasFormat {
 		t.Error("missing --format json flag")
+	}
+	if !hasMessage {
+		t.Error("missing message argument")
+	}
+}
+
+func TestBuildCommand_NoDiffFile(t *testing.T) {
+	ctx := context.Background()
+	cmd := BuildCommand(ctx, "/tmp/config.json", "", "Say hello", ".")
+
+	hasFile := false
+	for _, arg := range cmd.Args {
+		if arg == "--file" {
+			hasFile = true
+		}
+	}
+	if hasFile {
+		t.Error("should not have --file flag when diffFile is empty")
 	}
 }
