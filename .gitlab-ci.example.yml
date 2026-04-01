@@ -2,7 +2,7 @@
 # Copy this to your repo's .gitlab-ci.yml
 mr-review:
   stage: review
-  image: ghcr.io/zufardhiyaulhaq/pergent:latest
+  image: ghcr.io/gopaytech/pergent:latest
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
   script:

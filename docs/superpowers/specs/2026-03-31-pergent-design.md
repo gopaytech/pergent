@@ -291,7 +291,7 @@ pergent/
 
 ## Distribution
 
-`pergent` is distributed as a **Docker image** (`ghcr.io/zufardhiyaulhaq/pergent:latest`) that bundles both `pergent` and `opencode` pre-installed. This gives CI runners zero-dependency setup.
+`pergent` is distributed as a **Docker image** (`ghcr.io/gopaytech/pergent:latest`) that bundles both `pergent` and `opencode` pre-installed. This gives CI runners zero-dependency setup.
 
 ```dockerfile
 FROM golang:1.22 AS builder
@@ -319,7 +319,7 @@ jobs:
   review:
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/zufardhiyaulhaq/pergent:latest
+      image: ghcr.io/gopaytech/pergent:latest
     steps:
       - uses: actions/checkout@v4
         with:
@@ -339,7 +339,7 @@ jobs:
 ```yaml
 mr-review:
   stage: review
-  image: ghcr.io/zufardhiyaulhaq/pergent:latest
+  image: ghcr.io/gopaytech/pergent:latest
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
   script:
@@ -365,7 +365,7 @@ jobs:
   review:
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/zufardhiyaulhaq/pergent:latest
+      image: ghcr.io/gopaytech/pergent:latest
     steps:
       - uses: actions/checkout@v4
         with:

@@ -16,7 +16,7 @@ The agent also picks up project context from `CLAUDE.md` / `AGENTS.md` automatic
 ### Docker (recommended for CI)
 
 ```bash
-docker pull ghcr.io/zufardhiyaulhaq/pergent:latest
+docker pull ghcr.io/gopaytech/pergent:latest
 ```
 
 ### Build from source
@@ -79,7 +79,7 @@ pergent --local --skill code-review --skill ./my-skills/security-check.md
 ```yaml
 mr-review:
   stage: review
-  image: ghcr.io/zufardhiyaulhaq/pergent:latest
+  image: ghcr.io/gopaytech/pergent:latest
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
   script:
@@ -103,7 +103,7 @@ jobs:
   review:
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/zufardhiyaulhaq/pergent:latest
+      image: ghcr.io/gopaytech/pergent:latest
     steps:
       - uses: actions/checkout@v4
         with:
