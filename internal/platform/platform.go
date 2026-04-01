@@ -2,9 +2,14 @@ package platform
 
 import (
 	"fmt"
+	"io"
+	"net/http"
 	"os/exec"
 	"strings"
+	"time"
 )
+
+var httpClient = &http.Client{Timeout: 30 * time.Second}
 
 type Platform interface {
 	FetchDiff() (diff string, changedFiles []string, err error)
@@ -38,4 +43,13 @@ func LocalDiff(repoPath string, ref string) (diff string, changedFiles []string,
 	}
 
 	return string(diffOut), files, nil
+}
+
+// readErrorBody extracts up to 512 bytes of the response body for error messages.
+func readErrorBody(resp *http.Response) string {
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 512))
+	if err != nil || len(body) == 0 {
+		return ""
+	}
+	return ": " + string(body)
 }

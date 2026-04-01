@@ -1,16 +1,12 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"os"
-	"os/exec"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -23,21 +19,12 @@ import (
 
 const version = "0.1.0"
 
-type stringSlice []string
-
-func (s *stringSlice) String() string { return strings.Join(*s, ", ") }
-func (s *stringSlice) Set(value string) error {
-	*s = append(*s, value)
-	return nil
-}
-
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "--version" {
 		fmt.Println("pergent", version)
 		return
 	}
 
-	// Cancel context on Ctrl+C — kills opencode subprocess
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
@@ -67,7 +54,6 @@ func main() {
 		return
 	}
 
-	// Resolve config
 	cfg, err := config.Resolve(config.Options{
 		Skills:     skills,
 		Platform:   platformFlag,
@@ -82,7 +68,6 @@ func main() {
 		log.Fatalf("config error: %v", err)
 	}
 
-	// Load skills
 	var loadedSkills []skill.Skill
 	for _, value := range cfg.Skills {
 		s, err := skill.Resolve(value)
@@ -116,7 +101,7 @@ func main() {
 	}
 	defer os.Remove(diffFile)
 
-	// Run each skill with its own opencode config
+	// Run each skill
 	var results []runner.RunResult
 	for _, s := range loadedSkills {
 		fmt.Fprintf(os.Stderr, "Running skill: %s\n", s.Name)
@@ -145,7 +130,7 @@ func main() {
 		return
 	}
 
-	// Post or update comment on platform
+	// Post or update comment
 	marker := "<!-- pergent -->"
 	commentID, err := plat.FindComment(marker)
 	if err != nil {
@@ -165,113 +150,4 @@ func main() {
 	}
 
 	fmt.Fprintf(os.Stderr, "Done.\n")
-}
-
-func newPlatform(cfg config.Config) platform.Platform {
-	switch cfg.Platform {
-	case "github":
-		return &platform.GitHub{
-			Token:    cfg.GitHub.Token,
-			Repo:     cfg.GitHub.Repo,
-			PRNumber: cfg.GitHub.PRNumber,
-		}
-	case "gitlab":
-		return &platform.GitLab{
-			Token:     cfg.GitLab.Token,
-			URL:       cfg.GitLab.URL,
-			ProjectID: cfg.GitLab.ProjectID,
-			MRIID:     cfg.GitLab.MRIID,
-		}
-	default:
-		log.Fatalf("unsupported platform: %s", cfg.Platform)
-		return nil
-	}
-}
-
-func gatherDiff(cfg config.Config, plat platform.Platform) (string, []string, error) {
-	// Prefer DiffBase SHA (exact merge base commit) over branch name
-	var ref string
-	switch cfg.Platform {
-	case "github":
-		if cfg.GitHub.DiffBase != "" {
-			ref = cfg.GitHub.DiffBase
-		} else if cfg.GitHub.BaseBranch != "" {
-			ref = "origin/" + cfg.GitHub.BaseBranch
-		}
-	case "gitlab":
-		if cfg.GitLab.DiffBase != "" {
-			ref = cfg.GitLab.DiffBase
-		} else if cfg.GitLab.BaseBranch != "" {
-			ref = "origin/" + cfg.GitLab.BaseBranch
-		}
-	}
-
-	// Try local git diff first
-	if ref != "" {
-		diff, files, err := platform.LocalDiff(cfg.RepoPath, ref)
-		if err == nil && diff != "" {
-			return diff, files, nil
-		}
-		fmt.Fprintf(os.Stderr, "Local git diff failed (%v), fetching from API\n", err)
-	}
-
-	// Fall back to platform API
-	return plat.FetchDiff()
-}
-
-func writeTempDiff(diff string) (string, error) {
-	f, err := os.CreateTemp("", "pergent-diff-*.patch")
-	if err != nil {
-		return "", err
-	}
-	if _, err := f.WriteString(diff); err != nil {
-		f.Close()
-		os.Remove(f.Name())
-		return "", err
-	}
-	f.Close()
-	return f.Name(), nil
-}
-
-func runTest(ctx context.Context) {
-	fmt.Fprintf(os.Stderr, "Testing opencode connection...\n")
-
-	configPath, cleanup, err := config.GenerateOpenCodeConfig(1, 10000, "")
-	if err != nil {
-		log.Fatalf("generating opencode config: %v", err)
-	}
-	defer cleanup()
-
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel()
-
-	args := []string{"run", "--format", "json", "--", "Reply with exactly: hello from opencode"}
-	cmd := exec.CommandContext(ctx, "opencode", args...)
-	cmd.Dir = "."
-
-	env := os.Environ()
-	if configPath != "" {
-		env = append(env, "OPENCODE_CONFIG="+configPath)
-	}
-	cmd.Env = env
-
-	var stdout bytes.Buffer
-	cmd.Stdout = io.MultiWriter(&stdout, os.Stderr)
-	cmd.Stderr = os.Stderr
-
-	err = cmd.Run()
-
-	output, _ := runner.ParseOutput(stdout.Bytes())
-
-	if err != nil && output == "" {
-		fmt.Fprintf(os.Stderr, "\nFAIL: %v\n", err)
-		os.Exit(1)
-	}
-
-	if output == "" {
-		fmt.Fprintf(os.Stderr, "\nFAIL: opencode returned empty response\n")
-		os.Exit(1)
-	}
-
-	fmt.Fprintf(os.Stderr, "\nOK: %s\n", output)
 }
