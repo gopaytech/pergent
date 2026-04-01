@@ -1,0 +1,51 @@
+package main
+
+import (
+	"fmt"
+	"os"
+
+	"github.com/zufardhiyaulhaq/pergent/internal/config"
+	"github.com/zufardhiyaulhaq/pergent/internal/platform"
+)
+
+func gatherDiff(cfg config.Config, plat platform.Platform) (string, []string, error) {
+	var ref string
+	switch cfg.Platform {
+	case "github":
+		if cfg.GitHub.DiffBase != "" {
+			ref = cfg.GitHub.DiffBase
+		} else if cfg.GitHub.BaseBranch != "" {
+			ref = "origin/" + cfg.GitHub.BaseBranch
+		}
+	case "gitlab":
+		if cfg.GitLab.DiffBase != "" {
+			ref = cfg.GitLab.DiffBase
+		} else if cfg.GitLab.BaseBranch != "" {
+			ref = "origin/" + cfg.GitLab.BaseBranch
+		}
+	}
+
+	if ref != "" {
+		diff, files, err := platform.LocalDiff(cfg.RepoPath, ref)
+		if err == nil {
+			return diff, files, nil
+		}
+		fmt.Fprintf(os.Stderr, "Local git diff failed (%v), fetching from API\n", err)
+	}
+
+	return plat.FetchDiff()
+}
+
+func writeTempDiff(diff string) (string, error) {
+	f, err := os.CreateTemp("", "pergent-diff-*.patch")
+	if err != nil {
+		return "", err
+	}
+	if _, err := f.WriteString(diff); err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return "", err
+	}
+	f.Close()
+	return f.Name(), nil
+}

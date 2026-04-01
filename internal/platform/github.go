@@ -8,10 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-	"time"
 )
-
-var httpClient = &http.Client{Timeout: 30 * time.Second}
 
 type GitHub struct {
 	Token    string
@@ -134,14 +131,6 @@ func (g *GitHub) UpdateComment(commentID int64, body string) error {
 		return fmt.Errorf("updating comment: status %d%s", resp.StatusCode, readErrorBody(resp))
 	}
 	return nil
-}
-
-func readErrorBody(resp *http.Response) string {
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 512))
-	if err != nil || len(body) == 0 {
-		return ""
-	}
-	return ": " + string(body)
 }
 
 var diffFileRegex = regexp.MustCompile(`^diff --git a/(.+) b/`)

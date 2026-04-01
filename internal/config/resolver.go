@@ -157,7 +157,7 @@ func resolveGitLab() GitLabConfig {
 	mriid, _ := strconv.Atoi(os.Getenv("CI_MERGE_REQUEST_IID"))
 	return GitLabConfig{
 		Token:      os.Getenv("GITLAB_TOKEN"),
-		URL:        resolveString("", "", os.Getenv("CI_SERVER_URL")),
+		URL:        os.Getenv("CI_SERVER_URL"),
 		ProjectID:  os.Getenv("CI_PROJECT_ID"),
 		MRIID:      mriid,
 		BaseBranch: os.Getenv("CI_MERGE_REQUEST_TARGET_BRANCH_NAME"),
