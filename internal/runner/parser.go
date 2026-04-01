@@ -36,7 +36,7 @@ type openCodeTokens struct {
 }
 
 type openCodeError struct {
-	Name string          `json:"name"`
+	Name string           `json:"name"`
 	Data *openCodeErrData `json:"data,omitempty"`
 }
 

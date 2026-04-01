@@ -1,4 +1,4 @@
-module github.com/zufardhiyaulhaq/pergent
+module github.com/gopaytech/pergent
 
 go 1.24.8
 

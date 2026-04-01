@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/zufardhiyaulhaq/pergent/internal/runner"
+	"github.com/gopaytech/pergent/internal/runner"
 )
 
 func FormatComment(results []runner.RunResult, changedFiles []string) string {

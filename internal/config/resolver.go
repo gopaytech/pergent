@@ -135,7 +135,7 @@ func resolveGitHub() GitHubConfig {
 		if err == nil {
 			var event struct {
 				PullRequest struct {
-					Number int    `json:"number"`
+					Number int `json:"number"`
 					Base   struct {
 						Ref string `json:"ref"`
 						SHA string `json:"sha"`
