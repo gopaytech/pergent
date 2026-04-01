@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/zufardhiyaulhaq/pergent/internal/runner"
+	"github.com/gopaytech/pergent/internal/runner"
 )
 
 func TestFormatComment_SingleSkill(t *testing.T) {

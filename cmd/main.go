@@ -10,11 +10,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/zufardhiyaulhaq/pergent/internal/config"
-	"github.com/zufardhiyaulhaq/pergent/internal/output"
-	"github.com/zufardhiyaulhaq/pergent/internal/platform"
-	"github.com/zufardhiyaulhaq/pergent/internal/runner"
-	"github.com/zufardhiyaulhaq/pergent/internal/skill"
+	"github.com/gopaytech/pergent/internal/config"
+	"github.com/gopaytech/pergent/internal/output"
+	"github.com/gopaytech/pergent/internal/platform"
+	"github.com/gopaytech/pergent/internal/runner"
+	"github.com/gopaytech/pergent/internal/skill"
 )
 
 const version = "0.1.0"

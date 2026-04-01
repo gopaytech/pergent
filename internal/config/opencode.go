@@ -8,8 +8,8 @@ import (
 )
 
 type openCodeConfig struct {
-	Schema     string                     `json:"$schema,omitempty"`
-	Model      string                     `json:"model"`
+	Schema     string                      `json:"$schema,omitempty"`
+	Model      string                      `json:"model"`
 	Provider   map[string]openCodeProvider `json:"provider"`
 	Agent      map[string]openCodeAgent    `json:"agent"`
 	Permission map[string]string           `json:"permission"`

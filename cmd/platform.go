@@ -4,8 +4,8 @@ import (
 	"log"
 	"strings"
 
-	"github.com/zufardhiyaulhaq/pergent/internal/config"
-	"github.com/zufardhiyaulhaq/pergent/internal/platform"
+	"github.com/gopaytech/pergent/internal/config"
+	"github.com/gopaytech/pergent/internal/platform"
 )
 
 type stringSlice []string

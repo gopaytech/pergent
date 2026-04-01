@@ -381,11 +381,11 @@ Run: `make test`
 
 Expected: All tests pass:
 ```
-ok  github.com/zufardhiyaulhaq/pergent/internal/config
-ok  github.com/zufardhiyaulhaq/pergent/internal/output
-ok  github.com/zufardhiyaulhaq/pergent/internal/platform
-ok  github.com/zufardhiyaulhaq/pergent/internal/runner
-ok  github.com/zufardhiyaulhaq/pergent/internal/skill
+ok  github.com/gopaytech/pergent/internal/config
+ok  github.com/gopaytech/pergent/internal/output
+ok  github.com/gopaytech/pergent/internal/platform
+ok  github.com/gopaytech/pergent/internal/runner
+ok  github.com/gopaytech/pergent/internal/skill
 ```
 
 - [ ] **Step 2: Verify build**

@@ -10,8 +10,8 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/zufardhiyaulhaq/pergent/internal/config"
-	"github.com/zufardhiyaulhaq/pergent/internal/runner"
+	"github.com/gopaytech/pergent/internal/config"
+	"github.com/gopaytech/pergent/internal/runner"
 )
 
 func runTest(ctx context.Context) {

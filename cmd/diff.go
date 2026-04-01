@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/zufardhiyaulhaq/pergent/internal/config"
-	"github.com/zufardhiyaulhaq/pergent/internal/platform"
+	"github.com/gopaytech/pergent/internal/config"
+	"github.com/gopaytech/pergent/internal/platform"
 )
 
 func gatherDiff(cfg config.Config, plat platform.Platform) (string, []string, error) {

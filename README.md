@@ -22,7 +22,7 @@ docker pull ghcr.io/zufardhiyaulhaq/pergent:latest
 ### Build from source
 
 ```bash
-git clone https://github.com/zufardhiyaulhaq/pergent.git
+git clone https://github.com/gopaytech/pergent.git
 cd pergent
 make build
 # Binary at ./bin/pergent
