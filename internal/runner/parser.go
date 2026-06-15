@@ -75,11 +75,16 @@ func stripThinkTags(s string) string {
 		if start == -1 {
 			break
 		}
-		end := strings.Index(s, "</think>")
-		if end == -1 {
+		// Search for the closing tag after the opening one; searching from the
+		// start of the string would match a stray "</think>" that appears before
+		// this "<think>" (e.g. when the reviewed diff itself contains the literal
+		// text), splicing incorrectly or looping forever.
+		rel := strings.Index(s[start:], "</think>")
+		if rel == -1 {
 			s = s[:start]
 			break
 		}
+		end := start + rel
 		s = s[:start] + s[end+len("</think>"):]
 	}
 	return strings.TrimSpace(s)
