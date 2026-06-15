@@ -36,12 +36,12 @@ func gatherDiff(cfg config.Config, plat platform.Platform) (string, []string, er
 	return plat.FetchDiff()
 }
 
-func writeTempDiff(diff string) (string, error) {
-	f, err := os.CreateTemp("", "pergent-diff-*.patch")
+func writeTempFile(pattern string, content string) (string, error) {
+	f, err := os.CreateTemp("", pattern)
 	if err != nil {
 		return "", err
 	}
-	if _, err := f.WriteString(diff); err != nil {
+	if _, err := f.WriteString(content); err != nil {
 		f.Close()
 		os.Remove(f.Name())
 		return "", err

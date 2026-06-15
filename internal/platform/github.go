@@ -64,19 +64,19 @@ func (g *GitHub) FetchDiff() (string, []string, error) {
 	return diff, files, nil
 }
 
-func (g *GitHub) FindComment(marker string) (int64, error) {
+func (g *GitHub) FindComment(marker string) (int64, string, error) {
 	page := 1
 	for {
 		path := fmt.Sprintf("/repos/%s/issues/%d/comments?per_page=100&page=%d", g.Repo, g.PRNumber, page)
 		resp, err := g.do("GET", path, "", nil)
 		if err != nil {
-			return 0, fmt.Errorf("listing comments: %w", err)
+			return 0, "", fmt.Errorf("listing comments: %w", err)
 		}
 
 		if resp.StatusCode != 200 {
 			errBody := readErrorBody(resp)
 			resp.Body.Close()
-			return 0, fmt.Errorf("listing comments: status %d%s", resp.StatusCode, errBody)
+			return 0, "", fmt.Errorf("listing comments: status %d%s", resp.StatusCode, errBody)
 		}
 
 		var comments []struct {
@@ -85,13 +85,13 @@ func (g *GitHub) FindComment(marker string) (int64, error) {
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&comments); err != nil {
 			resp.Body.Close()
-			return 0, fmt.Errorf("decoding comments: %w", err)
+			return 0, "", fmt.Errorf("decoding comments: %w", err)
 		}
 		resp.Body.Close()
 
 		for _, c := range comments {
 			if strings.Contains(c.Body, marker) {
-				return c.ID, nil
+				return c.ID, c.Body, nil
 			}
 		}
 
@@ -100,7 +100,7 @@ func (g *GitHub) FindComment(marker string) (int64, error) {
 		}
 		page++
 	}
-	return 0, nil
+	return 0, "", nil
 }
 
 func (g *GitHub) CreateComment(body string) error {

@@ -166,6 +166,28 @@ and sensitive data exposure.
 pergent --skill ./skills/security-review.md
 ```
 
+## Previous Review as Context
+
+By default each run reviews from scratch. With `--previous-review` (or `PERGENT_PREVIOUS_REVIEW=true`), pergent fetches the review comment it posted on the previous run, extracts each skill's own section, and attaches it to the agent alongside the diff. The agent is instructed to stay consistent with its earlier findings, focus on what changed since, and drop findings the new commits resolve.
+
+pergent stays stateless, the PR/MR comment is the only persistent state. First runs (no existing comment) behave exactly as before. Requires platform mode (not available with `--local`).
+
+```yaml
+mr-review:
+  stage: review
+  image: ghcr.io/gopaytech/pergent:latest
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  script:
+    - pergent --skill code-review
+  variables:
+    GITLAB_TOKEN: $GITLAB_TOKEN
+    PERGENT_PREVIOUS_REVIEW: "true"
+    OPENCODE_PROVIDER: anthropic
+    OPENCODE_API_KEY: $ANTHROPIC_API_KEY
+    OPENCODE_MODEL: claude-sonnet-4
+```
+
 ## CLI Flags
 
 | Flag | Description | Default |
@@ -174,6 +196,7 @@ pergent --skill ./skills/security-review.md
 | `--local` | Local mode: diff from git, output to stdout | `false` |
 | `--base-branch` | Base branch for local git diff | `main` |
 | `--test` | Test opencode connection (sends a hello prompt) | `false` |
+| `--previous-review` | Attach pergent's previous review comment as context on re-runs (platform mode only) | `false` |
 | `--platform` | `github` or `gitlab` | auto-detect |
 | `--max-turns` | Max agentic turns per skill run | `20` |
 | `--max-tokens` | Max token usage per skill run | `100000` |
@@ -206,6 +229,7 @@ pergent --skill ./skills/security-review.md
 | `PERGENT_MAX_TURNS` | Max agentic turns per skill run |
 | `PERGENT_MAX_TOKENS` | Max token usage per skill run |
 | `PERGENT_TIMEOUT` | Max wall-clock time per skill run |
+| `PERGENT_PREVIOUS_REVIEW` | `true`/`false` — attach the previous review comment as context (explicit `--previous-review` flag wins over this) |
 
 Config resolution priority: CLI flags > `PERGENT_*` env vars > auto-detect from CI > defaults.
 
