@@ -69,6 +69,9 @@ func TestStripThinkTags(t *testing.T) {
 		{"only think", "<think>just thinking</think>", ""},
 		{"nested content", "before<think>\nlong\nreasoning\n</think>\nafter", "before\nafter"},
 		{"empty string", "", ""},
+		// A stray "</think>" before the real block (e.g. the reviewed diff
+		// contains the literal text) must not loop forever or splice wrongly.
+		{"stray closing tag before block", "a</think>b<think>x</think>c", "a</think>bc"},
 	}
 
 	for _, tt := range tests {
