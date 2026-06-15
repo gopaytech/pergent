@@ -48,3 +48,21 @@ func FormatComment(results []runner.RunResult, changedFiles []string) string {
 
 	return b.String()
 }
+
+// ExtractSkillSection returns the content between the per-skill markers
+// that FormatComment writes (<!-- pergent:NAME --> ... <!-- /pergent:NAME -->).
+// Returns "" when either marker is missing.
+func ExtractSkillSection(body string, skillName string) string {
+	start := fmt.Sprintf("<!-- pergent:%s -->", skillName)
+	end := fmt.Sprintf("<!-- /pergent:%s -->", skillName)
+
+	_, after, ok := strings.Cut(body, start)
+	if !ok {
+		return ""
+	}
+	section, _, ok := strings.Cut(after, end)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(section)
+}

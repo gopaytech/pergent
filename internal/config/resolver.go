@@ -9,14 +9,16 @@ import (
 )
 
 type Options struct {
-	Skills     []string
-	Platform   string
-	MaxTurns   int
-	MaxTokens  int
-	Timeout    time.Duration
-	RepoPath   string
-	Local      bool
-	BaseBranch string
+	Skills            []string
+	Platform          string
+	MaxTurns          int
+	MaxTokens         int
+	Timeout           time.Duration
+	RepoPath          string
+	Local             bool
+	BaseBranch        string
+	PreviousReview    bool
+	PreviousReviewSet bool // true when the flag was explicitly passed on the command line
 }
 
 type GitHubConfig struct {
@@ -37,16 +39,17 @@ type GitLabConfig struct {
 }
 
 type Config struct {
-	Skills     []string
-	Platform   string
-	MaxTurns   int
-	MaxTokens  int
-	Timeout    time.Duration
-	RepoPath   string
-	Local      bool
-	BaseBranch string
-	GitHub     GitHubConfig
-	GitLab     GitLabConfig
+	Skills         []string
+	Platform       string
+	MaxTurns       int
+	MaxTokens      int
+	Timeout        time.Duration
+	RepoPath       string
+	Local          bool
+	BaseBranch     string
+	PreviousReview bool
+	GitHub         GitHubConfig
+	GitLab         GitLabConfig
 }
 
 func Resolve(opts Options) (Config, error) {
@@ -65,6 +68,12 @@ func Resolve(opts Options) (Config, error) {
 		Timeout:   resolveDuration(opts.Timeout, "PERGENT_TIMEOUT", 10*time.Minute),
 		RepoPath:  resolveString(opts.RepoPath, "", "."),
 		Local:     opts.Local,
+	}
+
+	cfg.PreviousReview = resolveBool(opts.PreviousReview, opts.PreviousReviewSet, "PERGENT_PREVIOUS_REVIEW", false)
+
+	if cfg.Local && cfg.PreviousReview {
+		return Config{}, fmt.Errorf("previous-review requires platform mode (cannot be used with --local)")
 	}
 
 	if cfg.Local {
@@ -196,6 +205,18 @@ func resolveString(flag string, envKey string, defaultVal string) string {
 	if envKey != "" {
 		if env := os.Getenv(envKey); env != "" {
 			return env
+		}
+	}
+	return defaultVal
+}
+
+func resolveBool(flagVal bool, flagSet bool, envKey string, defaultVal bool) bool {
+	if flagSet {
+		return flagVal
+	}
+	if env := os.Getenv(envKey); env != "" {
+		if v, err := strconv.ParseBool(env); err == nil {
+			return v
 		}
 	}
 	return defaultVal

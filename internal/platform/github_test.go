@@ -96,12 +96,15 @@ func TestGitHub_FindComment(t *testing.T) {
 		APIURL:   server.URL,
 	}
 
-	id, err := gh.FindComment("<!-- pergent -->")
+	id, body, err := gh.FindComment("<!-- pergent -->")
 	if err != nil {
 		t.Fatalf("FindComment() error: %v", err)
 	}
 	if id != 200 {
 		t.Errorf("id = %d, want 200", id)
+	}
+	if body != "<!-- pergent -->\n## pergent review\nstuff" {
+		t.Errorf("body = %q, want %q", body, "<!-- pergent -->\n## pergent review\nstuff")
 	}
 }
 
@@ -118,12 +121,15 @@ func TestGitHub_FindComment_NotFound(t *testing.T) {
 		APIURL:   server.URL,
 	}
 
-	id, err := gh.FindComment("<!-- pergent -->")
+	id, body, err := gh.FindComment("<!-- pergent -->")
 	if err != nil {
 		t.Fatalf("FindComment() error: %v", err)
 	}
 	if id != 0 {
 		t.Errorf("id = %d, want 0 (not found)", id)
+	}
+	if body != "" {
+		t.Errorf("body = %q, want empty (not found)", body)
 	}
 }
 

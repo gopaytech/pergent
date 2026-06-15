@@ -65,19 +65,19 @@ func (gl *GitLab) FetchDiff() (string, []string, error) {
 	return combined.String(), files, nil
 }
 
-func (gl *GitLab) FindComment(marker string) (int64, error) {
+func (gl *GitLab) FindComment(marker string) (int64, string, error) {
 	page := 1
 	for {
 		path := fmt.Sprintf("/api/v4/projects/%s/merge_requests/%d/notes?per_page=100&page=%d", gl.ProjectID, gl.MRIID, page)
 		resp, err := gl.do("GET", path, nil)
 		if err != nil {
-			return 0, fmt.Errorf("listing notes: %w", err)
+			return 0, "", fmt.Errorf("listing notes: %w", err)
 		}
 
 		if resp.StatusCode != 200 {
 			errBody := readErrorBody(resp)
 			resp.Body.Close()
-			return 0, fmt.Errorf("listing notes: status %d%s", resp.StatusCode, errBody)
+			return 0, "", fmt.Errorf("listing notes: status %d%s", resp.StatusCode, errBody)
 		}
 
 		var notes []struct {
@@ -86,13 +86,13 @@ func (gl *GitLab) FindComment(marker string) (int64, error) {
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&notes); err != nil {
 			resp.Body.Close()
-			return 0, fmt.Errorf("decoding notes: %w", err)
+			return 0, "", fmt.Errorf("decoding notes: %w", err)
 		}
 		resp.Body.Close()
 
 		for _, n := range notes {
 			if strings.Contains(n.Body, marker) {
-				return n.ID, nil
+				return n.ID, n.Body, nil
 			}
 		}
 
@@ -101,7 +101,7 @@ func (gl *GitLab) FindComment(marker string) (int64, error) {
 		}
 		page++
 	}
-	return 0, nil
+	return 0, "", nil
 }
 
 func (gl *GitLab) CreateComment(body string) error {

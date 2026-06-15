@@ -15,13 +15,16 @@ type RunResult struct {
 	Truncated bool
 }
 
-func BuildCommand(ctx context.Context, configPath string, diffFile string, message string, repoPath string) *exec.Cmd {
+func BuildCommand(ctx context.Context, configPath string, diffFile string, prevReviewFile string, message string, repoPath string) *exec.Cmd {
 	args := []string{
 		"run",
 		"--format", "json",
 	}
 	if diffFile != "" {
 		args = append(args, "--file", diffFile)
+	}
+	if prevReviewFile != "" {
+		args = append(args, "--file", prevReviewFile)
 	}
 	args = append(args, "--", message)
 
@@ -37,11 +40,11 @@ func BuildCommand(ctx context.Context, configPath string, diffFile string, messa
 	return cmd
 }
 
-func Run(ctx context.Context, skillName string, configPath string, diffFile string, message string, repoPath string, timeout time.Duration) (RunResult, error) {
+func Run(ctx context.Context, skillName string, configPath string, diffFile string, prevReviewFile string, message string, repoPath string, timeout time.Duration) (RunResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	cmd := BuildCommand(ctx, configPath, diffFile, message, repoPath)
+	cmd := BuildCommand(ctx, configPath, diffFile, prevReviewFile, message, repoPath)
 
 	pw := &progressWriter{buf: &bytes.Buffer{}, w: os.Stderr}
 	cmd.Stdout = pw

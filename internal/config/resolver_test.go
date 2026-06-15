@@ -286,3 +286,124 @@ func TestResolve_LocalNoSkillsError(t *testing.T) {
 		t.Error("Resolve() should error when no skills provided in local mode")
 	}
 }
+
+func TestResolve_PreviousReviewDefault(t *testing.T) {
+	setupValidGitHub(t)
+
+	cfg, err := Resolve(Options{
+		Skills:   []string{"./skills/code-review.md"},
+		Platform: "github",
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error: %v", err)
+	}
+	if cfg.PreviousReview {
+		t.Error("PreviousReview should default to false")
+	}
+}
+
+func TestResolve_PreviousReviewFlag(t *testing.T) {
+	setupValidGitHub(t)
+
+	cfg, err := Resolve(Options{
+		Skills:            []string{"./skills/code-review.md"},
+		Platform:          "github",
+		PreviousReview:    true,
+		PreviousReviewSet: true,
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error: %v", err)
+	}
+	if !cfg.PreviousReview {
+		t.Error("PreviousReview should be true when flag is set")
+	}
+}
+
+func TestResolve_PreviousReviewEnvTrue(t *testing.T) {
+	setupValidGitHub(t)
+	t.Setenv("PERGENT_PREVIOUS_REVIEW", "true")
+
+	cfg, err := Resolve(Options{
+		Skills:   []string{"./skills/code-review.md"},
+		Platform: "github",
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error: %v", err)
+	}
+	if !cfg.PreviousReview {
+		t.Error("PreviousReview should be true from env")
+	}
+}
+
+func TestResolve_PreviousReviewEnvFalse(t *testing.T) {
+	setupValidGitHub(t)
+	t.Setenv("PERGENT_PREVIOUS_REVIEW", "false")
+
+	cfg, err := Resolve(Options{
+		Skills:   []string{"./skills/code-review.md"},
+		Platform: "github",
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error: %v", err)
+	}
+	if cfg.PreviousReview {
+		t.Error("PreviousReview should be false from env")
+	}
+}
+
+func TestResolve_PreviousReviewExplicitFlagBeatsEnv(t *testing.T) {
+	setupValidGitHub(t)
+	t.Setenv("PERGENT_PREVIOUS_REVIEW", "true")
+
+	cfg, err := Resolve(Options{
+		Skills:            []string{"./skills/code-review.md"},
+		Platform:          "github",
+		PreviousReview:    false,
+		PreviousReviewSet: true, // --previous-review=false passed explicitly
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error: %v", err)
+	}
+	if cfg.PreviousReview {
+		t.Error("explicit --previous-review=false should beat env true")
+	}
+}
+
+func TestResolve_PreviousReviewEnvGarbage(t *testing.T) {
+	setupValidGitHub(t)
+	t.Setenv("PERGENT_PREVIOUS_REVIEW", "yes")
+
+	cfg, err := Resolve(Options{
+		Skills:   []string{"./skills/code-review.md"},
+		Platform: "github",
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error: %v", err)
+	}
+	if cfg.PreviousReview {
+		t.Error("unparseable env value should fall through to default false")
+	}
+}
+
+func TestResolve_PreviousReviewLocalError(t *testing.T) {
+	_, err := Resolve(Options{
+		Skills:            []string{"./skills/code-review.md"},
+		Local:             true,
+		PreviousReview:    true,
+		PreviousReviewSet: true,
+	})
+	if err == nil {
+		t.Error("Resolve() should error when --previous-review is combined with --local")
+	}
+}
+
+func TestResolve_PreviousReviewEnvLocalError(t *testing.T) {
+	t.Setenv("PERGENT_PREVIOUS_REVIEW", "true")
+	_, err := Resolve(Options{
+		Skills: []string{"./skills/code-review.md"},
+		Local:  true,
+	})
+	if err == nil {
+		t.Error("Resolve() should error when PERGENT_PREVIOUS_REVIEW=true combined with --local")
+	}
+}

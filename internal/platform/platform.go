@@ -13,7 +13,7 @@ var httpClient = &http.Client{Timeout: 30 * time.Second}
 
 type Platform interface {
 	FetchDiff() (diff string, changedFiles []string, err error)
-	FindComment(marker string) (commentID int64, err error)
+	FindComment(marker string) (commentID int64, body string, err error)
 	CreateComment(body string) error
 	UpdateComment(commentID int64, body string) error
 }

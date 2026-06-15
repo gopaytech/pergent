@@ -73,3 +73,47 @@ func TestFormatComment_TruncatedOutput(t *testing.T) {
 		t.Error("missing truncation notice")
 	}
 }
+
+func TestExtractSkillSection_Found(t *testing.T) {
+	body := "<!-- pergent -->\n## pergent review\n\n" +
+		"<!-- pergent:code-review -->\n### code-review\n\nFinding A\n<!-- /pergent:code-review -->\n\n" +
+		"<!-- pergent:security-review -->\n### security-review\n\nFinding B\n<!-- /pergent:security-review -->\n"
+
+	section := ExtractSkillSection(body, "code-review")
+
+	if !strings.Contains(section, "Finding A") {
+		t.Errorf("section = %q, should contain code-review finding", section)
+	}
+	if strings.Contains(section, "Finding B") {
+		t.Errorf("section = %q, should not contain other skill's finding", section)
+	}
+	if strings.Contains(section, "<!-- pergent:code-review -->") {
+		t.Errorf("section = %q, should not include the opening marker", section)
+	}
+	if strings.Contains(section, "<!-- /pergent:code-review -->") {
+		t.Errorf("section = %q, should not include the closing marker", section)
+	}
+}
+
+func TestExtractSkillSection_Missing(t *testing.T) {
+	body := "<!-- pergent -->\n## pergent review\n\n" +
+		"<!-- pergent:code-review -->\n### code-review\n\nFinding A\n<!-- /pergent:code-review -->\n"
+
+	if section := ExtractSkillSection(body, "security-review"); section != "" {
+		t.Errorf("section = %q, want empty for missing skill", section)
+	}
+}
+
+func TestExtractSkillSection_MissingEndMarker(t *testing.T) {
+	body := "<!-- pergent:code-review -->\n### code-review\n\nFinding A\n"
+
+	if section := ExtractSkillSection(body, "code-review"); section != "" {
+		t.Errorf("section = %q, want empty when end marker is missing", section)
+	}
+}
+
+func TestExtractSkillSection_EmptyBody(t *testing.T) {
+	if section := ExtractSkillSection("", "code-review"); section != "" {
+		t.Errorf("section = %q, want empty for empty body", section)
+	}
+}

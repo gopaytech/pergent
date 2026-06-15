@@ -78,12 +78,40 @@ func TestGitLab_FindComment(t *testing.T) {
 		MRIID:     42,
 	}
 
-	id, err := gl.FindComment("<!-- pergent -->")
+	id, body, err := gl.FindComment("<!-- pergent -->")
 	if err != nil {
 		t.Fatalf("FindComment() error: %v", err)
 	}
 	if id != 200 {
 		t.Errorf("id = %d, want 200", id)
+	}
+	if body != "<!-- pergent -->\n## pergent review\nstuff" {
+		t.Errorf("body = %q, want %q", body, "<!-- pergent -->\n## pergent review\nstuff")
+	}
+}
+
+func TestGitLab_FindComment_NotFound(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`[{"id": 100, "body": "some other comment"}]`))
+	}))
+	defer server.Close()
+
+	gl := &GitLab{
+		Token:     "test-token",
+		URL:       server.URL,
+		ProjectID: "123",
+		MRIID:     42,
+	}
+
+	id, body, err := gl.FindComment("<!-- pergent -->")
+	if err != nil {
+		t.Fatalf("FindComment() error: %v", err)
+	}
+	if id != 0 {
+		t.Errorf("id = %d, want 0 (not found)", id)
+	}
+	if body != "" {
+		t.Errorf("body = %q, want empty (not found)", body)
 	}
 }
 
