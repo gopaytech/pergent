@@ -76,6 +76,59 @@ func TestResolve_PresetByName(t *testing.T) {
 	if !strings.Contains(s.Body, "senior software engineer") {
 		t.Error("Body should contain preset content")
 	}
+	if !s.HasBlocking {
+		t.Error("preset should declare a Blocking section")
+	}
+	if strings.Contains(s.Body, "**[filename:line]**") {
+		t.Error("preset body should no longer carry the old output format instruction")
+	}
+}
+
+func TestParse_ScopeFrontmatter(t *testing.T) {
+	data := []byte(`---
+name: scoped
+paths: ["**/manifests/**"]
+exclude: ["**/*.md"]
+cross_batch: true
+---
+
+Review the manifests.`)
+
+	s, err := parse(data, "fallback")
+	if err != nil {
+		t.Fatalf("parse() error: %v", err)
+	}
+	if len(s.Paths) != 1 || s.Paths[0] != "**/manifests/**" {
+		t.Errorf("Paths = %v, want [**/manifests/**]", s.Paths)
+	}
+	if len(s.Exclude) != 1 || s.Exclude[0] != "**/*.md" {
+		t.Errorf("Exclude = %v, want [**/*.md]", s.Exclude)
+	}
+	if !s.CrossBatch {
+		t.Error("CrossBatch = false, want true")
+	}
+}
+
+func TestParse_HasBlocking(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{"heading present", "Intro\n\n## Blocking\n- x", true},
+		{"no heading", "Intro only", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s, err := parse([]byte(tt.body), "x")
+			if err != nil {
+				t.Fatalf("parse() error: %v", err)
+			}
+			if s.HasBlocking != tt.want {
+				t.Errorf("HasBlocking = %v, want %v", s.HasBlocking, tt.want)
+			}
+		})
+	}
 }
 
 func TestResolve_UnknownPreset(t *testing.T) {
