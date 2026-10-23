@@ -10,13 +10,14 @@ import (
 	"time"
 
 	"github.com/gopaytech/pergent/internal/config"
+	"github.com/gopaytech/pergent/internal/redact"
 	"github.com/gopaytech/pergent/internal/runner"
 )
 
 func runTest(ctx context.Context) {
 	fmt.Fprintf(os.Stderr, "Testing opencode connection...\n")
 
-	configPath, cleanup, err := config.GenerateOpenCodeConfig(1, 10000, "", ".")
+	configPath, cleanup, err := config.GenerateOpenCodeConfig(1, 0, "", ".")
 	if err != nil {
 		log.Fatalf("generating opencode config: %v", err)
 	}
@@ -33,8 +34,13 @@ func runTest(ctx context.Context) {
 
 	err = cmd.Run()
 
-	output, _ := runner.ParseOutput(stdout.Bytes())
+	transcript := runner.ParseOutput(stdout.Bytes())
+	output := transcript.Answer
 
+	if e := transcript.LastError(); e != nil {
+		fmt.Fprintf(os.Stderr, "\nFAIL: %s\n", redact.String(e.Name+": "+e.Message))
+		os.Exit(1)
+	}
 	if err != nil && output == "" {
 		fmt.Fprintf(os.Stderr, "\nFAIL: %v\n", err)
 		os.Exit(1)

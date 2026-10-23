@@ -1,0 +1,2 @@
+{"type":"error","timestamp":1792773223149,"sessionID":"ses_e96638dc4ffewdLT3r4qfPP3E0","error":{"name":"UnknownError","data":{"message":"Model not found: openai/my-model."}}}
+{"type":"error","timestamp":1792773223152,"sessionID":"ses_e96638dc4ffewdLT3r4qfPP3E0","error":{"name":"UnknownError","data":{"message":"Unexpected server error. Check server logs for details.","ref":"err_40837367"}}}

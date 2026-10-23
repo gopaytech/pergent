@@ -1,0 +1,2 @@
+{"type":"step_start","timestamp":1761200118500,"sessionID":"ses_1a2b3c4d5e6fXyZ","part":{"id":"prt_0077","sessionID":"ses_1a2b3c4d5e6fXyZ","messageID":"msg_a","type":"step-start","snapshot":"4b825dc642cb6eb9a060e54bf8d69288fbee4904"}}
+{"type":"error","timestamp":1761200120000,"sessionID":"ses_1a2b3c4d5e6fXyZ","error":{"name":"ProviderAuthError","data":{"providerID":"anthropic","message":"invalid x-api-key"}}}

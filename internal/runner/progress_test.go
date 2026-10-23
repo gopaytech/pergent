@@ -136,3 +136,46 @@ func TestTruncate(t *testing.T) {
 		}
 	}
 }
+
+func TestProgressWriter_SyntheticText(t *testing.T) {
+	var out bytes.Buffer
+	pw := &progressWriter{buf: &bytes.Buffer{}, step: 4, w: &out}
+
+	event := `{"type":"text","part":{"type":"text","text":"Continue if you have next steps","synthetic":true}}` + "\n"
+	pw.Write([]byte(event))
+
+	got := out.String()
+	if strings.Contains(got, "generating text") || !strings.Contains(got, "opencode added its own message") {
+		t.Errorf("output = %q, want synthetic text labelled as opencode's", got)
+	}
+}
+
+func TestProgressWriter_ErrorRedacted(t *testing.T) {
+	t.Setenv("OPENCODE_API_KEY", "sk-test-abcdef0123456789")
+	var out bytes.Buffer
+	pw := &progressWriter{buf: &bytes.Buffer{}, w: &out}
+
+	pw.Write([]byte(`{"type":"error","error":{"name":"ProviderAuthError","data":{"message":"bad key sk-test-abcdef0123456789"}}}` + "\n"))
+
+	if strings.Contains(out.String(), "sk-test-abcdef0123456789") {
+		t.Errorf("output = %q, leaks the API key", out.String())
+	}
+}
+
+func TestProgressWriter_LineSplitAcrossWrites(t *testing.T) {
+	var out bytes.Buffer
+	var steps []int
+	pw := &progressWriter{buf: &bytes.Buffer{}, w: &out, onStep: func(n int) { steps = append(steps, n) }}
+
+	line := `{"type":"step_start","part":{"type":"step-start"}}` + "\n"
+	pw.Write([]byte(line[:20]))
+	pw.Write([]byte(line[20:] + line[:10]))
+	pw.Write([]byte(line[10:]))
+
+	if len(steps) != 2 || steps[1] != 2 {
+		t.Errorf("onStep calls = %v, want [1 2]", steps)
+	}
+	if pw.buf.String() != line+line {
+		t.Errorf("buffer = %q, want both raw lines", pw.buf.String())
+	}
+}
