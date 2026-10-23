@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"time"
+
+	"github.com/gopaytech/pergent/internal/config"
 )
 
 type RunResult struct {
@@ -19,6 +21,9 @@ func BuildCommand(ctx context.Context, configPath string, diffFile string, prevR
 	args := []string{
 		"run",
 		"--format", "json",
+	}
+	if configPath != "" {
+		args = append(args, "--agent", config.AgentName)
 	}
 	if diffFile != "" {
 		args = append(args, "--file", diffFile)
@@ -33,7 +38,13 @@ func BuildCommand(ctx context.Context, configPath string, diffFile string, prevR
 
 	env := os.Environ()
 	if configPath != "" {
-		env = append(env, "OPENCODE_CONFIG="+configPath)
+		// Ignore the reviewed repo's own opencode.json and .opencode/ (agents,
+		// plugins), which would otherwise override our permissions or run code
+		// with the platform token and LLM key in the environment.
+		env = append(env,
+			"OPENCODE_CONFIG="+configPath,
+			"OPENCODE_DISABLE_PROJECT_CONFIG=true",
+		)
 	}
 	cmd.Env = env
 
