@@ -134,7 +134,7 @@ func main() {
 	for _, s := range loadedSkills {
 		fmt.Fprintf(os.Stderr, "Running skill: %s\n", s.Name)
 
-		configPath, cleanup, err := config.GenerateOpenCodeConfig(cfg.MaxTurns, cfg.MaxTokens, s.Body)
+		configPath, cleanup, err := config.GenerateOpenCodeConfig(cfg.MaxTurns, cfg.MaxTokens, s.Body, cfg.RepoPath)
 		if err != nil {
 			log.Fatalf("generating opencode config: %v", err)
 		}

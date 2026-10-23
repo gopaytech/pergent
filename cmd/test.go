@@ -7,7 +7,6 @@ import (
 	"io"
 	"log"
 	"os"
-	"os/exec"
 	"time"
 
 	"github.com/gopaytech/pergent/internal/config"
@@ -17,7 +16,7 @@ import (
 func runTest(ctx context.Context) {
 	fmt.Fprintf(os.Stderr, "Testing opencode connection...\n")
 
-	configPath, cleanup, err := config.GenerateOpenCodeConfig(1, 10000, "")
+	configPath, cleanup, err := config.GenerateOpenCodeConfig(1, 10000, "", ".")
 	if err != nil {
 		log.Fatalf("generating opencode config: %v", err)
 	}
@@ -26,15 +25,7 @@ func runTest(ctx context.Context) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 
-	args := []string{"run", "--format", "json", "--", "Reply with exactly: hello from opencode"}
-	cmd := exec.CommandContext(ctx, "opencode", args...)
-	cmd.Dir = "."
-
-	env := os.Environ()
-	if configPath != "" {
-		env = append(env, "OPENCODE_CONFIG="+configPath)
-	}
-	cmd.Env = env
+	cmd := runner.BuildCommand(ctx, configPath, "", "", "Reply with exactly: hello from opencode", ".")
 
 	var stdout bytes.Buffer
 	cmd.Stdout = io.MultiWriter(&stdout, os.Stderr)

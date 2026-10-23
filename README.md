@@ -9,7 +9,17 @@ Agentic PR/MR review tool for CI/CD pipelines. Unlike single-shot review tools, 
 3. The agent explores the repo iteratively (reads files, greps, follows references)
 4. pergent collects outputs and posts a combined review comment on the PR/MR
 
-The agent also picks up project context from `CLAUDE.md` / `AGENTS.md` automatically.
+The agent also picks up project context from the repo root's `AGENTS.md` (or `CLAUDE.md` if there is no `AGENTS.md`).
+
+### Agent sandbox
+
+When `OPENCODE_PROVIDER` is set, pergent writes a temporary `opencode.json` for each skill and points opencode at it with `OPENCODE_CONFIG`. That config:
+
+- defines a `pergent` agent that carries the skill body as its prompt and `--max-turns` as its step limit, and makes it the default agent (pergent also passes `--agent pergent`)
+- allows only `read`, `glob`, `grep` and `list`, and denies `edit` (which covers file writes and patches), `bash`, `task`, `skill`, `webfetch` and `websearch`
+- denies reading `*.env` / `*.env.*` files (except `*.env.example`)
+
+pergent also sets `OPENCODE_DISABLE_PROJECT_CONFIG=true`, so an `opencode.json` or `.opencode/` directory (agents, plugins, commands) in the reviewed branch can't change these permissions or run plugin code while your platform token and LLM key are in the environment. Because that setting also stops opencode from finding `AGENTS.md` / `CLAUDE.md` by itself, pergent passes the root file to opencode explicitly.
 
 ## Installation
 
@@ -50,7 +60,7 @@ export OPENCODE_MODEL=claude-sonnet-4       # model to use
 
 **Setup LLM (option B -- use opencode's existing config):**
 
-If you already have opencode configured (e.g., GitHub Copilot, custom `opencode.json`), just don't set any `OPENCODE_*` env vars. pergent will use opencode's own config.
+If you already have opencode configured (e.g., GitHub Copilot, custom `opencode.json`), just don't set any `OPENCODE_*` env vars. pergent will use opencode's own config. In this mode pergent does not generate a config, so the [agent sandbox](#agent-sandbox) above does not apply: opencode runs with whatever agents and permissions your config defines.
 
 **Test the connection:**
 
