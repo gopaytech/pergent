@@ -63,15 +63,20 @@ func TestStripThinkTags(t *testing.T) {
 	}{
 		{"no tags", "Hello world", "Hello world"},
 		{"simple think block", "<think>reasoning</think>\n\nResult", "Result"},
-		{"multiple think blocks", "<think>a</think>middle<think>b</think>end", "middleend"},
+		{"consecutive leading blocks", "<think>a</think>\n<think>b</think>\nend", "end"},
+		{"leading whitespace before block", "\n  <think>a</think>\nResult", "Result"},
 		{"unclosed tag", "<think>reasoning forever", ""},
 		{"empty think", "<think></think>content", "content"},
 		{"only think", "<think>just thinking</think>", ""},
-		{"nested content", "before<think>\nlong\nreasoning\n</think>\nafter", "before\nafter"},
 		{"empty string", "", ""},
-		// A stray "</think>" before the real block (e.g. the reviewed diff
-		// contains the literal text) must not loop forever or splice wrongly.
-		{"stray closing tag before block", "a</think>b<think>x</think>c", "a</think>bc"},
+		// Tags after the answer starts are part of the review (e.g. quoting a
+		// diff that contains the literal text) and must be kept verbatim.
+		{"mid-text block kept", "before<think>\nlong\nreasoning\n</think>\nafter", "before<think>\nlong\nreasoning\n</think>\nafter"},
+		{"mid-text block after leading block kept", "<think>a</think>middle<think>b</think>end", "middle<think>b</think>end"},
+		{"mid-text unclosed tag kept", "Finding: the parser drops text after <think> with no closing tag.\n\nMore findings.", "Finding: the parser drops text after <think> with no closing tag.\n\nMore findings."},
+		{"backtick-quoted tag kept", "Use `<think>` as the marker.\nNext point.", "Use `<think>` as the marker.\nNext point."},
+		{"leading block then mid-text mention", "<think>plan</think>\nThe `<think>` handling looks fine.", "The `<think>` handling looks fine."},
+		{"stray closing tag before block", "a</think>b<think>x</think>c", "a</think>b<think>x</think>c"},
 	}
 
 	for _, tt := range tests {
