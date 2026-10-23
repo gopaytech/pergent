@@ -14,7 +14,7 @@ CLI tool that runs agentic PR/MR reviews in CI/CD pipelines by spawning `opencod
 ## Key Concepts
 
 - **One opencode run per skill.** Each `--skill` flag triggers a separate subprocess. Results are combined into one comment.
-- **Read-only agent.** The generated `opencode.json` denies write/edit/bash permissions — the agent can only read files, grep, and glob.
+- **Read-only agent.** The generated `opencode.json` defines a `pergent` agent (set as `default_agent` and passed via `--agent`) and denies edit/bash/task/skill/webfetch/websearch and `*.env` reads — the agent can only read files, grep, glob, and list. `OPENCODE_DISABLE_PROJECT_CONFIG=true` stops the reviewed repo's own opencode config from overriding this.
 - **Config isolation.** `opencode.json` is written to a temp directory and passed via `OPENCODE_CONFIG` env var.
 - **Comment deduplication.** HTML markers (`<!-- pergent -->`) identify existing comments for update (PATCH/PUT) instead of creating duplicates.
 - **Diff fallback.** Tries local `git diff` first, falls back to platform API (for shallow clones).

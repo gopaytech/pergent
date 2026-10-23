@@ -2,7 +2,10 @@ package runner
 
 import (
 	"context"
+	"slices"
 	"testing"
+
+	"github.com/gopaytech/pergent/internal/config"
 )
 
 func TestBuildCommand(t *testing.T) {
@@ -18,6 +21,9 @@ func TestBuildCommand(t *testing.T) {
 	if !found {
 		t.Error("OPENCODE_CONFIG not set in command env")
 	}
+	if !slices.Contains(cmd.Env, "OPENCODE_DISABLE_PROJECT_CONFIG=true") {
+		t.Error("OPENCODE_DISABLE_PROJECT_CONFIG not set in command env")
+	}
 
 	args := cmd.Args
 	if args[0] != "opencode" {
@@ -28,7 +34,11 @@ func TestBuildCommand(t *testing.T) {
 	hasDiffFile := false
 	hasFormat := false
 	hasMessage := false
+	hasAgent := false
 	for i, arg := range args {
+		if arg == "--agent" && i+1 < len(args) && args[i+1] == config.AgentName {
+			hasAgent = true
+		}
 		if arg == "run" {
 			hasRun = true
 		}
@@ -53,6 +63,9 @@ func TestBuildCommand(t *testing.T) {
 	}
 	if !hasMessage {
 		t.Error("missing message argument")
+	}
+	if !hasAgent {
+		t.Errorf("missing --agent %s flag", config.AgentName)
 	}
 }
 
@@ -79,6 +92,12 @@ func TestBuildCommand_NoConfig(t *testing.T) {
 		if env == "OPENCODE_CONFIG=" {
 			t.Error("should not set empty OPENCODE_CONFIG")
 		}
+		if env == "OPENCODE_DISABLE_PROJECT_CONFIG=true" {
+			t.Error("should not disable project config when using opencode's own config")
+		}
+	}
+	if slices.Contains(cmd.Args, "--agent") {
+		t.Error("should not pass --agent when using opencode's own config")
 	}
 }
 
