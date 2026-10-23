@@ -67,25 +67,23 @@ func ParseOutput(stdout []byte) (string, error) {
 	return stripThinkTags(lastText), nil
 }
 
-// stripThinkTags removes <think>...</think> blocks from model output.
-// Some models (DeepSeek, Qwen) wrap reasoning in these tags.
+// stripThinkTags removes leading <think>...</think> blocks from model output.
+// Some models (DeepSeek, Qwen) emit their reasoning in these tags before the
+// answer. Only blocks at the start are stripped: tags later in the text belong
+// to the review itself (e.g. quoting a diff that contains the literal text)
+// and are kept. A leading block that is never closed means the model stopped
+// mid-reasoning, so there is no answer to return.
 func stripThinkTags(s string) string {
 	for {
-		start := strings.Index(s, "<think>")
-		if start == -1 {
-			break
+		s = strings.TrimSpace(s)
+		rest, ok := strings.CutPrefix(s, "<think>")
+		if !ok {
+			return s
 		}
-		// Search for the closing tag after the opening one; searching from the
-		// start of the string would match a stray "</think>" that appears before
-		// this "<think>" (e.g. when the reviewed diff itself contains the literal
-		// text), splicing incorrectly or looping forever.
-		rel := strings.Index(s[start:], "</think>")
-		if rel == -1 {
-			s = s[:start]
-			break
+		_, after, closed := strings.Cut(rest, "</think>")
+		if !closed {
+			return ""
 		}
-		end := start + rel
-		s = s[:start] + s[end+len("</think>"):]
+		s = after
 	}
-	return strings.TrimSpace(s)
 }
