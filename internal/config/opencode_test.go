@@ -13,7 +13,7 @@ func TestGenerateOpenCodeConfig(t *testing.T) {
 	t.Setenv("OPENCODE_MODEL", "claude-sonnet-4")
 	t.Setenv("OPENCODE_API_KEY", "sk-test-123")
 
-	configPath, cleanup, err := GenerateOpenCodeConfig(20, 100000, "test prompt", t.TempDir())
+	configPath, cleanup, err := GenerateOpenCodeConfig(20, 0, "test prompt", t.TempDir())
 	if err != nil {
 		t.Fatalf("GenerateOpenCodeConfig() error: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestGenerateOpenCodeConfig_Instructions(t *testing.T) {
 				}
 			}
 
-			configPath, cleanup, err := GenerateOpenCodeConfig(20, 100000, "", repo)
+			configPath, cleanup, err := GenerateOpenCodeConfig(20, 0, "", repo)
 			if err != nil {
 				t.Fatalf("GenerateOpenCodeConfig() error: %v", err)
 			}
@@ -168,7 +168,7 @@ func TestGenerateOpenCodeConfig_WithBaseURL(t *testing.T) {
 	t.Setenv("OPENCODE_API_KEY", "sk-test")
 	t.Setenv("OPENCODE_BASE_URL", "http://localhost:4000/v1")
 
-	configPath, cleanup, err := GenerateOpenCodeConfig(20, 100000, "test prompt", t.TempDir())
+	configPath, cleanup, err := GenerateOpenCodeConfig(20, 0, "test prompt", t.TempDir())
 	if err != nil {
 		t.Fatalf("GenerateOpenCodeConfig() error: %v", err)
 	}
@@ -195,7 +195,7 @@ func TestGenerateOpenCodeConfig_Cleanup(t *testing.T) {
 	t.Setenv("OPENCODE_MODEL", "claude-sonnet-4")
 	t.Setenv("OPENCODE_API_KEY", "sk-test")
 
-	configPath, cleanup, err := GenerateOpenCodeConfig(10, 50000, "", t.TempDir())
+	configPath, cleanup, err := GenerateOpenCodeConfig(10, 0, "", t.TempDir())
 	if err != nil {
 		t.Fatalf("GenerateOpenCodeConfig() error: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestGenerateOpenCodeConfig_NoProvider(t *testing.T) {
 	t.Setenv("OPENCODE_PROVIDER", "")
 	t.Setenv("OPENCODE_MODEL", "claude-sonnet-4")
 
-	configPath, cleanup, err := GenerateOpenCodeConfig(20, 100000, "test prompt", t.TempDir())
+	configPath, cleanup, err := GenerateOpenCodeConfig(20, 0, "test prompt", t.TempDir())
 	if err != nil {
 		t.Fatalf("should not error when provider is empty: %v", err)
 	}
@@ -229,8 +229,74 @@ func TestGenerateOpenCodeConfig_ProviderWithoutModel(t *testing.T) {
 	t.Setenv("OPENCODE_PROVIDER", "anthropic")
 	t.Setenv("OPENCODE_MODEL", "")
 
-	_, _, err := GenerateOpenCodeConfig(20, 100000, "test prompt", t.TempDir())
+	_, _, err := GenerateOpenCodeConfig(20, 0, "test prompt", t.TempDir())
 	if err == nil {
 		t.Error("should error when provider is set but model is empty")
+	}
+}
+
+func TestGenerateOpenCodeConfig_LimitsAndCompaction(t *testing.T) {
+	t.Setenv("OPENCODE_PROVIDER", "anthropic")
+	t.Setenv("OPENCODE_MODEL", "claude-sonnet-4")
+
+	tests := []struct {
+		name         string
+		contextLimit int
+		wantLimit    bool
+	}{
+		{"model registry limits by default", 0, false},
+		{"explicit context limit", 64000, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			configPath, cleanup, err := GenerateOpenCodeConfig(20, tt.contextLimit, "", t.TempDir())
+			if err != nil {
+				t.Fatalf("GenerateOpenCodeConfig() error: %v", err)
+			}
+			defer cleanup()
+
+			data, err := os.ReadFile(configPath)
+			if err != nil {
+				t.Fatalf("reading config: %v", err)
+			}
+			var raw map[string]any
+			if err := json.Unmarshal(data, &raw); err != nil {
+				t.Fatalf("parsing config JSON: %v", err)
+			}
+
+			// opencode 1.19 reads compaction.auto; false turns auto-compaction off
+			compaction, ok := raw["compaction"].(map[string]any)
+			if !ok {
+				t.Fatalf("compaction = %v, want an object", raw["compaction"])
+			}
+			if auto, ok := compaction["auto"].(bool); !ok || auto {
+				t.Errorf("compaction.auto = %v, want false", compaction["auto"])
+			}
+
+			// The model must be declared even without a limit, or opencode can't
+			// find models served from a custom base URL.
+			provider := raw["provider"].(map[string]any)["anthropic"].(map[string]any)
+			entry, ok := provider["models"].(map[string]any)["claude-sonnet-4"].(map[string]any)
+			if !ok {
+				t.Fatalf("provider.models = %v, want an entry for the model", provider["models"])
+			}
+			limit, hasLimit := entry["limit"].(map[string]any)
+			if !tt.wantLimit {
+				if hasLimit {
+					t.Errorf("limit = %v, want none so opencode uses the model's real limits", limit)
+				}
+				return
+			}
+			if !hasLimit {
+				t.Fatalf("model entry = %v, want a limit", entry)
+			}
+			if limit["context"] != float64(tt.contextLimit) {
+				t.Errorf("limit.context = %v, want %d", limit["context"], tt.contextLimit)
+			}
+			// opencode's schema requires output; 0 means its default output cap
+			if limit["output"] != float64(0) {
+				t.Errorf("limit.output = %v, want 0", limit["output"])
+			}
+		})
 	}
 }

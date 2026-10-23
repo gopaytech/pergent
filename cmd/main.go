@@ -35,6 +35,7 @@ func main() {
 	var platformFlag string
 	var maxTurns int
 	var maxTokens int
+	var contextLimit int
 	var timeout time.Duration
 	var repoPath string
 	var localMode bool
@@ -45,7 +46,8 @@ func main() {
 	flag.Var(&skills, "skill", "Preset name or path to skill .md file (repeatable)")
 	flag.StringVar(&platformFlag, "platform", "", "Platform: github or gitlab")
 	flag.IntVar(&maxTurns, "max-turns", 0, "Max agentic turns per skill run (default 20)")
-	flag.IntVar(&maxTokens, "max-tokens", 0, "Max token usage per skill run (default 100000)")
+	flag.IntVar(&maxTokens, "max-tokens", 0, "Deprecated and ignored; see --context-limit")
+	flag.IntVar(&contextLimit, "context-limit", 0, "Model context window in tokens, only for models opencode has no limits for (default: opencode's model registry)")
 	flag.DurationVar(&timeout, "timeout", 0, "Max wall-clock time per skill run (default 10m)")
 	flag.StringVar(&repoPath, "repo-path", "", "Path to repo root (default .)")
 	flag.BoolVar(&localMode, "local", false, "Local mode: diff from git, output to stdout, no platform")
@@ -71,6 +73,7 @@ func main() {
 		Platform:          platformFlag,
 		MaxTurns:          maxTurns,
 		MaxTokens:         maxTokens,
+		ContextLimit:      contextLimit,
 		Timeout:           timeout,
 		RepoPath:          repoPath,
 		Local:             localMode,
@@ -80,6 +83,9 @@ func main() {
 	})
 	if err != nil {
 		log.Fatalf("config error: %v", err)
+	}
+	for _, w := range cfg.Warnings {
+		log.Printf("warning: %s", w)
 	}
 
 	var loadedSkills []skill.Skill
@@ -129,19 +135,26 @@ func main() {
 		}
 	}
 
-	// Run each skill
+	// Run each skill. A failed review is reported in the comment and the log
+	// but doesn't fail the job; only setup errors above exit non-zero.
 	var results []runner.RunResult
+	failed := 0
 	for _, s := range loadedSkills {
 		fmt.Fprintf(os.Stderr, "Running skill: %s\n", s.Name)
 
-		configPath, cleanup, err := config.GenerateOpenCodeConfig(cfg.MaxTurns, cfg.MaxTokens, s.Body, cfg.RepoPath)
+		configPath, cleanup, err := config.GenerateOpenCodeConfig(cfg.MaxTurns, cfg.ContextLimit, s.Body, cfg.RepoPath)
 		if err != nil {
 			log.Fatalf("generating opencode config: %v", err)
+		}
+		// The step and context limits only apply when pergent wrote the config.
+		stepLimit, ctxLimit := 0, 0
+		if configPath != "" {
+			stepLimit, ctxLimit = cfg.MaxTurns, cfg.ContextLimit
 		}
 
 		message := reviewMessage
 		prevReviewFile := ""
-		if section := output.ExtractSkillSection(prevBody, s.Name); section != "" {
+		if section := output.ExtractSkillSection(prevBody, s.Name); section != "" && !output.IsFailedSection(section) {
 			f, err := writeTempFile("pergent-prev-review-*.md", section)
 			if err != nil {
 				log.Printf("warning: could not write previous review file: %v", err)
@@ -152,19 +165,29 @@ func main() {
 			}
 		}
 
-		result, err := runner.Run(ctx, s.Name, configPath, diffFile, prevReviewFile, message, cfg.RepoPath, cfg.Timeout)
+		result := runner.Run(ctx, runner.Options{
+			SkillName:      s.Name,
+			ConfigPath:     configPath,
+			DiffFile:       diffFile,
+			PrevReviewFile: prevReviewFile,
+			Message:        message,
+			RepoPath:       cfg.RepoPath,
+			Timeout:        cfg.Timeout,
+			StepLimit:      stepLimit,
+			ContextLimit:   ctxLimit,
+		})
 		cleanup()
 		if prevReviewFile != "" {
 			os.Remove(prevReviewFile)
 		}
-		if err != nil {
-			log.Printf("skill %s error: %v", s.Name, err)
-			result = runner.RunResult{
-				SkillName: s.Name,
-				Output:    fmt.Sprintf("Error running skill: %v", err),
-			}
+		if result.Status == runner.StatusFailed {
+			failed++
+			log.Printf("skill %s: %s", s.Name, output.FailureText(result.Cause))
 		}
 		results = append(results, result)
+	}
+	if failed > 0 {
+		log.Printf("%d of %d skill reviews failed; the failures are reported in the review comment", failed, len(results))
 	}
 
 	comment := output.FormatComment(results, changedFiles)

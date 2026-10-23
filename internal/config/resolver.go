@@ -12,7 +12,8 @@ type Options struct {
 	Skills            []string
 	Platform          string
 	MaxTurns          int
-	MaxTokens         int
+	MaxTokens         int // deprecated: accepted for compatibility, ignored
+	ContextLimit      int
 	Timeout           time.Duration
 	RepoPath          string
 	Local             bool
@@ -42,7 +43,7 @@ type Config struct {
 	Skills         []string
 	Platform       string
 	MaxTurns       int
-	MaxTokens      int
+	ContextLimit   int // explicit model context window; 0 = use opencode's model registry
 	Timeout        time.Duration
 	RepoPath       string
 	Local          bool
@@ -50,7 +51,11 @@ type Config struct {
 	PreviousReview bool
 	GitHub         GitHubConfig
 	GitLab         GitLabConfig
+	// Warnings are non-fatal configuration problems to print before running.
+	Warnings []string
 }
+
+const maxTokensDeprecation = "--max-tokens / PERGENT_MAX_TOKENS is deprecated and ignored: opencode now uses the model's own context window. Use --context-limit / PERGENT_CONTEXT_LIMIT only if opencode doesn't know your model's limits (e.g. a custom OPENCODE_BASE_URL)."
 
 func Resolve(opts Options) (Config, error) {
 	if len(opts.Skills) == 0 {
@@ -62,12 +67,19 @@ func Resolve(opts Options) (Config, error) {
 	}
 
 	cfg := Config{
-		Skills:    opts.Skills,
-		MaxTurns:  resolveInt(opts.MaxTurns, "PERGENT_MAX_TURNS", 20),
-		MaxTokens: resolveInt(opts.MaxTokens, "PERGENT_MAX_TOKENS", 100000),
-		Timeout:   resolveDuration(opts.Timeout, "PERGENT_TIMEOUT", 10*time.Minute),
-		RepoPath:  resolveString(opts.RepoPath, "", "."),
-		Local:     opts.Local,
+		Skills:       opts.Skills,
+		MaxTurns:     resolveInt(opts.MaxTurns, "PERGENT_MAX_TURNS", 20),
+		ContextLimit: resolveInt(opts.ContextLimit, "PERGENT_CONTEXT_LIMIT", 0),
+		Timeout:      resolveDuration(opts.Timeout, "PERGENT_TIMEOUT", 10*time.Minute),
+		RepoPath:     resolveString(opts.RepoPath, "", "."),
+		Local:        opts.Local,
+	}
+
+	if cfg.ContextLimit < 0 {
+		return Config{}, fmt.Errorf("--context-limit must be a positive number of tokens, got %d", cfg.ContextLimit)
+	}
+	if opts.MaxTokens != 0 || os.Getenv("PERGENT_MAX_TOKENS") != "" {
+		cfg.Warnings = append(cfg.Warnings, maxTokensDeprecation)
 	}
 
 	cfg.PreviousReview = resolveBool(opts.PreviousReview, opts.PreviousReviewSet, "PERGENT_PREVIOUS_REVIEW", false)

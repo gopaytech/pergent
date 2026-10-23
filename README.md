@@ -18,8 +18,28 @@ When `OPENCODE_PROVIDER` is set, pergent writes a temporary `opencode.json` for 
 - defines a `pergent` agent that carries the skill body as its prompt and `--max-turns` as its step limit, and makes it the default agent (pergent also passes `--agent pergent`)
 - allows only `read`, `glob`, `grep` and `list`, and denies `edit` (which covers file writes and patches), `bash`, `task`, `skill`, `webfetch` and `websearch`
 - denies reading `*.env` / `*.env.*` files (except `*.env.example`)
+- turns off opencode's auto-compaction (`compaction.auto: false`), so a run that fills the model's context fails with the overflow error instead of continuing from a summary
+- leaves the model's context and output limits to opencode's model registry, unless you set `--context-limit`
 
 pergent also sets `OPENCODE_DISABLE_PROJECT_CONFIG=true`, so an `opencode.json` or `.opencode/` directory (agents, plugins, commands) in the reviewed branch can't change these permissions or run plugin code while your platform token and LLM key are in the environment. Because that setting also stops opencode from finding `AGENTS.md` / `CLAUDE.md` by itself, pergent passes the root file to opencode explicitly.
+
+## When a review fails
+
+Each skill run ends in one of two ways: the model's own final answer is posted as the review, or the skill's section says **Review failed:** with the cause. pergent never posts opencode's internal messages or the model's in-progress text ("Let me check...") as a review.
+
+| Cause | Example |
+|---|---|
+| Context overflow | The model's context window overflowed after 14 steps: the last completed step used 186,400 tokens (limit: the model's context window as known to opencode). ContextOverflowError: prompt is too long: 201234 tokens > 200000 maximum. |
+| Timeout | Timed out after 10m0s (limit 10m0s) during step 9; the last tool call was `read` on `service/store.go`. |
+| opencode error | opencode reported APIError (HTTP 429): Rate limit exceeded. Gave up after 4 attempts. |
+| Step limit | Reached the 20-step limit before the model finished the review (raise --max-turns to allow more steps). |
+| opencode exited non-zero | opencode exited with code 1 at step 2 without producing a review. (The last lines of opencode's stderr follow in a code block.) |
+| No answer | opencode exited normally after 6 steps, but the model did not produce a final answer (last step finished with reason "tool-calls"). |
+
+- **The CI job stays green** when a review fails; the cause is in the comment and the job log. Configuration errors found before any review starts (missing token, bad flag) still fail the job.
+- **Transient provider errors** (HTTP 429, 5xx, connection errors) are retried up to 3 times with exponential backoff (5s, 10s, 20s) within `--timeout`. opencode already retries these itself before giving up, so pergent's retries cover longer outages. If every attempt fails, the last error is reported as is.
+- **Step limit:** on the last allowed step opencode asks the model to stop and summarise its progress. That summary is not a review, so it is reported as a step-limit failure. If the model ignores the instruction and keeps calling tools, pergent stops opencode.
+- **Secrets are redacted** from the comment and the log: the values of `OPENCODE_API_KEY`, `GITHUB_TOKEN` and `GITLAB_TOKEN`, bearer tokens, and API keys in URLs.
 
 ## Installation
 
@@ -209,8 +229,9 @@ mr-review:
 | `--previous-review` | Attach pergent's previous review comment as context on re-runs (platform mode only) | `false` |
 | `--platform` | `github` or `gitlab` | auto-detect |
 | `--max-turns` | Max agentic turns per skill run | `20` |
-| `--max-tokens` | Max token usage per skill run | `100000` |
-| `--timeout` | Max wall-clock time per skill run | `10m` |
+| `--context-limit` | Model context window in tokens. Only for models opencode has no limits for (e.g. behind a custom `OPENCODE_BASE_URL`); otherwise opencode's model registry is used | unset |
+| `--max-tokens` | **Deprecated and ignored.** It used to set the context window, which made opencode compact far below the model's real limit. Prints a warning | — |
+| `--timeout` | Max wall-clock time per skill run, retries included | `10m` |
 | `--repo-path` | Path to repo root | `.` |
 
 ## Environment Variables
@@ -237,8 +258,9 @@ mr-review:
 | Variable | Description |
 |---|---|
 | `PERGENT_MAX_TURNS` | Max agentic turns per skill run |
-| `PERGENT_MAX_TOKENS` | Max token usage per skill run |
-| `PERGENT_TIMEOUT` | Max wall-clock time per skill run |
+| `PERGENT_CONTEXT_LIMIT` | Model context window in tokens (see `--context-limit`) |
+| `PERGENT_MAX_TOKENS` | **Deprecated and ignored** (see `--max-tokens`) |
+| `PERGENT_TIMEOUT` | Max wall-clock time per skill run, retries included |
 | `PERGENT_PREVIOUS_REVIEW` | `true`/`false` — attach the previous review comment as context (explicit `--previous-review` flag wins over this) |
 
 Config resolution priority: CLI flags > `PERGENT_*` env vars > auto-detect from CI > defaults.
@@ -270,15 +292,15 @@ opencode run "Say hello"
 
 If that also hangs, the issue is your LLM connection, not pergent.
 
-### Empty review output
+### `Review failed: ...`
 
-Dump the raw opencode output for inspection:
+The message is the cause (see [When a review fails](#when-a-review-fails)). To see everything opencode reported, dump its raw output:
 ```bash
 PERGENT_DEBUG_OUTPUT=/tmp/pergent-raw.json pergent --local --skill code-review
 cat /tmp/pergent-raw.json
 ```
 
-This shows the raw NDJSON events. Check if there are `"type":"text"` events with content.
+This shows the raw NDJSON events (the last attempt's, when a run was retried). The review is the text of the last `step_start`...`step_finish` block whose `step_finish` has a reason other than `tool-calls`. `"type":"error"` events carry opencode's error, and `text` events with `"synthetic":true` are opencode's own messages, never the model's.
 
 ### `git diff failed: exit status 128`
 
@@ -294,11 +316,12 @@ If you see errors mentioning `/responses: Invalid model name` or 404s from `/v1/
 export OPENCODE_BASE_URL=https://your-proxy.example.com/v1
 ```
 
-### `ContextWindowExceededError`
+### `The model's context window overflowed`
 
-The model's context window is too small for the diff + skill instructions. Either:
-- Use `--max-tokens` to match your model's context: `--max-tokens 30000`
+The diff, skill instructions and the files the agent read no longer fit in the model's context. Either:
 - Use a model with a larger context window
+- Lower `--max-turns`, so the agent reads less before answering
+- If opencode doesn't know your model's limits (custom `OPENCODE_BASE_URL`), set `--context-limit` to the real window
 
 ### `Configuration is invalid` from opencode
 
