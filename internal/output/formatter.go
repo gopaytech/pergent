@@ -300,6 +300,7 @@ func writeSkill(b *strings.Builder, r review.SkillResult, fs []finding.Finding, 
 	}
 
 	writeSummaries(b, r, l)
+	writeChecks(b, r)
 	for _, f := range blocking {
 		writeFinding(b, f, false)
 	}
@@ -335,10 +336,17 @@ func writeSkill(b *strings.Builder, r review.SkillResult, fs []finding.Finding, 
 		writeList(b, lines, l.listLimit)
 		b.WriteString("\n</details>\n\n")
 	}
+	var notes []string
 	for _, n := range r.Notes {
+		if len(r.Checks) > 0 && isVerificationDropNote(n) {
+			continue // shown next to the checks
+		}
+		notes = append(notes, n)
+	}
+	for _, n := range notes {
 		fmt.Fprintf(b, "> %s\n", neutralizeComments(oneLine(n)))
 	}
-	if len(r.Notes) > 0 {
+	if len(notes) > 0 {
 		b.WriteString("\n")
 	}
 
@@ -363,6 +371,158 @@ func writeSummaries(b *strings.Builder, r review.SkillResult, l layout) {
 		fmt.Fprintf(b, "- **Batch %d of %d:** %s\n", sum.Batch, r.Batches, summaryText(sum.Text))
 	}
 	b.WriteString("\n")
+}
+
+// verificationDropPrefix starts the note the verification pass leaves when it
+// drops findings; with checks, it is shown next to them, since a dropped
+// finding can leave a failed check behind.
+const verificationDropPrefix = "Verification dropped "
+
+func isVerificationDropNote(n string) bool {
+	return strings.HasPrefix(n, verificationDropPrefix)
+}
+
+var checkIcons = map[finding.CheckStatus]string{
+	finding.CheckPass: "\u2705",
+	finding.CheckFail: "\u274c",
+	finding.CheckNA:   "\u2796",
+}
+
+// checkCounts counts checks by status.
+type checkCounts struct{ pass, fail, na int }
+
+func countChecks(cs []finding.Check) checkCounts {
+	var c checkCounts
+	for _, ch := range cs {
+		switch ch.Status {
+		case finding.CheckPass:
+			c.pass++
+		case finding.CheckFail:
+			c.fail++
+		case finding.CheckNA:
+			c.na++
+		}
+	}
+	return c
+}
+
+func (c checkCounts) add(o checkCounts) checkCounts {
+	return checkCounts{c.pass + o.pass, c.fail + o.fail, c.na + o.na}
+}
+
+// text lists the non-zero counts, e.g. "14 passed, 1 failed".
+func (c checkCounts) text(sep string) string {
+	var parts []string
+	if c.pass > 0 {
+		parts = append(parts, fmt.Sprintf("%d passed", c.pass))
+	}
+	if c.fail > 0 {
+		parts = append(parts, fmt.Sprintf("%d failed", c.fail))
+	}
+	if c.na > 0 {
+		parts = append(parts, fmt.Sprintf("%d n/a", c.na))
+	}
+	return strings.Join(parts, sep)
+}
+
+// writeChecks writes the skill's checklist results: a count line, then the
+// checks as one table per section. A single-batch skill shows the tables
+// inline; otherwise each batch's tables go in a collapsed block that starts
+// open when the batch has a failed check. Notes about failed checks without
+// findings, checks over the limit, and findings verification dropped follow.
+func writeChecks(b *strings.Builder, r review.SkillResult) {
+	if len(r.Checks) == 0 {
+		return
+	}
+	var total checkCounts
+	unmatched, dropped := 0, 0
+	for _, bc := range r.Checks {
+		c := countChecks(bc.Checks)
+		total = total.add(c)
+		if bc.Findings == 0 {
+			unmatched += c.fail
+		}
+		dropped += bc.Dropped
+	}
+	if counts := total.text(" \u00b7 "); counts != "" {
+		fmt.Fprintf(b, "**Checks:** %s\n\n", counts)
+	}
+
+	if r.Batches <= 1 && len(r.Checks) == 1 {
+		writeCheckTables(b, r.Checks[0].Checks)
+	} else {
+		for _, bc := range r.Checks {
+			c := countChecks(bc.Checks)
+			open := ""
+			if c.fail > 0 {
+				open = " open"
+			}
+			fmt.Fprintf(b, "<details%s><summary>Checks \u2014 batch %d of %d (%s)</summary>\n\n", open, bc.Batch, r.Batches, c.text(", "))
+			writeCheckTables(b, bc.Checks)
+			b.WriteString("</details>\n\n")
+		}
+	}
+
+	var notes []string
+	if unmatched == 1 {
+		notes = append(notes, "1 failed check has no matching finding; the verdict is based on findings.")
+	} else if unmatched > 1 {
+		notes = append(notes, fmt.Sprintf("%d failed checks have no matching finding; the verdict is based on findings.", unmatched))
+	}
+	if dropped == 1 {
+		notes = append(notes, "1 check beyond the first 60 per answer was not shown.")
+	} else if dropped > 1 {
+		notes = append(notes, fmt.Sprintf("%d checks beyond the first 60 per answer were not shown.", dropped))
+	}
+	for _, n := range r.Notes {
+		if isVerificationDropNote(n) {
+			notes = append(notes, n)
+		}
+	}
+	for _, n := range notes {
+		fmt.Fprintf(b, "> %s\n", neutralizeComments(oneLine(n)))
+	}
+	if len(notes) > 0 {
+		b.WriteString("\n")
+	}
+}
+
+// writeCheckTables writes checks as one table per section, sections in order
+// of first appearance and checks without a section last, with no heading.
+func writeCheckTables(b *strings.Builder, cs []finding.Check) {
+	var order []string
+	groups := map[string][]finding.Check{}
+	for _, c := range cs {
+		if _, seen := groups[c.Section]; !seen && c.Section != "" {
+			order = append(order, c.Section)
+		}
+		groups[c.Section] = append(groups[c.Section], c)
+	}
+	if len(groups[""]) > 0 {
+		order = append(order, "")
+	}
+	for _, section := range order {
+		if section != "" {
+			fmt.Fprintf(b, "**%s**\n\n", checkCell(section))
+		}
+		b.WriteString("| Check | Status | Detail |\n|---|---|---|\n")
+		for _, c := range groups[section] {
+			fmt.Fprintf(b, "| %s | %s | %s |\n", checkCell(c.Name), checkIcons[c.Status], checkCell(c.Detail))
+		}
+		b.WriteString("\n")
+	}
+}
+
+// checkCell renders model text for a table cell: one line, "|" escaped so it
+// can't add a column, "<" escaped so it can't open HTML, and backticks
+// escaped when unbalanced so a code span can't run past the cell.
+func checkCell(s string) string {
+	s = oneLine(s)
+	if strings.Count(s, "`")%2 == 1 {
+		s = strings.ReplaceAll(s, "`", "\\`")
+	}
+	s = strings.ReplaceAll(s, "|", "\\|")
+	return strings.ReplaceAll(s, "<", "&lt;")
 }
 
 // summaryText renders a summary as plain text. It always follows a fixed
