@@ -249,23 +249,37 @@ When a skill has no `## Blocking` section, pergent appends a default one: bugs, 
 
 ### Don't put output-format instructions in skills
 
-pergent appends its own output-format instructions to every skill: the model must end its answer with one JSON block of findings. Don't tell a skill how to format its answer (no "use bullet points", "start with a summary", or JSON schemas of your own). Instructions like that conflict with the required format and make runs fail. Write what to look for and what counts as blocking; pergent handles the rest.
+pergent appends its own output-format instructions to every skill: the model must end its answer with one JSON block holding a short `summary` of what it checked and concluded, and its findings. A missing summary is not an error; the review still counts. Don't tell a skill how to format its answer (no "use bullet points", "start with a summary", or JSON schemas of your own). Instructions like that conflict with the required format and make runs fail. Write what to look for and what counts as blocking; pergent handles the rest.
 
 ## The review comment
 
 pergent posts one comment per PR/MR, updated in place on each run. It starts with a collapsed list of the changed files, then has one section per skill:
 
 - a verdict line first: `No blocking issues`, `N blocking issues`, or a warning that part of the review failed (and which files it did not cover)
+- the model's summary of what it checked and concluded, written even when it found nothing: one paragraph, or one bullet per batch (`Batch N of M`) for a batched review
 - each blocking finding in full: `file:line`, a title, the explanation and an optional suggested fix
 - the suggestions in a collapsed block
+- the files the skill reviewed, in a collapsed block
 - the skipped files, with the reason for each, in a collapsed block
 - notes, such as a skill with no files in scope, or a verification that was skipped
 
 A skill with failed batches still shows the findings from the batches that finished, next to the failure.
 
+A clean review looks like this:
+
+```markdown
+### code-review
+
+✅ **No blocking issues**
+
+Checked the handler and its tests in api/: input is validated before use, errors are returned to the caller, and the new query is parameterised.
+
+<details><summary>Reviewed files (2)</summary> …
+```
+
 The last line of the comment is a hidden HTML comment holding the findings for the next run (see below). Don't edit it. Secrets are redacted from the comment and from that block.
 
-A comment that would exceed the platform's size limit (65,536 characters on GitHub, 1,000,000 on GitLab) is shrunk to fit rather than failing to post: first the hidden findings block is dropped (the next `--previous-review` run is then a first review), then the suggestions' explanations and fixes, then the suggestions, then the file lists are cut to a count. Blocking findings and failures are kept; each step leaves a note in the comment.
+A comment that would exceed the platform's size limit (65,536 characters on GitHub, 1,000,000 on GitLab) is shrunk to fit rather than failing to post: first the hidden findings block is dropped (the next `--previous-review` run is then a first review), then the suggestions' explanations and fixes, then the suggestions, then the summaries, then the file lists are cut to a count. Blocking findings and failures are kept; each step leaves a note in the comment.
 
 ## Previous Review as Context
 

@@ -146,9 +146,10 @@ func FormatReview(results []review.SkillResult, changedFiles []string) string {
 
 // Notes FormatReviewWithin adds for what it left out.
 const (
-	hiddenDroppedNote  = "> Findings were too large to store for the next run; --previous-review will treat the next run as a first review."
-	detailsDroppedNote = "> Suggestion details omitted to fit the comment size limit."
-	truncatedNote      = "\n\n> Comment truncated to fit the comment size limit.\n"
+	hiddenDroppedNote    = "> Findings were too large to store for the next run; --previous-review will treat the next run as a first review."
+	detailsDroppedNote   = "> Suggestion details omitted to fit the comment size limit."
+	summariesDroppedNote = "> Summaries omitted to fit the comment size limit."
+	truncatedNote        = "\n\n> Comment truncated to fit the comment size limit.\n"
 )
 
 // layout says what render leaves out of the comment.
@@ -156,6 +157,7 @@ type layout struct {
 	noHidden         bool
 	suggestionTitles bool // suggestions without their explanation and fix
 	noSuggestions    bool
+	noSummaries      bool
 	// listLimit caps the changed-files and skipped-files lists; -1 means no cap.
 	listLimit int
 }
@@ -164,7 +166,7 @@ type layout struct {
 // maxLen bytes (no limit when maxLen is not positive). A comment over the
 // limit is shrunk in steps until it fits: the hidden findings block goes
 // first, then the suggestions' explanations and fixes, then the suggestions,
-// then the file lists are cut to a count. Blocking findings and failures are
+// then the review summaries, then the file lists are cut to a count. Blocking findings and failures are
 // never dropped; if they alone are over the limit, the comment is cut at the
 // limit with a note.
 func FormatReviewWithin(results []review.SkillResult, changedFiles []string, maxLen int) string {
@@ -176,8 +178,9 @@ func FormatReviewWithin(results []review.SkillResult, changedFiles []string, max
 		{noHidden: true, listLimit: -1},
 		{noHidden: true, suggestionTitles: true, listLimit: -1},
 		{noHidden: true, noSuggestions: true, listLimit: -1},
-		{noHidden: true, noSuggestions: true, listLimit: 20},
-		{noHidden: true, noSuggestions: true, listLimit: 0},
+		{noHidden: true, noSuggestions: true, noSummaries: true, listLimit: -1},
+		{noHidden: true, noSuggestions: true, noSummaries: true, listLimit: 20},
+		{noHidden: true, noSuggestions: true, noSummaries: true, listLimit: 0},
 	} {
 		out = render(results, changedFiles, l)
 		if len(out) <= maxLen {
@@ -296,6 +299,7 @@ func writeSkill(b *strings.Builder, r review.SkillResult, fs []finding.Finding, 
 		b.WriteString("\u2705 **No blocking issues**\n\n")
 	}
 
+	writeSummaries(b, r, l)
 	for _, f := range blocking {
 		writeFinding(b, f, false)
 	}
@@ -312,6 +316,15 @@ func writeSkill(b *strings.Builder, r review.SkillResult, fs []finding.Finding, 
 			writeFinding(b, f, l.suggestionTitles)
 		}
 		b.WriteString("</details>\n\n")
+	}
+	if len(r.Reviewed) > 0 {
+		fmt.Fprintf(b, "<details><summary>Reviewed files (%d)</summary>\n\n", len(r.Reviewed))
+		lines := make([]string, len(r.Reviewed))
+		for i, p := range r.Reviewed {
+			lines[i] = codeSpan(p)
+		}
+		writeList(b, lines, l.listLimit)
+		b.WriteString("\n</details>\n\n")
 	}
 	if len(r.Skipped) > 0 {
 		fmt.Fprintf(b, "<details><summary>Skipped files (%d)</summary>\n\n", len(r.Skipped))
@@ -330,6 +343,26 @@ func writeSkill(b *strings.Builder, r review.SkillResult, fs []finding.Finding, 
 	}
 
 	fmt.Fprintf(b, "<!-- /pergent:%s -->\n\n", r.Skill)
+}
+
+// writeSummaries writes the model's summaries under the verdict: one
+// paragraph for a single-batch skill, one bullet per batch otherwise.
+func writeSummaries(b *strings.Builder, r review.SkillResult, l layout) {
+	if len(r.Summaries) == 0 {
+		return
+	}
+	if l.noSummaries {
+		b.WriteString(summariesDroppedNote + "\n\n")
+		return
+	}
+	if r.Batches <= 1 && len(r.Summaries) == 1 {
+		b.WriteString(modelText(oneLine(r.Summaries[0].Text)) + "\n\n")
+		return
+	}
+	for _, sum := range r.Summaries {
+		fmt.Fprintf(b, "- **Batch %d of %d:** %s\n", sum.Batch, r.Batches, neutralizeComments(oneLine(sum.Text)))
+	}
+	b.WriteString("\n")
 }
 
 func plural(n int, word string) string {
