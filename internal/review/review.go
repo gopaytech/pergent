@@ -74,6 +74,17 @@ type SkillResult struct {
 	Summaries []BatchSummary
 	// Reviewed lists the files of the batches that finished, in batch order.
 	Reviewed []string
+	// Checks are the checklist results of the batches that finished, in
+	// batch order. Batches that reported no checks are left out.
+	Checks []BatchChecks
+}
+
+// BatchChecks is the checklist the model reported for one batch.
+type BatchChecks struct {
+	Batch    int // 1-based batch number
+	Checks   []finding.Check
+	Dropped  int // valid checks beyond the per-answer limit
+	Findings int // findings the batch's answer reported, before dedup and verification
 }
 
 // BatchSummary is the model's summary of one batch: what it checked and
@@ -175,6 +186,8 @@ func Run(ctx context.Context, req Request) []SkillResult {
 type batchOutcome struct {
 	findings   []finding.Finding
 	summary    string
+	checks     []finding.Check
+	dropped    int
 	failure    *BatchFailure
 	notStarted bool
 }
@@ -243,6 +256,9 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) SkillResult {
 			all = append(all, o.findings...)
 			if o.summary != "" {
 				res.Summaries = append(res.Summaries, BatchSummary{Batch: i + 1, Text: o.summary})
+			}
+			if len(o.checks) > 0 || o.dropped > 0 {
+				res.Checks = append(res.Checks, BatchChecks{Batch: i + 1, Checks: o.checks, Dropped: o.dropped, Findings: len(o.findings)})
 			}
 			for _, f := range batches[i] {
 				res.Reviewed = append(res.Reviewed, f.Path)
@@ -334,7 +350,7 @@ func (r *reviewer) reviewBatch(ctx context.Context, s skill.Skill, batch []diff.
 	}
 	ans, parseErr := finding.ParseAnswer(res.Output)
 	if parseErr == nil {
-		return batchOutcome{findings: ans.Findings, summary: ans.Summary}
+		return answered(ans)
 	}
 
 	bad, err := write("review-answer.md", res.Output)
@@ -355,10 +371,15 @@ func (r *reviewer) reviewBatch(ctx context.Context, s skill.Skill, batch []diff.
 		return batchOutcome{failure: &BatchFailure{Files: paths, Cause: repaired.Cause, Message: fmt.Sprintf(repairFailedPrefix, parseErr)}}
 	}
 	if ans, err := finding.ParseAnswer(repaired.Output); err == nil {
-		return batchOutcome{findings: ans.Findings, summary: ans.Summary}
+		return answered(ans)
 	}
 	return notReviewed("the answer was not in the required format (%v), and a repair run did not fix it. The answer began: %s",
 		parseErr, excerpt(res.Output))
+}
+
+// answered is the outcome of a batch whose answer parsed.
+func answered(ans finding.Answer) batchOutcome {
+	return batchOutcome{findings: ans.Findings, summary: ans.Summary, checks: ans.Checks, dropped: ans.ChecksDropped}
 }
 
 // stopReason says why runs can no longer start: the budget ran out, or the
