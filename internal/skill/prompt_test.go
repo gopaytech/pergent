@@ -47,3 +47,19 @@ func TestPrompt_AsksForSummary(t *testing.T) {
 		t.Error("prompt still says text before the block is not shown")
 	}
 }
+
+func TestPrompt_AsksForChecks(t *testing.T) {
+	p := Skill{Name: "a", Body: "Review it."}.Prompt()
+	for _, want := range []string{`"checks"`, "report every item in it as a check", "Every `fail` must also appear as a finding"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("prompt missing %q", want)
+		}
+	}
+}
+
+func TestPrompt_BlockingIsNotAChecklist(t *testing.T) {
+	p := Skill{Name: "a", Body: "Review it."}.Prompt()
+	if !strings.Contains(p, "The Blocking section is not a checklist") {
+		t.Error("prompt doesn't say the Blocking section is not a checklist")
+	}
+}

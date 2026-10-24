@@ -47,19 +47,57 @@ func JSONBlocks(text string) []JSONBlock {
 // can't crowd out the rest of the comment.
 const maxSummaryLen = 600
 
+// Limits on an answer's checks, so one verbose answer can't crowd out the
+// rest of the comment. Field limits are in runes.
+const (
+	maxChecks       = 60
+	maxCheckName    = 120
+	maxCheckDetail  = 300
+	maxCheckSection = 80
+)
+
+// CheckStatus is the outcome of one checklist item.
+type CheckStatus string
+
+const (
+	CheckPass CheckStatus = "pass"
+	CheckFail CheckStatus = "fail"
+	CheckNA   CheckStatus = "n/a"
+)
+
+// Check is one item of the skill's checklist, as the model reported it.
+type Check struct {
+	Section string // the checklist heading it belongs to; may be empty
+	Name    string
+	Status  CheckStatus
+	Detail  string // the evidence; may be empty
+}
+
 // Answer is the model's parsed final answer.
 type Answer struct {
 	// Summary is what the model says it checked and concluded, on one line.
 	// Empty when the answer has none; a missing summary is not an error.
-	Summary  string
-	Findings []Finding
+	Summary string
+	// Checks are the valid checks the model reported, at most maxChecks of
+	// them; ChecksDropped counts the valid ones beyond that.
+	Checks        []Check
+	ChecksDropped int
+	Findings      []Finding
 }
 
 type answer struct {
-	// Summary is decoded loosely: a summary of an unexpected type must not
+	// Summary and Checks are decoded loosely: an unexpected shape must not
 	// cost the answer its findings.
 	Summary  json.RawMessage `json:"summary"`
+	Checks   json.RawMessage `json:"checks"`
 	Findings *[]Finding      `json:"findings"`
+}
+
+type rawCheck struct {
+	Section json.RawMessage `json:"section"`
+	Name    json.RawMessage `json:"name"`
+	Status  json.RawMessage `json:"status"`
+	Detail  json.RawMessage `json:"detail"`
 }
 
 // ParseAnswer extracts the summary and findings from the model's final
@@ -100,7 +138,71 @@ func parseBlock(block JSONBlock) (Answer, error) {
 			return Answer{}, fmt.Errorf("finding %d: %w", i, err)
 		}
 	}
-	return Answer{Summary: cleanSummary(summaryText(a.Summary)), Findings: *a.Findings}, nil
+	checks, dropped := parseChecks(a.Checks)
+	return Answer{
+		Summary:       cleanText(summaryText(a.Summary), maxSummaryLen),
+		Checks:        checks,
+		ChecksDropped: dropped,
+		Findings:      *a.Findings,
+	}, nil
+}
+
+// parseChecks reads the checks list, dropping entries that aren't objects or
+// lack a name or a known status, and keeping at most maxChecks of the rest.
+// Anything but a JSON array counts as no checks.
+func parseChecks(raw json.RawMessage) ([]Check, int) {
+	var entries []json.RawMessage
+	if json.Unmarshal(raw, &entries) != nil {
+		return nil, 0
+	}
+	var checks []Check
+	dropped := 0
+	for _, e := range entries {
+		var rc rawCheck
+		if json.Unmarshal(e, &rc) != nil {
+			continue
+		}
+		name := cleanText(stringValue(rc.Name), maxCheckName)
+		status, ok := checkStatus(stringValue(rc.Status))
+		if name == "" || !ok {
+			continue
+		}
+		if len(checks) == maxChecks {
+			dropped++
+			continue
+		}
+		checks = append(checks, Check{
+			Section: cleanText(stringValue(rc.Section), maxCheckSection),
+			Name:    name,
+			Status:  status,
+			Detail:  cleanText(stringValue(rc.Detail), maxCheckDetail),
+		})
+	}
+	return checks, dropped
+}
+
+// checkStatus reads a status, ignoring case and surrounding whitespace, and
+// accepting the word forms a model is likely to use ("passed", "failed",
+// "na", "not applicable"), so a check isn't silently lost to wording.
+func checkStatus(s string) (CheckStatus, bool) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "pass", "passed":
+		return CheckPass, true
+	case "fail", "failed":
+		return CheckFail, true
+	case "n/a", "na", "not applicable":
+		return CheckNA, true
+	}
+	return "", false
+}
+
+// stringValue returns raw as a string when it is a JSON string, else "".
+func stringValue(raw json.RawMessage) string {
+	var s string
+	if json.Unmarshal(raw, &s) != nil {
+		return ""
+	}
+	return s
 }
 
 // summaryText reads a summary given as a string or as a list of strings
@@ -117,16 +219,16 @@ func summaryText(raw json.RawMessage) string {
 	return ""
 }
 
-// cleanSummary redacts a summary, collapses it to one line and caps it at
-// maxSummaryLen runes, ending with "…" when it is cut. Redacting first keeps
-// the cap from leaving part of a secret that redaction would no longer match.
-func cleanSummary(s string) string {
+// cleanText redacts model text, collapses it to one line and caps it at max
+// runes, ending with "…" when it is cut. Redacting first keeps the cap from
+// leaving part of a secret that redaction would no longer match.
+func cleanText(s string, max int) string {
 	s = strings.Join(strings.Fields(redact.String(s)), " ")
 	r := []rune(s)
-	if len(r) <= maxSummaryLen {
+	if len(r) <= max {
 		return s
 	}
-	return string(r[:maxSummaryLen-1]) + "…"
+	return string(r[:max-1]) + "…"
 }
 
 func validate(f Finding) error {
