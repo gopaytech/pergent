@@ -182,14 +182,15 @@ func parseChecks(raw json.RawMessage) ([]Check, int) {
 }
 
 // checkStatus reads a status, ignoring case and surrounding whitespace, and
-// accepting "na" for "n/a".
+// accepting the word forms a model is likely to use ("passed", "failed",
+// "na", "not applicable"), so a check isn't silently lost to wording.
 func checkStatus(s string) (CheckStatus, bool) {
 	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "pass":
+	case "pass", "passed":
 		return CheckPass, true
-	case "fail":
+	case "fail", "failed":
 		return CheckFail, true
-	case "n/a", "na":
+	case "n/a", "na", "not applicable":
 		return CheckNA, true
 	}
 	return "", false
