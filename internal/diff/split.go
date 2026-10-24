@@ -15,9 +15,18 @@ type FileDiff struct {
 	Patch   string
 	Deleted bool
 	Binary  bool
+	// NotReviewed, when set, says why the file's diff is missing: the
+	// platform did not return it. Such a file must be reported as not
+	// reviewed, never skipped as having no content changes.
+	NotReviewed string
 }
 
 const gitHeader = "diff --git "
+
+// NotReviewedHeader starts an extended header line, written by pergent
+// (never by git), saying why the platform did not return the file's diff.
+// The rest of the line is the reason; Split stores it in FileDiff.NotReviewed.
+const NotReviewedHeader = "pergent-not-reviewed: "
 
 // Split splits a unified diff (as produced by git or a platform API) into
 // one FileDiff per file, in order.
@@ -59,6 +68,8 @@ func parseFile(lines []string) FileDiff {
 			break
 		}
 		switch {
+		case strings.HasPrefix(line, NotReviewedHeader):
+			f.NotReviewed = strings.TrimSpace(strings.TrimPrefix(line, NotReviewedHeader))
 		case strings.HasPrefix(line, "deleted file mode"):
 			f.Deleted = true
 		case strings.HasPrefix(line, "Binary files ") && strings.HasSuffix(line, " differ"),

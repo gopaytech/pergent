@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gopaytech/pergent/internal/config"
+	"github.com/gopaytech/pergent/internal/diff"
 	"github.com/gopaytech/pergent/internal/finding"
 	"github.com/gopaytech/pergent/internal/runner"
 	"github.com/gopaytech/pergent/internal/skill"
@@ -496,4 +497,68 @@ func TestRun_GeneratesConfigPerRun(t *testing.T) {
 		t.Errorf("StepLimit = %d, ContextLimit = %d, want 20 and 100000", o.StepLimit, o.ContextLimit)
 	}
 	assertRemoved(t, configs)
+}
+
+func TestRun_UnsplittableDiffFailsEverySkill(t *testing.T) {
+	f := &fake{respond: func(int, call) runner.RunResult { return completed(answer(t)) }}
+	req := newRequest(t, f, "--- a/x.go\n+++ b/x.go\n@@ -1 +1 @@\n-old\n+new\n",
+		skill.Skill{Name: "one", Body: "Review it."}, skill.Skill{Name: "two", Body: "Review it."})
+
+	got := Run(context.Background(), req)
+	if len(f.calls) != 0 {
+		t.Errorf("runner called %d times, want 0", len(f.calls))
+	}
+	const want = "Not reviewed: pergent could not split the diff into files (unrecognised diff format)."
+	for _, r := range got {
+		if r.Verdict != Failed {
+			t.Errorf("%s: Verdict = %q, want %q", r.Skill, r.Verdict, Failed)
+		}
+		if len(r.Failures) != 1 || r.Failures[0].Message != want {
+			t.Errorf("%s: Failures = %+v, want one with message %q", r.Skill, r.Failures, want)
+		}
+		if len(r.Notes) != 0 {
+			t.Errorf("%s: Notes = %q, want none", r.Skill, r.Notes)
+		}
+	}
+}
+
+func TestRun_EmptyDiffIsNoFilesInScope(t *testing.T) {
+	f := &fake{respond: func(int, call) runner.RunResult { return completed(answer(t)) }}
+	r := Run(context.Background(), newRequest(t, f, " \n"))[0]
+	if r.Verdict != NoBlockingIssues || len(r.Failures) != 0 {
+		t.Errorf("result = %+v, want no blocking issues and no failures for an empty diff", r)
+	}
+}
+
+func TestRun_FileWithoutPlatformDiffIsNotReviewed(t *testing.T) {
+	missing := "diff --git a/big.go b/big.go\n" + diff.NotReviewedHeader + "GitLab did not return this file's diff (too large)\n"
+	f := &fake{respond: func(int, call) runner.RunResult { return completed(answer(t)) }}
+	req := newRequest(t, f, patch("a/x.go", "x")+missing)
+
+	r := Run(context.Background(), req)[0]
+	if r.Verdict != Failed {
+		t.Errorf("Verdict = %q, want %q", r.Verdict, Failed)
+	}
+	want := BatchFailure{Files: []string{"big.go"}, Message: "Not reviewed: `big.go` — GitLab did not return this file's diff (too large)."}
+	if len(r.Failures) != 1 || !slices.Equal(r.Failures[0].Files, want.Files) || r.Failures[0].Message != want.Message {
+		t.Errorf("Failures = %+v, want [%+v]", r.Failures, want)
+	}
+	if len(r.Skipped) != 0 {
+		t.Errorf("Skipped = %+v, want none (the file was not skipped)", r.Skipped)
+	}
+	if len(f.calls) != 1 || strings.Contains(f.calls[0].contents[0], "big.go") {
+		t.Errorf("want one run whose diff leaves out big.go; calls = %d", len(f.calls))
+	}
+}
+
+func TestRun_LockfileWithoutPlatformDiffIsStillSkipped(t *testing.T) {
+	missing := "diff --git a/go.sum b/go.sum\n" + diff.NotReviewedHeader + "GitLab did not return this file's diff (too large)\n"
+	f := &fake{respond: func(int, call) runner.RunResult { return completed(answer(t)) }}
+	r := Run(context.Background(), newRequest(t, f, patch("a/x.go", "x")+missing))[0]
+	if r.Verdict != NoBlockingIssues || len(r.Failures) != 0 {
+		t.Errorf("result = %+v, want a pass with go.sum skipped as a lockfile", r)
+	}
+	if len(r.Skipped) != 1 || r.Skipped[0].Rule != "lockfile" {
+		t.Errorf("Skipped = %+v, want go.sum skipped as a lockfile", r.Skipped)
+	}
 }
