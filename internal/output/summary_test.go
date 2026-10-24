@@ -128,3 +128,26 @@ func TestFormatReviewWithin_DropsSummariesBeforeLists(t *testing.T) {
 		t.Errorf("reviewed files should still be listed:\n%s", got)
 	}
 }
+
+func TestFormatReview_SummaryStaysVisibleText(t *testing.T) {
+	for _, text := range []string{"```go Checked a.go: fine.", "<pre> Checked a.go: fine.", "# Checked a.go: fine."} {
+		got := FormatReview([]review.SkillResult{{
+			Skill: "s", Verdict: review.NoBlockingIssues, Batches: 1, BatchesFinished: 1,
+			Summaries: []review.BatchSummary{{Batch: 1, Text: text}},
+			Reviewed:  []string{"a.go"},
+		}}, nil)
+		for _, line := range strings.Split(got, "\n") {
+			if strings.Contains(line, "Checked a.go: fine.") {
+				if strings.HasPrefix(line, "```") || strings.HasPrefix(line, "<") || strings.HasPrefix(line, "#") {
+					t.Errorf("summary %q starts a markdown block: %q", text, line)
+				}
+			}
+		}
+		if strings.Contains(got, "<pre>") {
+			t.Errorf("raw <pre> reached the comment:\n%s", got)
+		}
+		if !strings.Contains(got, "Checked a.go: fine.") {
+			t.Errorf("summary text missing:\n%s", got)
+		}
+	}
+}

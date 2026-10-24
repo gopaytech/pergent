@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/gopaytech/pergent/internal/redact"
 )
 
 // jsonOpenerRe matches the line that opens a ```json fenced block.
@@ -54,8 +56,10 @@ type Answer struct {
 }
 
 type answer struct {
-	Summary  string     `json:"summary"`
-	Findings *[]Finding `json:"findings"`
+	// Summary is decoded loosely: a summary of an unexpected type must not
+	// cost the answer its findings.
+	Summary  json.RawMessage `json:"summary"`
+	Findings *[]Finding      `json:"findings"`
 }
 
 // ParseAnswer extracts the summary and findings from the model's final
@@ -96,13 +100,28 @@ func parseBlock(block JSONBlock) (Answer, error) {
 			return Answer{}, fmt.Errorf("finding %d: %w", i, err)
 		}
 	}
-	return Answer{Summary: cleanSummary(a.Summary), Findings: *a.Findings}, nil
+	return Answer{Summary: cleanSummary(summaryText(a.Summary)), Findings: *a.Findings}, nil
 }
 
-// cleanSummary collapses a summary to one line and caps it at maxSummaryLen
-// runes, ending with "…" when it is cut.
+// summaryText reads a summary given as a string or as a list of strings
+// (joined with spaces). Anything else counts as no summary.
+func summaryText(raw json.RawMessage) string {
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	var parts []string
+	if json.Unmarshal(raw, &parts) == nil {
+		return strings.Join(parts, " ")
+	}
+	return ""
+}
+
+// cleanSummary redacts a summary, collapses it to one line and caps it at
+// maxSummaryLen runes, ending with "…" when it is cut. Redacting first keeps
+// the cap from leaving part of a secret that redaction would no longer match.
 func cleanSummary(s string) string {
-	s = strings.Join(strings.Fields(s), " ")
+	s = strings.Join(strings.Fields(redact.String(s)), " ")
 	r := []rune(s)
 	if len(r) <= maxSummaryLen {
 		return s
