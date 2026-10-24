@@ -239,3 +239,14 @@ func TestVerify_NotRunWithoutBlocking(t *testing.T) {
 		t.Errorf("result = %+v, want the suggestion and no notes", r)
 	}
 }
+
+func TestParseVerifyAnswer_FencedCodeInsideReason(t *testing.T) {
+	text := "Checked.\n```json\n" + `{"results": [{"fingerprint": "f1", "real": false, "reason": "The guard ` + "```go\\nif x {}\\n```" + ` already exists."}]}` + "\n```\n"
+	notReal, err := parseVerifyAnswer(text)
+	if err != nil {
+		t.Fatalf("parseVerifyAnswer() error: %v", err)
+	}
+	if !notReal["f1"] {
+		t.Errorf("notReal = %v, want f1", notReal)
+	}
+}

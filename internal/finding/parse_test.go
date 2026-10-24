@@ -61,6 +61,35 @@ func TestParseAnswer(t *testing.T) {
 			wantErr: "findings",
 		},
 		{
+			name: "fenced code inside a json string",
+			answer: "Review.\n" + fence + "json\n" +
+				`{"findings":[{"file":"a.go","severity":"blocking","title":"t","explanation":"e","suggested_fix":"Use this:\n` + fence + `go\nif err != nil {\n\treturn err\n}\n` + fence + `"}]}` +
+				"\n" + fence + "\n",
+			wantLen: 1,
+			check: func(t *testing.T, fs []Finding) {
+				want := "Use this:\n" + fence + "go\nif err != nil {\n\treturn err\n}\n" + fence
+				if fs[0].SuggestedFix != want {
+					t.Errorf("SuggestedFix = %q, want %q", fs[0].SuggestedFix, want)
+				}
+			},
+		},
+		{
+			name:    "block without a closing fence at the end of the answer",
+			answer:  "Review.\n" + fence + "json\n" + `{"findings":[]}` + "\n",
+			wantLen: 0,
+		},
+		{
+			name:    "text after the json value inside the block",
+			answer:  fence + "json\n" + `{"findings":[]} and more` + "\n" + fence,
+			wantErr: "invalid json",
+		},
+		{
+			name: "fenced code in an earlier example block and a valid last block",
+			answer: "Example:\n" + fence + "json\n" + `{"findings":[{"file":"a.go","severity":"blocking","title":"t","explanation":"` + fence + `x` + fence + `"}]}` + "\n" + fence +
+				"\nFinal:\n" + fence + "json\n" + `{"findings":[]}` + "\n" + fence,
+			wantLen: 0,
+		},
+		{
 			name:    "fingerprint kept",
 			answer:  fence + "json\n" + `{"findings":[{"file":"a.go","severity":"suggestion","title":"t","explanation":"e","fingerprint":"abc123"}]}` + "\n" + fence,
 			wantLen: 1,

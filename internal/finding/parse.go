@@ -5,9 +5,41 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 )
 
-var jsonBlockRe = regexp.MustCompile("(?s)```json[ \t]*\r?\n(.*?)```")
+// jsonOpenerRe matches the line that opens a ```json fenced block.
+var jsonOpenerRe = regexp.MustCompile("```json[ \t]*\r?\n")
+
+// JSONBlock is one ```json fenced block of a model's answer: the JSON value
+// it holds, or why it could not be read.
+type JSONBlock struct {
+	Value json.RawMessage
+	Err   error
+}
+
+// JSONBlocks returns every ```json fenced block of text, in order. Each
+// block is read as one JSON value, so a ``` inside a JSON string (a fenced
+// code example in a suggested fix) does not end it; only whitespace and then
+// a closing ``` (or the end of the text) may follow the value.
+func JSONBlocks(text string) []JSONBlock {
+	var blocks []JSONBlock
+	for _, loc := range jsonOpenerRe.FindAllStringIndex(text, -1) {
+		dec := json.NewDecoder(strings.NewReader(text[loc[1]:]))
+		var raw json.RawMessage
+		if err := dec.Decode(&raw); err != nil {
+			blocks = append(blocks, JSONBlock{Err: err})
+			continue
+		}
+		rest := strings.TrimLeft(text[loc[1]+int(dec.InputOffset()):], " \t\r\n")
+		if rest != "" && !strings.HasPrefix(rest, "```") {
+			blocks = append(blocks, JSONBlock{Err: errors.New("unexpected text after the JSON value in the block")})
+			continue
+		}
+		blocks = append(blocks, JSONBlock{Value: raw})
+	}
+	return blocks
+}
 
 type answer struct {
 	Findings *[]Finding `json:"findings"`
@@ -17,14 +49,14 @@ type answer struct {
 // at every ```json fenced block, from last to first, and returns the findings
 // of the first block that parses and validates.
 func ParseAnswer(text string) ([]Finding, error) {
-	matches := jsonBlockRe.FindAllStringSubmatch(text, -1)
-	if len(matches) == 0 {
+	blocks := JSONBlocks(text)
+	if len(blocks) == 0 {
 		return nil, errors.New("no json code block found in the answer")
 	}
 
 	var lastErr error
-	for i := len(matches) - 1; i >= 0; i-- {
-		fs, err := parseBlock(matches[i][1])
+	for i := len(blocks) - 1; i >= 0; i-- {
+		fs, err := parseBlock(blocks[i])
 		if err == nil {
 			return fs, nil
 		}
@@ -35,9 +67,12 @@ func ParseAnswer(text string) ([]Finding, error) {
 	return nil, lastErr
 }
 
-func parseBlock(block string) ([]Finding, error) {
+func parseBlock(block JSONBlock) ([]Finding, error) {
+	if block.Err != nil {
+		return nil, fmt.Errorf("invalid json: %w", block.Err)
+	}
 	var a answer
-	if err := json.Unmarshal([]byte(block), &a); err != nil {
+	if err := json.Unmarshal(block.Value, &a); err != nil {
 		return nil, fmt.Errorf("invalid json: %w", err)
 	}
 	if a.Findings == nil {

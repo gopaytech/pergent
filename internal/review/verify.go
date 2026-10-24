@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"time"
 
 	"github.com/gopaytech/pergent/internal/finding"
@@ -31,8 +30,6 @@ const (
 	verifyBadFormat = "Verification failed: the answer was not in the required format."
 )
 
-var verifyBlockRe = regexp.MustCompile("(?s)```json[ \t]*\r?\n(.*?)```")
-
 // verifyResult is one entry of the verifier's answer. Real is a pointer so
 // an entry without it is ignored rather than read as false.
 type verifyResult struct {
@@ -42,22 +39,39 @@ type verifyResult struct {
 }
 
 // parseVerifyAnswer returns the fingerprints the verifier judged not real,
-// from the last ```json block of its answer.
+// from the last ```json block of its answer that holds a "results" list.
 func parseVerifyAnswer(text string) (notReal map[string]bool, err error) {
-	matches := verifyBlockRe.FindAllStringSubmatch(text, -1)
-	if len(matches) == 0 {
+	blocks := finding.JSONBlocks(text)
+	if len(blocks) == 0 {
 		return nil, errors.New("no json code block found in the answer")
+	}
+	var lastErr error
+	for i := len(blocks) - 1; i >= 0; i-- {
+		notReal, err := parseVerifyBlock(blocks[i])
+		if err == nil {
+			return notReal, nil
+		}
+		if lastErr == nil {
+			lastErr = err
+		}
+	}
+	return nil, lastErr
+}
+
+func parseVerifyBlock(block finding.JSONBlock) (map[string]bool, error) {
+	if block.Err != nil {
+		return nil, fmt.Errorf("invalid json: %w", block.Err)
 	}
 	var a struct {
 		Results *[]verifyResult `json:"results"`
 	}
-	if err := json.Unmarshal([]byte(matches[len(matches)-1][1]), &a); err != nil {
+	if err := json.Unmarshal(block.Value, &a); err != nil {
 		return nil, fmt.Errorf("invalid json: %w", err)
 	}
 	if a.Results == nil {
 		return nil, errors.New(`json block has no "results" key`)
 	}
-	notReal = map[string]bool{}
+	notReal := map[string]bool{}
 	for _, r := range *a.Results {
 		if r.Fingerprint != "" && r.Real != nil && !*r.Real {
 			notReal[r.Fingerprint] = true
