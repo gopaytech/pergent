@@ -108,9 +108,62 @@ func oneLine(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
-// neutralizeComments keeps text from opening an HTML comment.
+// layoutTagRe matches the HTML tags the comment layout is built from.
+var layoutTagRe = regexp.MustCompile(`(?i)<(/?(?:details|summary)\b)`)
+
+// neutralizeComments keeps model text from opening an HTML comment or closing
+// or opening one of the comment's collapsible blocks.
 func neutralizeComments(s string) string {
-	return strings.ReplaceAll(s, "<!--", "&lt;!--")
+	s = strings.ReplaceAll(s, "<!--", "&lt;!--")
+	return layoutTagRe.ReplaceAllString(s, "&lt;$1")
+}
+
+// fenceLine parses a line as a code fence: its marker character, the length
+// of the marker run and whether anything but whitespace follows it.
+func fenceLine(line string) (ch byte, n int, bare bool) {
+	trimmed := strings.TrimLeft(line, " ")
+	if len(line)-len(trimmed) > 3 || len(trimmed) < 3 || (trimmed[0] != '`' && trimmed[0] != '~') {
+		return 0, 0, false
+	}
+	ch = trimmed[0]
+	for n < len(trimmed) && trimmed[n] == ch {
+		n++
+	}
+	if n < 3 {
+		return 0, 0, false
+	}
+	rest := trimmed[n:]
+	if ch == '`' && strings.Contains(rest, "`") {
+		return 0, 0, false
+	}
+	return ch, n, strings.TrimSpace(rest) == ""
+}
+
+// closeFences appends the closing fence for a code fence the text leaves
+// open, so nothing after the text is swallowed by it.
+func closeFences(s string) string {
+	var open byte
+	var openLen int
+	for _, line := range strings.Split(s, "\n") {
+		line = strings.TrimRight(line, "\r")
+		ch, n, bare := fenceLine(line)
+		switch {
+		case ch == 0:
+		case open == 0:
+			open, openLen = ch, n
+		case ch == open && n >= openLen && bare:
+			open = 0
+		}
+	}
+	if open == 0 {
+		return s
+	}
+	return strings.TrimRight(s, "\n") + "\n" + strings.Repeat(string(open), openLen)
+}
+
+// modelText prepares multi-line model text for the comment.
+func modelText(s string) string {
+	return closeFences(neutralizeComments(strings.TrimSpace(s)))
 }
 
 // BatchFailureText renders one failed batch as redacted text for the CI log:
@@ -159,7 +212,7 @@ const findingsMarker = "<!-- pergent:findings "
 // findingsLineRe matches the hidden line. The real one is the last line of
 // the comment, so ParsePreviousFindings uses the last match: text quoted from
 // the reviewed code can't replace it.
-var findingsLineRe = regexp.MustCompile(`(?m)^<!-- pergent:findings (\S+) -->[ \t]*$`)
+var findingsLineRe = regexp.MustCompile(`(?m)^<!-- pergent:findings (\S+) -->[ \t\r]*$`)
 
 // findingsBlockVersion is the format version of the hidden findings block.
 const findingsBlockVersion = 1
@@ -277,10 +330,15 @@ func writeFinding(b *strings.Builder, f finding.Finding) {
 	}
 	fmt.Fprintf(b, "**%s** \u2014 **%s**\n\n", codeSpan(where), neutralizeComments(oneLine(f.Title)))
 	if f.Explanation != "" {
-		fmt.Fprintf(b, "%s\n\n", neutralizeComments(strings.TrimSpace(f.Explanation)))
+		fmt.Fprintf(b, "%s\n\n", modelText(f.Explanation))
 	}
 	if f.SuggestedFix != "" {
-		fmt.Fprintf(b, "_Suggested fix:_ %s\n\n", neutralizeComments(strings.TrimSpace(f.SuggestedFix)))
+		fix := modelText(f.SuggestedFix)
+		sep := " "
+		if strings.Contains(fix, "\n") {
+			sep = "\n\n"
+		}
+		fmt.Fprintf(b, "_Suggested fix:_%s%s\n\n", sep, fix)
 	}
 }
 
