@@ -247,9 +247,13 @@ Everything else is a suggestion.
 
 When a skill has no `## Blocking` section, pergent appends a default one: bugs, security vulnerabilities and broken configuration are blocking, and everything else is a suggestion. Before a blocking finding is reported, pergent runs a separate check that opens the code again and drops the finding if the problem is not real.
 
+### Checklists become a checks table
+
+If a skill contains a checklist (section headings with items under them, as bullets or checkboxes), the model reports every item as a check: pass, fail or n/a, with the evidence it compared. The comment shows them as one table per section. No special syntax is needed; write the checklist as you would for a human reviewer. The `## Blocking` section is not treated as a checklist. Findings still decide the verdict: a failed check should come with a finding, and the comment notes it when one doesn't.
+
 ### Don't put output-format instructions in skills
 
-pergent appends its own output-format instructions to every skill: the model must end its answer with one JSON block holding a short `summary` of what it checked and concluded, and its findings. A missing summary is not an error; the review still counts. Don't tell a skill how to format its answer (no "use bullet points", "start with a summary", or JSON schemas of your own). Instructions like that conflict with the required format and make runs fail. Write what to look for and what counts as blocking; pergent handles the rest.
+pergent appends its own output-format instructions to every skill: the model must end its answer with one JSON block holding a short `summary` of what it checked and concluded, its `checks` (the skill's checklist, if it has one), and its findings. A missing summary is not an error; the review still counts. Don't tell a skill how to format its answer (no "use bullet points", "start with a summary", or JSON schemas of your own). Instructions like that conflict with the required format and make runs fail. Write what to look for and what counts as blocking; pergent handles the rest.
 
 ## The review comment
 
@@ -257,6 +261,7 @@ pergent posts one comment per PR/MR, updated in place on each run. It starts wit
 
 - a verdict line first: `No blocking issues`, `N blocking issues`, or a warning that part of the review failed (and which files it did not cover)
 - the model's summary of what it checked and concluded, written even when it found nothing: a `Summary:` line, or one bullet per batch (`Batch N of M`) for a batched review
+- the checks, when the skill has a checklist: a count line (`Checks: 14 passed · 1 failed · 2 n/a`) and one table per checklist section (✅ pass, ❌ fail, ➖ n/a). In a batched review each batch's tables are collapsed, and a batch with a failed check starts open.
 - each blocking finding in full: `file:line`, a title, the explanation and an optional suggested fix
 - the suggestions in a collapsed block
 - the files the skill reviewed, in a collapsed block
@@ -274,12 +279,21 @@ A clean review looks like this:
 
 **Summary:** Checked the handler and its tests in api/: input is validated before use, errors are returned to the caller, and the new query is parameterised.
 
+**Checks:** 2 passed
+
+**Input handling**
+
+| Check | Status | Detail |
+|---|---|---|
+| Request body is validated | ✅ | `api/handler.go` calls `validate(req)` before use |
+| Query is parameterised | ✅ | `db.Query("... WHERE id = $1", id)` |
+
 <details><summary>Reviewed files (2)</summary> …
 ```
 
 The last line of the comment is a hidden HTML comment holding the findings for the next run (see below). Don't edit it. Secrets are redacted from the comment and from that block.
 
-A comment that would exceed the platform's size limit (65,536 characters on GitHub, 1,000,000 on GitLab) is shrunk to fit rather than failing to post: first the hidden findings block is dropped (the next `--previous-review` run is then a first review), then the suggestions' explanations and fixes, then the suggestions, then the summaries, then the file lists are cut to a count. Blocking findings and failures are kept; each step leaves a note in the comment.
+A comment that would exceed the platform's size limit (65,536 characters on GitHub, 1,000,000 on GitLab) is shrunk to fit rather than failing to post: first the hidden findings block is dropped (the next `--previous-review` run is then a first review), then the suggestions' explanations and fixes, then the suggestions, then the passed and n/a checks, then the check tables (the count line stays), then the summaries, then the file lists are cut to a count. Blocking findings and failures are kept; each step leaves a note in the comment.
 
 ## Previous Review as Context
 
