@@ -86,6 +86,9 @@ func Resolve(opts Options) (Config, error) {
 		// An explicit flag is used as given, so 0 is an error rather than "unset".
 		cfg.Concurrency = opts.Concurrency
 	}
+	if cfg.Timeout < 0 {
+		return Config{}, fmt.Errorf("--timeout must be positive, got %s", cfg.Timeout)
+	}
 	if cfg.Concurrency < 1 {
 		return Config{}, fmt.Errorf("--concurrency must be at least 1, got %d", cfg.Concurrency)
 	}
@@ -209,12 +212,14 @@ func resolveInt(flag int, envKey string, defaultVal int) int {
 	return defaultVal
 }
 
+// resolveDuration returns flag, else the duration in envKey, else defaultVal.
+// A zero flag or env value means unset.
 func resolveDuration(flag time.Duration, envKey string, defaultVal time.Duration) time.Duration {
 	if flag != 0 {
 		return flag
 	}
 	if env := os.Getenv(envKey); env != "" {
-		if v, err := time.ParseDuration(env); err == nil {
+		if v, err := time.ParseDuration(env); err == nil && v != 0 {
 			return v
 		}
 	}

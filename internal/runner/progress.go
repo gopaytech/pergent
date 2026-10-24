@@ -72,7 +72,7 @@ func (pw *progressWriter) formatEvent(event openCodeEvent) {
 				status = event.Part.State.Status
 			}
 			if status == "error" && event.Part.State != nil {
-				fmt.Fprintf(pw.w, "  Step %d: tool %s (error: %s)\n", pw.step, tool, truncate(event.Part.State.Error, 80))
+				fmt.Fprintf(pw.w, "  Step %d: tool %s (error: %s)\n", pw.step, tool, truncate(redact.String(event.Part.State.Error), 80))
 			} else {
 				fmt.Fprintf(pw.w, "  Step %d: tool %s\n", pw.step, tool)
 			}
@@ -80,7 +80,7 @@ func (pw *progressWriter) formatEvent(event openCodeEvent) {
 	case "text":
 		if event.Part != nil && event.Part.Type == "text" {
 			if event.Part.Synthetic {
-				fmt.Fprintf(pw.w, "  Step %d: opencode added its own message (%s)\n", pw.step, truncate(event.Part.Text, 80))
+				fmt.Fprintf(pw.w, "  Step %d: opencode added its own message (%s)\n", pw.step, truncate(redact.String(event.Part.Text), 80))
 			} else {
 				fmt.Fprintf(pw.w, "  Step %d: generating text...\n", pw.step)
 			}
@@ -89,7 +89,8 @@ func (pw *progressWriter) formatEvent(event openCodeEvent) {
 		if event.Error != nil {
 			msg := event.Error.Name
 			if event.Error.Data != nil && event.Error.Data.Message != "" {
-				msg = truncate(event.Error.Data.Message, 120)
+				// Redact before cutting, so a key across the cut can't print in part.
+				msg = truncate(redact.String(event.Error.Data.Message), 120)
 			}
 			fmt.Fprintf(pw.w, "  Error: %s\n", redact.String(msg))
 		}

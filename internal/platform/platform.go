@@ -25,13 +25,16 @@ func LocalDiff(repoPath string, ref string) (diff string, changedFiles []string,
 		return "", nil, fmt.Errorf("base ref is empty")
 	}
 
-	diffCmd := exec.Command("git", "-C", repoPath, "diff", ref+"...HEAD")
+	// Pin the output format so the user's git config (colour, external diff
+	// tools, diff.noprefix and the like) can't change what Split parses.
+	format := []string{"--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/"}
+	diffCmd := exec.Command("git", append(append([]string{"-C", repoPath, "diff"}, format...), ref+"...HEAD")...)
 	diffOut, err := diffCmd.Output()
 	if err != nil {
 		return "", nil, fmt.Errorf("git diff failed: %w", err)
 	}
 
-	filesCmd := exec.Command("git", "-C", repoPath, "diff", "--name-only", ref+"...HEAD")
+	filesCmd := exec.Command("git", append(append([]string{"-C", repoPath, "diff", "--name-only"}, format...), ref+"...HEAD")...)
 	filesOut, err := filesCmd.Output()
 	if err != nil {
 		return "", nil, fmt.Errorf("git diff --name-only failed: %w", err)
