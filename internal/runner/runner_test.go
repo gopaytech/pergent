@@ -365,3 +365,22 @@ func TestRun_RetryUsesRootError(t *testing.T) {
 		t.Errorf("opencode ran %d times, want 1", n)
 	}
 }
+
+func TestRun_TimeoutElapsedCountsFromReviewStart(t *testing.T) {
+	fakeOpencode(t, fakeAttempt{fixture: "timeout.ndjson", sleep: "30"})
+
+	opts := testOptions(2 * time.Second)
+	opts.Budget = 10 * time.Second
+	opts.ReviewStart = time.Now().Add(-8 * time.Second)
+	got := Run(context.Background(), opts)
+	if got.Status != StatusFailed || got.Cause.Kind != CauseTimeout {
+		t.Fatalf("Run() = %+v, want a timeout", got)
+	}
+	c := got.Cause
+	if c.Budget != 10*time.Second || c.Elapsed < 10*time.Second || c.Elapsed > 20*time.Second {
+		t.Errorf("cause = %+v, want budget 10s and the review's elapsed time (about 10s)", c)
+	}
+	if !strings.HasPrefix(c.Message(), "Timed out after 10s (review budget 10s) ") {
+		t.Errorf("Message() = %q, want it to state the review budget", c.Message())
+	}
+}

@@ -35,6 +35,12 @@ type Options struct {
 	RepoPath string
 	// Timeout bounds the whole skill run, retries included.
 	Timeout time.Duration
+	// Budget is the whole review's time budget when the run is part of one
+	// (0 otherwise); a timeout is then reported against it.
+	Budget time.Duration
+	// ReviewStart is when the review began; a timeout's elapsed time counts
+	// from it when set, and from the run's start otherwise.
+	ReviewStart time.Time
 	// StepLimit is the agent step limit pergent configured (0 if unknown).
 	StepLimit int
 	// ContextLimit is the explicit context limit pergent configured (0 if none).
@@ -95,6 +101,9 @@ func BuildCommand(ctx context.Context, configPath string, files []string, messag
 // maxRetries times with exponential backoff while the timeout allows.
 func Run(ctx context.Context, opts Options) RunResult {
 	start := time.Now()
+	if !opts.ReviewStart.IsZero() {
+		start = opts.ReviewStart
+	}
 	ctx, cancel := context.WithTimeout(ctx, opts.Timeout)
 	defer cancel()
 

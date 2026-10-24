@@ -101,6 +101,7 @@ type reviewer struct {
 	classifier  diff.Classifier
 	// slots holds one token per opencode run in flight.
 	slots    chan struct{}
+	start    time.Time
 	deadline time.Time
 }
 
@@ -122,7 +123,8 @@ func Run(ctx context.Context, req Request) []SkillResult {
 	for _, f := range files {
 		fmt.Fprintf(&list, "- %s\n", f.Path)
 	}
-	ctx, cancel := context.WithDeadlineCause(ctx, time.Now().Add(req.Budget), errBudget)
+	start := time.Now()
+	ctx, cancel := context.WithDeadlineCause(ctx, start.Add(req.Budget), errBudget)
 	defer cancel()
 	deadline, _ := ctx.Deadline()
 	r := &reviewer{
@@ -131,6 +133,7 @@ func Run(ctx context.Context, req Request) []SkillResult {
 		changedList: list.String(),
 		classifier:  diff.NewClassifier(req.RepoPath),
 		slots:       make(chan struct{}, req.Concurrency),
+		start:       start,
 		deadline:    deadline,
 	}
 
@@ -403,6 +406,8 @@ func (r *reviewer) runWithPrompt(ctx context.Context, s skill.Skill, prompt stri
 		Message:      message,
 		RepoPath:     r.req.RepoPath,
 		Timeout:      timeout,
+		Budget:       r.req.Budget,
+		ReviewStart:  r.start,
 		StepLimit:    stepLimit,
 		ContextLimit: ctxLimit,
 	}), nil

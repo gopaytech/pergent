@@ -136,6 +136,16 @@ func TestClassify_Fixtures(t *testing.T) {
 			message: "Timed out after 10m0s (limit 10m0s) during step 3; the last tool call was `read` on `/builds/repo/service/store.go`.",
 		},
 		{
+			name:    "timeout within a review budget",
+			fixture: "timeout.ndjson",
+			opts:    Options{Timeout: 9*time.Minute + 59987654321*time.Nanosecond, Budget: 10 * time.Minute, StepLimit: 20},
+			attempt: attempt{timedOut: true, runErr: errors.New("signal: killed"), exitCode: -1},
+			elapsed: 10*time.Minute + 400*time.Millisecond,
+			status:  StatusFailed,
+			kind:    CauseTimeout,
+			message: "Timed out after 10m0s (review budget 10m0s) during step 3; the last tool call was `read` on `/builds/repo/service/store.go`.",
+		},
+		{
 			name:    "exit non-zero without error event",
 			fixture: "no_answer.ndjson",
 			attempt: attempt{runErr: errors.New("exit status 2"), exitCode: 2, stderrLines: []string{"Error: Unexpected token in JSON"}},
@@ -278,6 +288,10 @@ func TestCauseMessage_TimeoutBetweenSteps(t *testing.T) {
 			"Timed out after 15s (limit 15s) waiting for the model after step 4; the last tool call was `read` on `app.go`."},
 		{Cause{Kind: CauseTimeout, Timeout: time.Minute, Elapsed: time.Minute},
 			"Timed out after 1m0s (limit 1m0s) before the model's first step."},
+		{Cause{Kind: CauseTimeout, Timeout: 9*time.Minute + 59987654321*time.Nanosecond, Elapsed: 10 * time.Minute},
+			"Timed out after 10m0s (limit 10m0s) before the model's first step."},
+		{Cause{Kind: CauseTimeout, Timeout: 4 * time.Minute, Budget: 10 * time.Minute, Elapsed: 10*time.Minute + 200*time.Millisecond, Steps: 3, EndedMidStep: true},
+			"Timed out after 10m0s (review budget 10m0s) during step 3."},
 	}
 	for _, tt := range tests {
 		if got := tt.cause.Message(); got != tt.want {

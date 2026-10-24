@@ -54,8 +54,11 @@ type Cause struct {
 	// transient provider errors were retried).
 	Attempts int
 
-	// Timeout details.
+	// Timeout details. Timeout is the run's own deadline; Budget is the
+	// review's budget (0 when the run was not part of a review). Elapsed is
+	// the review's elapsed time, or the run's when there is no review.
 	Timeout        time.Duration
+	Budget         time.Duration
 	Elapsed        time.Duration
 	LastTool       string
 	LastToolTarget string
@@ -101,7 +104,11 @@ func (c Cause) Message() string {
 		default:
 			when = fmt.Sprintf("waiting for the model after step %d", c.Steps)
 		}
-		msg = fmt.Sprintf("Timed out after %s (limit %s) %s", roundDuration(c.Elapsed), c.Timeout, when)
+		limit := fmt.Sprintf("limit %s", roundDuration(c.Timeout))
+		if c.Budget > 0 {
+			limit = fmt.Sprintf("review budget %s", roundDuration(c.Budget))
+		}
+		msg = fmt.Sprintf("Timed out after %s (%s) %s", roundDuration(c.Elapsed), limit, when)
 		if c.LastTool != "" {
 			msg += fmt.Sprintf("; the last tool call was `%s`", c.LastTool)
 			if c.LastToolTarget != "" {
@@ -207,8 +214,8 @@ type attempt struct {
 	stderrLines []string
 }
 
-// classify turns one attempt into a result. elapsed and timeout describe the
-// whole skill run.
+// classify turns one attempt into a result. elapsed is the time since the
+// review began (opts.ReviewStart), or since the run began outside a review.
 func classify(a attempt, opts Options, elapsed time.Duration) (Status, *Cause) {
 	t := a.transcript
 	base := Cause{
@@ -255,6 +262,7 @@ func classify(a attempt, opts Options, elapsed time.Duration) (Status, *Cause) {
 		c := base
 		c.Kind = CauseTimeout
 		c.Timeout = opts.Timeout
+		c.Budget = opts.Budget
 		c.Elapsed = elapsed
 		c.LastTool = t.LastTool
 		c.LastToolTarget = t.LastToolTarget
