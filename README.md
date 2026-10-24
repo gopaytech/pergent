@@ -32,7 +32,7 @@ Each opencode run (one per batch) ends in one of two ways: the model's own final
 | Cause | Example |
 |---|---|
 | Context overflow | The model's context window overflowed after 14 steps: the last completed step used 186,400 tokens (limit: the model's context window as known to opencode). ContextOverflowError: prompt is too long: 201234 tokens > 200000 maximum. |
-| Timeout | Timed out after 10m0s (limit 10m0s) during step 9; the last tool call was `read` on `service/store.go`. |
+| Timeout | Timed out after 10m0s (review budget 10m0s) during step 9; the last tool call was `read` on `service/store.go`. |
 | opencode error | opencode reported APIError (HTTP 429): Rate limit exceeded. Gave up after 4 attempts. |
 | Step limit | Reached the 20-step limit before the model finished the review (raise --max-turns to allow more steps). |
 | opencode exited non-zero | opencode exited with code 1 at step 2 without producing a review. (The last lines of opencode's stderr follow in a code block.) |

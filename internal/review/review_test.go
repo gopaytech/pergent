@@ -165,6 +165,9 @@ func TestRun_SingleBatch(t *testing.T) {
 	if c.opts.Timeout <= 3*time.Minute-time.Second || c.opts.Timeout > 3*time.Minute || c.opts.SkillName != "s" || c.opts.RepoPath != req.RepoPath {
 		t.Errorf("opts = %+v, want timeout of about 3m, skill s and the repo path", c.opts)
 	}
+	if c.opts.Budget != 3*time.Minute || time.Since(c.opts.ReviewStart) > 10*time.Second || time.Until(c.opts.ReviewStart) > 0 {
+		t.Errorf("opts Budget = %v, ReviewStart = %v, want the review's budget and its start time", c.opts.Budget, c.opts.ReviewStart)
+	}
 	if len(c.opts.Files) != 2 {
 		t.Fatalf("Files = %q, want the batch diff and the changed-file list", c.opts.Files)
 	}
