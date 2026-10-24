@@ -211,6 +211,11 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) SkillResult {
 		})
 	}
 	res.Findings = finding.Dedup(assignFingerprints(s.Name, all, prev))
+	// Task 8 adds the optional cross-batch run here, before verification, so
+	// the findings it adds are verified too.
+	r.verify(ctx, s, &res)
+	// The verdict is computed after verification: findings it drops no
+	// longer block.
 	res.Verdict = verdict(res)
 	return res
 }
@@ -343,11 +348,17 @@ func (r *reviewer) release() { <-r.slots }
 // runs opencode once with the time left in the budget. It returns
 // errNotStarted when no time is left.
 func (r *reviewer) run(ctx context.Context, s skill.Skill, files []string, message string) (runner.RunResult, error) {
+	return r.runWithPrompt(ctx, s, s.Prompt(), files, message)
+}
+
+// runWithPrompt is run with an explicit agent prompt in place of the
+// skill's own.
+func (r *reviewer) runWithPrompt(ctx context.Context, s skill.Skill, prompt string, files []string, message string) (runner.RunResult, error) {
 	if !r.acquire(ctx) {
 		return runner.RunResult{}, errNotStarted
 	}
 	defer r.release()
-	configPath, cleanup, err := config.GenerateOpenCodeConfig(r.req.MaxTurns, r.req.ContextLimit, s.Prompt(), r.req.RepoPath)
+	configPath, cleanup, err := config.GenerateOpenCodeConfig(r.req.MaxTurns, r.req.ContextLimit, prompt, r.req.RepoPath)
 	if err != nil {
 		return runner.RunResult{}, err
 	}
