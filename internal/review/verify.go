@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gopaytech/pergent/internal/finding"
@@ -24,23 +26,50 @@ const (
 	verifyPrompt = "You are checking another reviewer's blocking findings on a code change. For each finding in the attached JSON, open the file it refers to and decide whether the problem is real in the current code. Do not add new findings.\n\n" +
 		"End your final answer with exactly one fenced code block tagged `json`, with nothing after it:\n\n" +
 		"```json\n" +
-		`{"results": [{"fingerprint": "abc123def456", "real": true, "reason": "One sentence"}]}` + "\n" +
+		`{"results": [{"id": "1", "real": true, "reason": "One sentence"}]}` + "\n" +
 		"```\n"
 
 	verifyBadFormat = "Verification failed: the answer was not in the required format."
 )
 
+// verifyFinding is a blocking finding as sent to the verifier. ID numbers
+// the findings of one verification run; fingerprints can't identify them,
+// since two findings in one file may share a title.
+type verifyFinding struct {
+	ID string `json:"id"`
+	finding.Finding
+}
+
 // verifyResult is one entry of the verifier's answer. Real is a pointer so
 // an entry without it is ignored rather than read as false.
 type verifyResult struct {
-	Fingerprint string `json:"fingerprint"`
-	Real        *bool  `json:"real"`
-	Reason      string `json:"reason"`
+	ID     verifyID `json:"id"`
+	Real   *bool    `json:"real"`
+	Reason string   `json:"reason"`
 }
 
-// parseVerifyAnswer returns the fingerprints the verifier judged not real,
-// from the last ```json block of its answer that holds a "results" list.
-func parseVerifyAnswer(text string) (notReal map[string]bool, err error) {
+// verifyID is a result's id. The prompt asks for a string, but a number is
+// accepted too.
+type verifyID string
+
+func (id *verifyID) UnmarshalJSON(data []byte) error {
+	var n json.Number
+	if err := json.Unmarshal(data, &n); err == nil {
+		*id = verifyID(n.String())
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	*id = verifyID(s)
+	return nil
+}
+
+// parseVerifyAnswer returns the ids the verifier judged not real, with its
+// reason for each, from the last ```json block of its answer that holds a
+// "results" list.
+func parseVerifyAnswer(text string) (notReal map[string]string, err error) {
 	blocks := finding.JSONBlocks(text)
 	if len(blocks) == 0 {
 		return nil, errors.New("no json code block found in the answer")
@@ -58,7 +87,7 @@ func parseVerifyAnswer(text string) (notReal map[string]bool, err error) {
 	return nil, lastErr
 }
 
-func parseVerifyBlock(block finding.JSONBlock) (map[string]bool, error) {
+func parseVerifyBlock(block finding.JSONBlock) (map[string]string, error) {
 	if block.Err != nil {
 		return nil, fmt.Errorf("invalid json: %w", block.Err)
 	}
@@ -71,10 +100,10 @@ func parseVerifyBlock(block finding.JSONBlock) (map[string]bool, error) {
 	if a.Results == nil {
 		return nil, errors.New(`json block has no "results" key`)
 	}
-	notReal := map[string]bool{}
+	notReal := map[string]string{}
 	for _, r := range *a.Results {
-		if r.Fingerprint != "" && r.Real != nil && !*r.Real {
-			notReal[r.Fingerprint] = true
+		if r.ID != "" && r.Real != nil && !*r.Real {
+			notReal[string(r.ID)] = r.Reason
 		}
 	}
 	return notReal, nil
@@ -85,10 +114,12 @@ func parseVerifyBlock(block finding.JSONBlock) (map[string]bool, error) {
 // dropped. A verification that cannot run, or whose answer cannot be used,
 // adds a note and keeps every finding; it never fails the skill.
 func (r *reviewer) verify(ctx context.Context, s skill.Skill, res *SkillResult) {
-	var blocking []finding.Finding
+	var blocking []verifyFinding
 	for _, f := range res.Findings {
 		if f.Severity == finding.Blocking {
-			blocking = append(blocking, f)
+			// The fingerprint is left out so the verifier answers by id.
+			f.Fingerprint = ""
+			blocking = append(blocking, verifyFinding{ID: strconv.Itoa(len(blocking) + 1), Finding: f})
 		}
 	}
 	if len(blocking) == 0 {
@@ -102,7 +133,7 @@ func (r *reviewer) verify(ctx context.Context, s skill.Skill, res *SkillResult) 
 		res.Notes = append(res.Notes, "Verification failed: "+fmt.Sprintf(format, args...))
 	}
 
-	data, err := json.MarshalIndent(map[string][]finding.Finding{"findings": blocking}, "", "  ")
+	data, err := json.MarshalIndent(map[string][]verifyFinding{"findings": blocking}, "", "  ")
 	if err != nil {
 		fail("could not encode the findings: %v", err)
 		return
@@ -142,12 +173,31 @@ func (r *reviewer) verify(ctx context.Context, s skill.Skill, res *SkillResult) 
 		return
 	}
 
+	// Blocking findings are numbered in res.Findings order, as sent.
 	kept := res.Findings[:0:0]
+	var dropped []string
+	n := 0
 	for _, f := range res.Findings {
-		if f.Severity == finding.Blocking && notReal[f.Fingerprint] {
-			continue
+		if f.Severity == finding.Blocking {
+			n++
+			if reason, ok := notReal[strconv.Itoa(n)]; ok {
+				if reason = strings.Join(strings.Fields(reason), " "); reason != "" {
+					dropped = append(dropped, fmt.Sprintf("%s (%s)", f.Title, reason))
+				} else {
+					dropped = append(dropped, f.Title)
+				}
+				continue
+			}
 		}
 		kept = append(kept, f)
 	}
 	res.Findings = kept
+	if len(dropped) > 0 {
+		noun := "findings"
+		if len(blocking) == 1 {
+			noun = "finding"
+		}
+		res.Notes = append(res.Notes, fmt.Sprintf("Verification dropped %d of %d blocking %s: %s",
+			len(dropped), len(blocking), noun, strings.Join(dropped, "; ")))
+	}
 }
