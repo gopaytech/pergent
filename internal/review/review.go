@@ -77,12 +77,13 @@ const defaultBudget = 10 * time.Minute
 const excerptLen = 200
 
 const (
-	noFilesNote        = "no files in scope"
-	singleBatchMessage = "Review the attached diff."
-	multiBatchMessage  = "Review the attached diff. It is batch %d of %d of this change; the attached list shows every changed file. Review only the files in this batch's diff, and read any file in the repository you need."
-	previousMessage    = "Also attached are the findings from your previous review of an earlier revision, as JSON. Stay consistent with them: focus on what changed since, don't re-litigate unchanged code, drop findings the new changes resolve, and reuse a finding's fingerprint when it still applies."
-	repairMessage      = "The attached review is not in the required output format (%s). Rewrite it in the required format without changing its findings."
-	repairFailedPrefix = "The model's answer was not in the required format (%v), and the repair run failed:"
+	noFilesNote         = "no files in scope"
+	singleBatchMessage  = "Review the attached diff."
+	multiBatchMessage   = "Review the attached diff. It is batch %d of %d of this change; the attached list shows every changed file. Review only the files in this batch's diff, and read any file in the repository you need."
+	previousMessage     = "Also attached are the findings from your previous review of an earlier revision, as JSON. Stay consistent with them: focus on what changed since, don't re-litigate unchanged code, drop findings the new changes resolve, and reuse a finding's fingerprint when it still applies."
+	repairMessage       = "The attached review is not in the required output format (%s). Rewrite it in the required format without changing its findings."
+	repairFailedPrefix  = "The model's answer was not in the required format (%v), and the repair run failed:"
+	unsplittableMessage = "Not reviewed: pergent could not split the diff into files (unrecognised diff format)."
 )
 
 // errBudget is the review context's cause when the budget runs out.
@@ -134,6 +135,14 @@ func Run(ctx context.Context, req Request) []SkillResult {
 	}
 
 	results := make([]SkillResult, len(req.Skills))
+	if len(files) == 0 && strings.TrimSpace(req.Diff) != "" {
+		// A diff with content but no files is in a format Split doesn't know;
+		// reviewing nothing must not pass as "no blocking issues".
+		for i, s := range req.Skills {
+			results[i] = SkillResult{Skill: s.Name, Verdict: Failed, Failures: []BatchFailure{{Message: unsplittableMessage}}}
+		}
+		return results
+	}
 	var wg sync.WaitGroup
 	for i, s := range req.Skills {
 		wg.Add(1)
@@ -164,8 +173,22 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) SkillResult {
 		return res
 	}
 
+	// A file the platform returned no diff for is not reviewed; the others
+	// are batched as usual.
+	reviewable := in[:0:0]
+	for _, f := range in {
+		if f.NotReviewed != "" {
+			res.Failures = append(res.Failures, BatchFailure{
+				Files:   []string{f.Path},
+				Message: fmt.Sprintf("Not reviewed: `%s` \u2014 %s.", f.Path, strings.TrimSuffix(f.NotReviewed, ".")),
+			})
+			continue
+		}
+		reviewable = append(reviewable, f)
+	}
+
 	budget := diff.BatchBudget(r.req.ContextLimit)
-	batches, oversize := diff.Batch(in, budget)
+	batches, oversize := diff.Batch(reviewable, budget)
 	res.Batches = len(batches)
 	for _, f := range oversize {
 		res.Failures = append(res.Failures, BatchFailure{

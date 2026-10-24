@@ -6,7 +6,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
+	"unicode"
+
+	"github.com/gopaytech/pergent/internal/diff"
 )
 
 type GitLab struct {
@@ -29,40 +33,140 @@ func (gl *GitLab) do(method, path string, body io.Reader) (*http.Response, error
 	return httpClient.Do(req)
 }
 
+// gitlabDiff is one file of GET /merge_requests/:iid/diffs.
+type gitlabDiff struct {
+	OldPath     string `json:"old_path"`
+	NewPath     string `json:"new_path"`
+	AMode       string `json:"a_mode"`
+	BMode       string `json:"b_mode"`
+	Diff        string `json:"diff"`
+	NewFile     bool   `json:"new_file"`
+	RenamedFile bool   `json:"renamed_file"`
+	DeletedFile bool   `json:"deleted_file"`
+	TooLarge    bool   `json:"too_large"`
+	Collapsed   bool   `json:"collapsed"`
+}
+
+// gitlabDiffsPerPage is the page size FetchDiff asks for (GitLab's maximum).
+const gitlabDiffsPerPage = 100
+
+// FetchDiff returns the merge request's changes as a git-style unified diff,
+// one "diff --git" section per file. GitLab returns each file's hunks
+// without git's headers, so FetchDiff writes them. A file whose diff GitLab
+// left out (too large, collapsed, or empty without a rename or mode change)
+// gets a diff.NotReviewedHeader line so it is reported as not reviewed.
 func (gl *GitLab) FetchDiff() (string, []string, error) {
-	path := fmt.Sprintf("/api/v4/projects/%s/merge_requests/%d/diffs", gl.ProjectID, gl.MRIID)
-	resp, err := gl.do("GET", path, nil)
-	if err != nil {
-		return "", nil, fmt.Errorf("fetching diffs: %w", err)
-	}
-	defer resp.Body.Close()
+	var diffs []gitlabDiff
+	for page := 1; ; {
+		path := fmt.Sprintf("/api/v4/projects/%s/merge_requests/%d/diffs?per_page=%d&page=%d", gl.ProjectID, gl.MRIID, gitlabDiffsPerPage, page)
+		resp, err := gl.do("GET", path, nil)
+		if err != nil {
+			return "", nil, fmt.Errorf("fetching diffs: %w", err)
+		}
+		if resp.StatusCode != 200 {
+			errBody := readErrorBody(resp)
+			resp.Body.Close()
+			return "", nil, fmt.Errorf("fetching diffs: status %d%s", resp.StatusCode, errBody)
+		}
+		var batch []gitlabDiff
+		err = json.NewDecoder(resp.Body).Decode(&batch)
+		resp.Body.Close()
+		if err != nil {
+			return "", nil, fmt.Errorf("decoding diffs: %w", err)
+		}
+		diffs = append(diffs, batch...)
 
-	if resp.StatusCode != 200 {
-		return "", nil, fmt.Errorf("fetching diffs: status %d%s", resp.StatusCode, readErrorBody(resp))
-	}
-
-	var diffs []struct {
-		OldPath string `json:"old_path"`
-		NewPath string `json:"new_path"`
-		Diff    string `json:"diff"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&diffs); err != nil {
-		return "", nil, fmt.Errorf("decoding diffs: %w", err)
+		// Follow X-Next-Page when GitLab sends it (empty on the last page);
+		// otherwise stop at the first short page.
+		if next, ok := resp.Header["X-Next-Page"]; ok {
+			n, err := strconv.Atoi(strings.TrimSpace(strings.Join(next, "")))
+			if err != nil || n <= page {
+				break
+			}
+			page = n
+			continue
+		}
+		if len(batch) < gitlabDiffsPerPage {
+			break
+		}
+		page++
 	}
 
 	var combined strings.Builder
 	var files []string
 	seen := make(map[string]bool)
-
 	for _, d := range diffs {
-		fmt.Fprintf(&combined, "--- a/%s\n+++ b/%s\n%s\n", d.OldPath, d.NewPath, d.Diff)
+		writeGitLabFile(&combined, d)
 		if !seen[d.NewPath] {
 			files = append(files, d.NewPath)
 			seen[d.NewPath] = true
 		}
 	}
-
 	return combined.String(), files, nil
+}
+
+// writeGitLabFile writes one file of a GitLab diff with the headers git
+// would have written.
+func writeGitLabFile(b *strings.Builder, d gitlabDiff) {
+	oldPath, newPath := d.OldPath, d.NewPath
+	if oldPath == "" {
+		oldPath = newPath
+	}
+	if newPath == "" {
+		newPath = oldPath
+	}
+	modeChanged := d.AMode != "" && d.BMode != "" && d.AMode != d.BMode
+	fmt.Fprintf(b, "diff --git %s %s\n", quotePath("a/"+oldPath), quotePath("b/"+newPath))
+	switch {
+	case d.NewFile:
+		fmt.Fprintf(b, "new file mode %s\n", mode(d.BMode))
+	case d.DeletedFile:
+		fmt.Fprintf(b, "deleted file mode %s\n", mode(d.AMode))
+	case modeChanged:
+		fmt.Fprintf(b, "old mode %s\nnew mode %s\n", d.AMode, d.BMode)
+	}
+	if d.RenamedFile {
+		fmt.Fprintf(b, "rename from %s\nrename to %s\n", quotePath(oldPath), quotePath(newPath))
+	}
+	switch {
+	case d.TooLarge || d.Collapsed:
+		fmt.Fprintf(b, "%sGitLab did not return this file's diff (too large)\n", diff.NotReviewedHeader)
+		return
+	case d.Diff == "" && !d.NewFile && !d.DeletedFile && !d.RenamedFile && !modeChanged:
+		fmt.Fprintf(b, "%sGitLab did not return this file's diff\n", diff.NotReviewedHeader)
+		return
+	case d.Diff == "":
+		return
+	}
+	minus, plus := quotePath("a/"+oldPath), quotePath("b/"+newPath)
+	if d.NewFile {
+		minus = "/dev/null"
+	}
+	if d.DeletedFile {
+		plus = "/dev/null"
+	}
+	fmt.Fprintf(b, "--- %s\n+++ %s\n%s", minus, plus, d.Diff)
+	if !strings.HasSuffix(d.Diff, "\n") {
+		b.WriteString("\n")
+	}
+}
+
+func mode(m string) string {
+	if m == "" || m == "0" {
+		return "100644"
+	}
+	return m
+}
+
+// quotePath quotes a path for a diff header when it holds spaces, quotes,
+// backslashes or non-printable characters; diff.Split unquotes it.
+func quotePath(p string) string {
+	if strings.IndexFunc(p, func(r rune) bool {
+		return r == ' ' || r == '"' || r == '\\' || !unicode.IsPrint(r)
+	}) < 0 {
+		return p
+	}
+	return strconv.Quote(p)
 }
 
 func (gl *GitLab) FindComment(marker string) (int64, string, error) {

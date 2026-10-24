@@ -85,11 +85,15 @@ func (c Classifier) Exclusion(f FileDiff) (rule string, optIn bool) {
 		return "deleted", false
 	}
 	scan := scanPatch(f.Patch)
-	if f.Binary || scan.binary {
-		return "binary", false
-	}
-	if !scan.hasHunk {
-		return "no content changes", false
+	// A file whose diff the platform did not return has no hunks to look at,
+	// but it did change: only the path rules below may skip it.
+	if f.NotReviewed == "" {
+		if f.Binary || scan.binary {
+			return "binary", false
+		}
+		if !scan.hasHunk {
+			return "no content changes", false
+		}
 	}
 	if lockfiles[path.Base(f.Path)] {
 		return "lockfile", true
