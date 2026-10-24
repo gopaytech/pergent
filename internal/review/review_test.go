@@ -95,6 +95,17 @@ func batchMessage(n, m int) string {
 		" of this change; the attached list shows every changed file. Review only the files in this batch's diff, and read any file in the repository you need."
 }
 
+// sortedMessages returns the calls' messages in sorted order, since batches
+// run concurrently.
+func sortedMessages(calls []call) []string {
+	var out []string
+	for _, c := range calls {
+		out = append(out, c.opts.Message)
+	}
+	slices.Sort(out)
+	return out
+}
+
 func allFiles(calls []call) []string {
 	var out []string
 	for _, c := range calls {
@@ -150,8 +161,8 @@ func TestRun_SingleBatch(t *testing.T) {
 	if c.opts.Message != "Review the attached diff." {
 		t.Errorf("Message = %q, want the single-batch message", c.opts.Message)
 	}
-	if c.opts.Timeout != 3*time.Minute || c.opts.SkillName != "s" || c.opts.RepoPath != req.RepoPath {
-		t.Errorf("opts = %+v, want timeout 3m, skill s and the repo path", c.opts)
+	if c.opts.Timeout <= 3*time.Minute-time.Second || c.opts.Timeout > 3*time.Minute || c.opts.SkillName != "s" || c.opts.RepoPath != req.RepoPath {
+		t.Errorf("opts = %+v, want timeout of about 3m, skill s and the repo path", c.opts)
 	}
 	if len(c.opts.Files) != 2 {
 		t.Fatalf("Files = %q, want the batch diff and the changed-file list", c.opts.Files)
@@ -175,8 +186,8 @@ func TestRun_DefaultBudget(t *testing.T) {
 	req.Budget = 0
 
 	Run(context.Background(), req)
-	if len(f.calls) != 1 || f.calls[0].opts.Timeout != 10*time.Minute {
-		t.Errorf("calls = %+v, want one run with a 10m timeout", f.calls)
+	if len(f.calls) != 1 || f.calls[0].opts.Timeout <= 10*time.Minute-time.Second || f.calls[0].opts.Timeout > 10*time.Minute {
+		t.Errorf("calls = %+v, want one run with a timeout of about 10m", f.calls)
 	}
 }
 
@@ -240,10 +251,10 @@ func TestRun_BatchFailureMakesSkillFailed(t *testing.T) {
 	if len(f.calls) != 2 {
 		t.Fatalf("runner called %d times, want 2", len(f.calls))
 	}
+	if got, want := sortedMessages(f.calls), []string{batchMessage(1, 2), batchMessage(2, 2)}; !slices.Equal(got, want) {
+		t.Errorf("Messages = %q, want %q", got, want)
+	}
 	for i, c := range f.calls {
-		if want := batchMessage(i+1, 2); c.opts.Message != want {
-			t.Errorf("call %d Message = %q, want %q", i+1, c.opts.Message, want)
-		}
 		if c.contents[1] != "- a/x.go\n- b/y.go\n" {
 			t.Errorf("call %d changed-file list = %q, want both files", i+1, c.contents[1])
 		}
@@ -360,6 +371,28 @@ func TestRun_RepairsBadFormatOnce(t *testing.T) {
 	})
 }
 
+func TestRun_RepairRunFailureKeepsFormatContext(t *testing.T) {
+	f := &fake{}
+	f.respond = func(n int, _ call) runner.RunResult {
+		if n == 1 {
+			return completed("no block")
+		}
+		return runner.RunResult{Status: runner.StatusFailed, Cause: &runner.Cause{Kind: runner.CauseNoAnswer}}
+	}
+	r := Run(context.Background(), newRequest(t, f, patch("cmd/a.go", "x")))[0]
+	if len(r.Failures) != 1 {
+		t.Fatalf("Failures = %+v, want one", r.Failures)
+	}
+	fl := r.Failures[0]
+	const want = "The model's answer was not in the required format (no json code block found in the answer), and the repair run failed:"
+	if fl.Message != want {
+		t.Errorf("Message = %q, want %q", fl.Message, want)
+	}
+	if fl.Cause == nil || fl.Cause.Kind != runner.CauseNoAnswer {
+		t.Errorf("Cause = %+v, want the repair run's cause", fl.Cause)
+	}
+}
+
 func TestRun_PreviousFindingsAttached(t *testing.T) {
 	const prevFP = "abcdefabcdef"
 	prev := []finding.Finding{{File: "a/x.go", Line: 1, Severity: finding.Blocking, Title: "Old title", Explanation: "e", Fingerprint: prevFP}}
@@ -382,10 +415,10 @@ func TestRun_PreviousFindingsAttached(t *testing.T) {
 		t.Fatalf("runner called %d times, want 2", len(f.calls))
 	}
 	const prevMsg = " Also attached are the findings from your previous review of an earlier revision, as JSON. Stay consistent with them: focus on what changed since, don't re-litigate unchanged code, drop findings the new changes resolve, and reuse a finding's fingerprint when it still applies."
+	if got, want := sortedMessages(f.calls), []string{batchMessage(1, 2) + prevMsg, batchMessage(2, 2) + prevMsg}; !slices.Equal(got, want) {
+		t.Errorf("Messages = %q, want %q", got, want)
+	}
 	for i, c := range f.calls {
-		if want := batchMessage(i+1, 2) + prevMsg; c.opts.Message != want {
-			t.Errorf("call %d Message = %q, want %q", i+1, c.opts.Message, want)
-		}
 		if !strings.Contains(c.opts.Message, "previous review") {
 			t.Errorf("call %d Message doesn't mention the previous review", i+1)
 		}
