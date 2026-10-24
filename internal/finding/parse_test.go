@@ -103,7 +103,8 @@ func TestParseAnswer(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			fs, err := ParseAnswer(tt.answer)
+			a, err := ParseAnswer(tt.answer)
+			fs := a.Findings
 			if tt.wantErr != "" {
 				if err == nil {
 					t.Fatalf("ParseAnswer() error = nil, want containing %q", tt.wantErr)
@@ -123,5 +124,91 @@ func TestParseAnswer(t *testing.T) {
 				tt.check(t, fs)
 			}
 		})
+	}
+}
+
+func jsonAnswer(body string) string {
+	return "```json\n" + body + "\n```"
+}
+
+func TestParseAnswer_Summary(t *testing.T) {
+	a, err := ParseAnswer(jsonAnswer(`{"summary":"Checked a.go.","findings":[]}`))
+	if err != nil {
+		t.Fatalf("ParseAnswer() error: %v", err)
+	}
+	if a.Summary != "Checked a.go." {
+		t.Errorf("Summary = %q, want %q", a.Summary, "Checked a.go.")
+	}
+	if len(a.Findings) != 0 {
+		t.Errorf("len(Findings) = %d, want 0", len(a.Findings))
+	}
+}
+
+func TestParseAnswer_MissingSummaryIsFine(t *testing.T) {
+	a, err := ParseAnswer(jsonAnswer(`{"findings":[]}`))
+	if err != nil {
+		t.Fatalf("ParseAnswer() error: %v", err)
+	}
+	if a.Summary != "" {
+		t.Errorf("Summary = %q, want empty", a.Summary)
+	}
+}
+
+func TestParseAnswer_SummaryCollapsedAndCapped(t *testing.T) {
+	a, err := ParseAnswer(jsonAnswer(`{"summary":"Checked a.go\nand   b.go.\n","findings":[]}`))
+	if err != nil {
+		t.Fatalf("ParseAnswer() error: %v", err)
+	}
+	if a.Summary != "Checked a.go and b.go." {
+		t.Errorf("Summary = %q, want one collapsed line", a.Summary)
+	}
+
+	long := strings.Repeat("x", 2000)
+	a, err = ParseAnswer(jsonAnswer(`{"summary":"` + long + `","findings":[]}`))
+	if err != nil {
+		t.Fatalf("ParseAnswer() error: %v", err)
+	}
+	r := []rune(a.Summary)
+	if len(r) != 600 {
+		t.Errorf("len(Summary) = %d runes, want 600", len(r))
+	}
+	if !strings.HasSuffix(a.Summary, "…") {
+		t.Errorf("Summary should end with …, got %q", string(r[len(r)-5:]))
+	}
+}
+
+func TestParseAnswer_SummaryOfWrongTypeKeepsFindings(t *testing.T) {
+	finding := `{"file":"a.go","line":1,"severity":"blocking","title":"t","explanation":"e"}`
+	for name, summary := range map[string]string{
+		"array":  `["Checked a.go.","Checked b.go."]`,
+		"object": `{"text":"Checked a.go."}`,
+		"number": `42`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			a, err := ParseAnswer(jsonAnswer(`{"summary":` + summary + `,"findings":[` + finding + `]}`))
+			if err != nil {
+				t.Fatalf("ParseAnswer() error: %v", err)
+			}
+			if len(a.Findings) != 1 {
+				t.Fatalf("len(Findings) = %d, want 1", len(a.Findings))
+			}
+			if name == "array" && a.Summary != "Checked a.go. Checked b.go." {
+				t.Errorf("Summary = %q, want the array joined", a.Summary)
+			}
+			if name != "array" && a.Summary != "" {
+				t.Errorf("Summary = %q, want empty", a.Summary)
+			}
+		})
+	}
+}
+
+func TestParseAnswer_SummaryRedactedBeforeCap(t *testing.T) {
+	t.Setenv("GITLAB_TOKEN", "glpat-secretvalue123456")
+	a, err := ParseAnswer(jsonAnswer(`{"summary":"` + strings.Repeat("x", 590) + ` glpat-secretvalue123456","findings":[]}`))
+	if err != nil {
+		t.Fatalf("ParseAnswer() error: %v", err)
+	}
+	if strings.Contains(a.Summary, "glpat") {
+		t.Errorf("summary leaks part of the secret: %q", a.Summary[len(a.Summary)-20:])
 	}
 }
