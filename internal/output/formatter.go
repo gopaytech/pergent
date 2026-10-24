@@ -146,10 +146,12 @@ func FormatReview(results []review.SkillResult, changedFiles []string) string {
 
 // Notes FormatReviewWithin adds for what it left out.
 const (
-	hiddenDroppedNote    = "> Findings were too large to store for the next run; --previous-review will treat the next run as a first review."
-	detailsDroppedNote   = "> Suggestion details omitted to fit the comment size limit."
-	summariesDroppedNote = "> Summaries omitted to fit the comment size limit."
-	truncatedNote        = "\n\n> Comment truncated to fit the comment size limit.\n"
+	hiddenDroppedNote       = "> Findings were too large to store for the next run; --previous-review will treat the next run as a first review."
+	detailsDroppedNote      = "> Suggestion details omitted to fit the comment size limit."
+	summariesDroppedNote    = "> Summaries omitted to fit the comment size limit."
+	passedChecksDroppedNote = "> Passed and n/a checks omitted to fit the comment size limit."
+	checkTablesDroppedNote  = "> Check tables omitted to fit the comment size limit."
+	truncatedNote           = "\n\n> Comment truncated to fit the comment size limit.\n"
 )
 
 // layout says what render leaves out of the comment.
@@ -158,6 +160,8 @@ type layout struct {
 	suggestionTitles bool // suggestions without their explanation and fix
 	noSuggestions    bool
 	noSummaries      bool
+	checksFailOnly   bool // check tables keep only failed checks
+	noCheckTables    bool // only the checks count line is kept
 	// listLimit caps the changed-files and skipped-files lists; -1 means no cap.
 	listLimit int
 }
@@ -166,9 +170,10 @@ type layout struct {
 // maxLen bytes (no limit when maxLen is not positive). A comment over the
 // limit is shrunk in steps until it fits: the hidden findings block goes
 // first, then the suggestions' explanations and fixes, then the suggestions,
-// then the review summaries, then the file lists are cut to a count. Blocking findings and failures are
-// never dropped; if they alone are over the limit, the comment is cut at the
-// limit with a note.
+// then the passed and n/a checks, then the check tables (keeping the count
+// line), then the review summaries, then the file lists are cut to a count.
+// Blocking findings and failures are never dropped; if they alone are over
+// the limit, the comment is cut at the limit with a note.
 func FormatReviewWithin(results []review.SkillResult, changedFiles []string, maxLen int) string {
 	out := FormatReview(results, changedFiles)
 	if maxLen <= 0 || len(out) <= maxLen {
@@ -178,9 +183,11 @@ func FormatReviewWithin(results []review.SkillResult, changedFiles []string, max
 		{noHidden: true, listLimit: -1},
 		{noHidden: true, suggestionTitles: true, listLimit: -1},
 		{noHidden: true, noSuggestions: true, listLimit: -1},
-		{noHidden: true, noSuggestions: true, noSummaries: true, listLimit: -1},
-		{noHidden: true, noSuggestions: true, noSummaries: true, listLimit: 20},
-		{noHidden: true, noSuggestions: true, noSummaries: true, listLimit: 0},
+		{noHidden: true, noSuggestions: true, checksFailOnly: true, listLimit: -1},
+		{noHidden: true, noSuggestions: true, checksFailOnly: true, noCheckTables: true, listLimit: -1},
+		{noHidden: true, noSuggestions: true, checksFailOnly: true, noCheckTables: true, noSummaries: true, listLimit: -1},
+		{noHidden: true, noSuggestions: true, checksFailOnly: true, noCheckTables: true, noSummaries: true, listLimit: 20},
+		{noHidden: true, noSuggestions: true, checksFailOnly: true, noCheckTables: true, noSummaries: true, listLimit: 0},
 	} {
 		out = render(results, changedFiles, l)
 		if len(out) <= maxLen {
@@ -300,7 +307,7 @@ func writeSkill(b *strings.Builder, r review.SkillResult, fs []finding.Finding, 
 	}
 
 	writeSummaries(b, r, l)
-	writeChecks(b, r)
+	writeChecks(b, r, l)
 	for _, f := range blocking {
 		writeFinding(b, f, false)
 	}
@@ -430,7 +437,7 @@ func (c checkCounts) text(sep string) string {
 // inline; otherwise each batch's tables go in a collapsed block that starts
 // open when the batch has a failed check. Notes about failed checks without
 // findings, checks over the limit, and findings verification dropped follow.
-func writeChecks(b *strings.Builder, r review.SkillResult) {
+func writeChecks(b *strings.Builder, r review.SkillResult, l layout) {
 	if len(r.Checks) == 0 {
 		return
 	}
@@ -448,19 +455,29 @@ func writeChecks(b *strings.Builder, r review.SkillResult) {
 		fmt.Fprintf(b, "**Checks:** %s\n\n", counts)
 	}
 
-	if r.Batches <= 1 && len(r.Checks) == 1 {
-		writeCheckTables(b, r.Checks[0].Checks)
-	} else {
+	switch {
+	case l.noCheckTables:
+		b.WriteString(checkTablesDroppedNote + "\n\n")
+	case r.Batches <= 1 && len(r.Checks) == 1:
+		writeCheckTables(b, shownChecks(r.Checks[0].Checks, l))
+	default:
 		for _, bc := range r.Checks {
 			c := countChecks(bc.Checks)
+			shown := shownChecks(bc.Checks, l)
+			if len(shown) == 0 {
+				continue
+			}
 			open := ""
 			if c.fail > 0 {
 				open = " open"
 			}
 			fmt.Fprintf(b, "<details%s><summary>Checks \u2014 batch %d of %d (%s)</summary>\n\n", open, bc.Batch, r.Batches, c.text(", "))
-			writeCheckTables(b, bc.Checks)
+			writeCheckTables(b, shown)
 			b.WriteString("</details>\n\n")
 		}
+	}
+	if l.checksFailOnly && !l.noCheckTables && total.pass+total.na > 0 {
+		b.WriteString(passedChecksDroppedNote + "\n\n")
 	}
 
 	var notes []string
@@ -485,6 +502,21 @@ func writeChecks(b *strings.Builder, r review.SkillResult) {
 	if len(notes) > 0 {
 		b.WriteString("\n")
 	}
+}
+
+// shownChecks returns the checks the layout keeps: all of them, or only the
+// failed ones once the comment had to shrink.
+func shownChecks(cs []finding.Check, l layout) []finding.Check {
+	if !l.checksFailOnly {
+		return cs
+	}
+	var failed []finding.Check
+	for _, c := range cs {
+		if c.Status == finding.CheckFail {
+			failed = append(failed, c)
+		}
+	}
+	return failed
 }
 
 // writeCheckTables writes checks as one table per section, sections in order
