@@ -211,8 +211,9 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) SkillResult {
 		})
 	}
 	res.Findings = finding.Dedup(assignFingerprints(s.Name, all, prev))
-	// Task 8 adds the optional cross-batch run here, before verification, so
-	// the findings it adds are verified too.
+	// The optional cross-batch run goes before verification so the findings it
+	// adds are verified too.
+	r.crossBatch(ctx, s, &res, prev)
 	r.verify(ctx, s, &res)
 	// The verdict is computed after verification: findings it drops no
 	// longer block.
