@@ -2,6 +2,7 @@ package output
 
 import (
 	"encoding/base64"
+	"fmt"
 	"reflect"
 	"regexp"
 	"strings"
@@ -349,5 +350,118 @@ func TestFormatReview_FailureFilesShownWhenAmbiguous(t *testing.T) {
 	}
 	if strings.Contains(got, "`c.go`:") {
 		t.Errorf("a single failure in a single-batch skill lists its files:\n%s", got)
+	}
+}
+
+// bigResults returns a review whose comment is large mostly because of its
+// suggestions, the hidden findings block and its skipped-files list.
+func bigResults() ([]review.SkillResult, []string) {
+	fs := []finding.Finding{
+		{File: "main.go", Line: 1, Severity: finding.Blocking, Title: "Blocking one", Explanation: "First blocking explanation."},
+		{File: "main.go", Line: 2, Severity: finding.Blocking, Title: "Blocking two", Explanation: "Second blocking explanation."},
+	}
+	for i := range 100 {
+		fs = append(fs, finding.Finding{
+			File: fmt.Sprintf("pkg/file%03d.go", i), Line: i + 1, Severity: finding.Suggestion,
+			Title:       fmt.Sprintf("Suggestion %03d %s", i, strings.Repeat("t", 60)),
+			Explanation: "Detail " + strings.Repeat("e", 300), SuggestedFix: "Fix " + strings.Repeat("f", 50),
+		})
+	}
+	var skipped []diff.Skip
+	var changed []string
+	for i := range 100 {
+		p := fmt.Sprintf("vendor/module/path/generated%03d.go", i)
+		skipped = append(skipped, diff.Skip{Path: p, Rule: "vendored"})
+		changed = append(changed, p)
+	}
+	return []review.SkillResult{
+		{Skill: "code-review", Verdict: review.HasBlockingIssues, Findings: fs, Skipped: skipped},
+		{Skill: "docs-review", Verdict: review.Failed, Failures: []review.BatchFailure{{Files: []string{"a.md"}, Message: "Not reviewed: the failure stays."}}},
+	}, changed
+}
+
+const (
+	wantHiddenNote      = "> Findings were too large to store for the next run; --previous-review will treat the next run as a first review."
+	wantDetailsNote     = "> Suggestion details omitted to fit the comment size limit."
+	wantSuggestionsNote = "> 100 suggestions omitted to fit the comment size limit."
+)
+
+func TestFormatReviewWithin_NoLimitIsFormatReview(t *testing.T) {
+	results, changed := bigResults()
+	full := FormatReview(results, changed)
+	if got := FormatReviewWithin(results, changed, 0); got != full {
+		t.Error("FormatReviewWithin(0) differs from FormatReview")
+	}
+	if got := FormatReviewWithin(results, changed, len(full)); got != full {
+		t.Error("FormatReviewWithin(len(full)) changed a comment that fits")
+	}
+}
+
+func TestFormatReviewWithin_ShrinksInSteps(t *testing.T) {
+	results, changed := bigResults()
+	full := FormatReview(results, changed)
+
+	tests := []struct {
+		name    string
+		maxLen  int
+		want    []string
+		notWant []string
+	}{
+		{
+			name:    "drops the hidden block first",
+			maxLen:  len(full) - 1,
+			want:    []string{wantHiddenNote, "Detail eee", "_Suggested fix:_ Fix fff", "- `vendor/module/path/generated099.go`"},
+			notWant: []string{findingsMarker, wantDetailsNote, wantSuggestionsNote},
+		},
+		{
+			name:    "then the suggestions' details",
+			maxLen:  30000,
+			want:    []string{wantHiddenNote, wantDetailsNote, "**Suggestion 099 ttt", "- `vendor/module/path/generated099.go`"},
+			notWant: []string{findingsMarker, "Detail eee", "Fix fff", wantSuggestionsNote},
+		},
+		{
+			name:    "then the suggestions",
+			maxLen:  12000,
+			want:    []string{wantHiddenNote, wantSuggestionsNote, "- `vendor/module/path/generated099.go`"},
+			notWant: []string{findingsMarker, "Suggestion 000", "<summary>Suggestions"},
+		},
+		{
+			name:    "then the file lists",
+			maxLen:  4000,
+			want:    []string{wantHiddenNote, wantSuggestionsNote, "Skipped files (100)", "more not listed to fit the comment size limit"},
+			notWant: []string{findingsMarker, "Suggestion 000", "generated099.go"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := FormatReviewWithin(results, changed, tt.maxLen)
+			if len(got) > tt.maxLen {
+				t.Errorf("len = %d, want at most %d", len(got), tt.maxLen)
+			}
+			for _, w := range append(tt.want, "**Blocking one**", "First blocking explanation.", "**Blocking two**", "Not reviewed: the failure stays.") {
+				if !strings.Contains(got, w) {
+					t.Errorf("comment is missing %q:\n%s", w, got)
+				}
+			}
+			for _, nw := range tt.notWant {
+				if strings.Contains(got, nw) {
+					t.Errorf("comment still contains %q:\n%s", nw, got)
+				}
+			}
+			if prev, err := ParsePreviousFindings(got); prev != nil || err != nil {
+				t.Errorf("ParsePreviousFindings = %v, %v; want nil, nil (a first review next time)", prev, err)
+			}
+		})
+	}
+}
+
+func TestFormatReviewWithin_LastResortStaysWithinLimit(t *testing.T) {
+	results, changed := bigResults()
+	got := FormatReviewWithin(results, changed, 600)
+	if len(got) > 600 {
+		t.Errorf("len = %d, want at most 600", len(got))
+	}
+	if !strings.HasPrefix(got, "<!-- pergent -->\n") || !strings.Contains(got, "> Comment truncated to fit the comment size limit.") {
+		t.Errorf("want the marker kept and a truncation note:\n%s", got)
 	}
 }
