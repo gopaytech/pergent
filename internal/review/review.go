@@ -69,6 +69,18 @@ type SkillResult struct {
 	Failures                 []BatchFailure
 	Notes                    []string
 	Batches, BatchesFinished int
+	// Summaries are the model's summaries of the batches that finished, in
+	// batch order. Batches whose answer had no summary are left out.
+	Summaries []BatchSummary
+	// Reviewed lists the files of the batches that finished, in batch order.
+	Reviewed []string
+}
+
+// BatchSummary is the model's summary of one batch: what it checked and
+// what it concluded.
+type BatchSummary struct {
+	Batch int // 1-based batch number
+	Text  string
 }
 
 const defaultBudget = 10 * time.Minute
@@ -162,6 +174,7 @@ func Run(ctx context.Context, req Request) []SkillResult {
 // reviewed, or that its run never started.
 type batchOutcome struct {
 	findings   []finding.Finding
+	summary    string
 	failure    *BatchFailure
 	notStarted bool
 }
@@ -228,6 +241,12 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) SkillResult {
 		default:
 			res.BatchesFinished++
 			all = append(all, o.findings...)
+			if o.summary != "" {
+				res.Summaries = append(res.Summaries, BatchSummary{Batch: i + 1, Text: o.summary})
+			}
+			for _, f := range batches[i] {
+				res.Reviewed = append(res.Reviewed, f.Path)
+			}
 		}
 	}
 	if len(unstarted) > 0 {
@@ -315,7 +334,7 @@ func (r *reviewer) reviewBatch(ctx context.Context, s skill.Skill, batch []diff.
 	}
 	ans, parseErr := finding.ParseAnswer(res.Output)
 	if parseErr == nil {
-		return batchOutcome{findings: ans.Findings}
+		return batchOutcome{findings: ans.Findings, summary: ans.Summary}
 	}
 
 	bad, err := write("review-answer.md", res.Output)
@@ -336,7 +355,7 @@ func (r *reviewer) reviewBatch(ctx context.Context, s skill.Skill, batch []diff.
 		return batchOutcome{failure: &BatchFailure{Files: paths, Cause: repaired.Cause, Message: fmt.Sprintf(repairFailedPrefix, parseErr)}}
 	}
 	if ans, err := finding.ParseAnswer(repaired.Output); err == nil {
-		return batchOutcome{findings: ans.Findings}
+		return batchOutcome{findings: ans.Findings, summary: ans.Summary}
 	}
 	return notReviewed("the answer was not in the required format (%v), and a repair run did not fix it. The answer began: %s",
 		parseErr, excerpt(res.Output))
