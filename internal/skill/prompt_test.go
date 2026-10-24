@@ -29,8 +29,21 @@ func TestPrompt_AlwaysAppendsOutputFormat(t *testing.T) {
 		if !strings.Contains(p, "## Output format") {
 			t.Errorf("HasBlocking=%v: prompt missing output format heading", hasBlocking)
 		}
-		if !strings.Contains(p, `{"findings": []}`) {
+		if !strings.Contains(p, `"findings": []`) {
 			t.Errorf("HasBlocking=%v: prompt missing empty findings example", hasBlocking)
 		}
+	}
+}
+
+func TestPrompt_AsksForSummary(t *testing.T) {
+	p := Skill{Name: "a", Body: "Review it."}.Prompt()
+	if !strings.Contains(p, `"summary"`) {
+		t.Error("prompt does not ask for a summary")
+	}
+	if !strings.Contains(p, "including when you found nothing") {
+		t.Error("prompt does not ask for a summary when nothing is found")
+	}
+	if strings.Contains(p, "Text before the code block is not shown to anyone") {
+		t.Error("prompt still says text before the block is not shown")
 	}
 }
