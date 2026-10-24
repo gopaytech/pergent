@@ -79,11 +79,11 @@ func (r *reviewer) crossBatch(ctx context.Context, s skill.Skill, res *SkillResu
 		fail("%s", out.Cause.Message())
 		return
 	}
-	fs, err := finding.ParseAnswer(out.Output)
+	ans, err := finding.ParseAnswer(out.Output)
 	if err != nil {
 		fail("the answer was not in the required format (%v). The answer began: %s", err, excerpt(out.Output))
 		return
 	}
-	merged := append(append([]finding.Finding{}, res.Findings...), assignFingerprints(s.Name, fs, prev)...)
+	merged := append(append([]finding.Finding{}, res.Findings...), assignFingerprints(s.Name, ans.Findings, prev)...)
 	res.Findings = finding.Dedup(merged)
 }
