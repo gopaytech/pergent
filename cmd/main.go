@@ -7,20 +7,20 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/gopaytech/pergent/internal/config"
+	"github.com/gopaytech/pergent/internal/finding"
 	"github.com/gopaytech/pergent/internal/output"
 	"github.com/gopaytech/pergent/internal/platform"
-	"github.com/gopaytech/pergent/internal/runner"
+	"github.com/gopaytech/pergent/internal/redact"
+	"github.com/gopaytech/pergent/internal/review"
 	"github.com/gopaytech/pergent/internal/skill"
 )
 
 const version = "0.1.0"
-
-const reviewMessage = "Review the attached diff"
-const reviewWithPrevMessage = "Review the attached diff. Also attached is your previous review of an earlier revision of this change. Stay consistent with it: focus on what changed since, don't re-litigate unchanged code, and drop findings that the new changes resolve."
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "--version" {
@@ -35,6 +35,8 @@ func main() {
 	var platformFlag string
 	var maxTurns int
 	var maxTokens int
+	var contextLimit int
+	var concurrency int
 	var timeout time.Duration
 	var repoPath string
 	var localMode bool
@@ -44,9 +46,11 @@ func main() {
 
 	flag.Var(&skills, "skill", "Preset name or path to skill .md file (repeatable)")
 	flag.StringVar(&platformFlag, "platform", "", "Platform: github or gitlab")
-	flag.IntVar(&maxTurns, "max-turns", 0, "Max agentic turns per skill run (default 20)")
-	flag.IntVar(&maxTokens, "max-tokens", 0, "Max token usage per skill run (default 100000)")
-	flag.DurationVar(&timeout, "timeout", 0, "Max wall-clock time per skill run (default 10m)")
+	flag.IntVar(&maxTurns, "max-turns", 0, "Max agentic turns per opencode run (default 20)")
+	flag.IntVar(&maxTokens, "max-tokens", 0, "Deprecated and ignored; see --context-limit")
+	flag.IntVar(&contextLimit, "context-limit", 0, "Model context window in tokens, only for models opencode has no limits for (default: opencode's model registry)")
+	flag.IntVar(&concurrency, "concurrency", 0, "Max opencode runs in flight at once, across all skills and batches (default 4)")
+	flag.DurationVar(&timeout, "timeout", 0, "Max wall-clock time for the whole review (default 10m)")
 	flag.StringVar(&repoPath, "repo-path", "", "Path to repo root (default .)")
 	flag.BoolVar(&localMode, "local", false, "Local mode: diff from git, output to stdout, no platform")
 	flag.StringVar(&baseBranch, "base-branch", "", "Base branch for git diff (default main in local mode)")
@@ -54,10 +58,13 @@ func main() {
 	flag.BoolVar(&previousReview, "previous-review", false, "Attach pergent's previous review comment as context (platform mode only)")
 	flag.Parse()
 
-	previousReviewSet := false
+	previousReviewSet, concurrencySet := false, false
 	flag.Visit(func(f *flag.Flag) {
-		if f.Name == "previous-review" {
+		switch f.Name {
+		case "previous-review":
 			previousReviewSet = true
+		case "concurrency":
+			concurrencySet = true
 		}
 	})
 
@@ -71,6 +78,9 @@ func main() {
 		Platform:          platformFlag,
 		MaxTurns:          maxTurns,
 		MaxTokens:         maxTokens,
+		ContextLimit:      contextLimit,
+		Concurrency:       concurrency,
+		ConcurrencySet:    concurrencySet,
 		Timeout:           timeout,
 		RepoPath:          repoPath,
 		Local:             localMode,
@@ -80,6 +90,9 @@ func main() {
 	})
 	if err != nil {
 		log.Fatalf("config error: %v", err)
+	}
+	for _, w := range cfg.Warnings {
+		log.Printf("warning: %s", w)
 	}
 
 	var loadedSkills []skill.Skill
@@ -109,65 +122,54 @@ func main() {
 		}
 	}
 
-	diffFile, err := writeTempFile("pergent-diff-*.patch", diff)
-	if err != nil {
-		log.Fatalf("writing diff: %v", err)
-	}
-	defer os.Remove(diffFile)
-
 	const marker = "<!-- pergent -->"
 
 	var prevCommentID int64
-	var prevBody string
 	var prevLookupFailed bool
+	var previous map[string][]finding.Finding
 	if cfg.PreviousReview {
+		var prevBody string
 		var lookupErr error
 		prevCommentID, prevBody, lookupErr = plat.FindComment(marker)
 		if lookupErr != nil {
 			prevLookupFailed = true
 			log.Printf("warning: could not fetch previous review comment: %v", lookupErr)
+		} else {
+			previous = previousFindings(prevBody)
 		}
 	}
 
-	// Run each skill
-	var results []runner.RunResult
-	for _, s := range loadedSkills {
-		fmt.Fprintf(os.Stderr, "Running skill: %s\n", s.Name)
-
-		configPath, cleanup, err := config.GenerateOpenCodeConfig(cfg.MaxTurns, cfg.MaxTokens, s.Body, cfg.RepoPath)
-		if err != nil {
-			log.Fatalf("generating opencode config: %v", err)
+	// Review the change with every skill. A failed review is reported in the
+	// comment and the log but doesn't fail the job; only setup errors above
+	// exit non-zero.
+	fmt.Fprintf(os.Stderr, "Reviewing with %d skill(s), up to %d opencode runs at once, within %s\n", len(loadedSkills), cfg.Concurrency, cfg.Timeout)
+	results := review.Run(ctx, review.Request{
+		Skills:       loadedSkills,
+		Diff:         diff,
+		RepoPath:     cfg.RepoPath,
+		Budget:       cfg.Timeout,
+		Concurrency:  cfg.Concurrency,
+		MaxTurns:     cfg.MaxTurns,
+		ContextLimit: cfg.ContextLimit,
+		Previous:     previous,
+	})
+	failed := 0
+	for _, r := range results {
+		if r.Verdict != review.Failed {
+			continue
 		}
-
-		message := reviewMessage
-		prevReviewFile := ""
-		if section := output.ExtractSkillSection(prevBody, s.Name); section != "" {
-			f, err := writeTempFile("pergent-prev-review-*.md", section)
-			if err != nil {
-				log.Printf("warning: could not write previous review file: %v", err)
-			} else {
-				prevReviewFile = f
-				message = reviewWithPrevMessage
-				fmt.Fprintf(os.Stderr, "  Attaching previous review as context\n")
-			}
+		failed++
+		for _, f := range r.Failures {
+			log.Print(failureLogLine(r.Skill, f))
 		}
-
-		result, err := runner.Run(ctx, s.Name, configPath, diffFile, prevReviewFile, message, cfg.RepoPath, cfg.Timeout)
-		cleanup()
-		if prevReviewFile != "" {
-			os.Remove(prevReviewFile)
-		}
-		if err != nil {
-			log.Printf("skill %s error: %v", s.Name, err)
-			result = runner.RunResult{
-				SkillName: s.Name,
-				Output:    fmt.Sprintf("Error running skill: %v", err),
-			}
-		}
-		results = append(results, result)
+	}
+	if failed > 0 {
+		log.Printf("%d of %d skill reviews failed; the failures are reported in the review comment", failed, len(results))
 	}
 
-	comment := output.FormatComment(results, changedFiles)
+	// A comment over the platform's size limit would fail to post, so it is
+	// shrunk to fit; local mode prints it whole.
+	comment := output.FormatReviewWithin(results, changedFiles, commentLimit(cfg.Platform))
 
 	if cfg.Local {
 		fmt.Print(comment)
@@ -197,4 +199,45 @@ func main() {
 	}
 
 	fmt.Fprintf(os.Stderr, "Done.\n")
+}
+
+// commentLimit is the most characters a platform accepts in one comment
+// (0, no limit, in local mode). It is applied in bytes, which never count
+// fewer than characters.
+func commentLimit(platform string) int {
+	switch platform {
+	case "github":
+		return 65536
+	case "gitlab":
+		return 1000000
+	}
+	return 0
+}
+
+// failureLogLine renders a failed batch for the CI log, with the files it
+// left unreviewed.
+func failureLogLine(skillName string, f review.BatchFailure) string {
+	if len(f.Files) == 0 {
+		return fmt.Sprintf("skill %s: %s", skillName, output.BatchFailureText(f))
+	}
+	return fmt.Sprintf("skill %s, files %s: %s", skillName, redact.String(strings.Join(f.Files, ", ")), output.BatchFailureText(f))
+}
+
+// previousFindings reads the findings a previous pergent comment carries. A
+// comment from an older pergent has none, which makes this a first review; a
+// corrupt block is logged and also treated as a first review. Only skills
+// with findings get an entry, so an empty list attaches nothing.
+func previousFindings(body string) map[string][]finding.Finding {
+	all, err := output.ParsePreviousFindings(body)
+	if err != nil {
+		log.Printf("warning: ignoring the previous review's findings: %v", err)
+		return nil
+	}
+	previous := make(map[string][]finding.Finding)
+	for name, fs := range all {
+		if len(fs) > 0 {
+			previous[name] = fs
+		}
+	}
+	return previous
 }

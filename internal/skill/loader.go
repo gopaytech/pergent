@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -19,13 +20,22 @@ var presets = map[string]string{
 }
 
 type Skill struct {
-	Name string
-	Body string
+	Name        string
+	Body        string
+	Paths       []string
+	Exclude     []string
+	CrossBatch  bool
+	HasBlocking bool
 }
 
 type frontmatter struct {
-	Name string `yaml:"name"`
+	Name       string   `yaml:"name"`
+	Paths      []string `yaml:"paths"`
+	Exclude    []string `yaml:"exclude"`
+	CrossBatch bool     `yaml:"cross_batch"`
 }
+
+var blockingHeading = regexp.MustCompile(`(?im)^#{1,6}\s*blocking\b`)
 
 func Resolve(value string) (Skill, error) {
 	if isFilePath(value) {
@@ -83,5 +93,12 @@ func parse(data []byte, fallbackName string) (Skill, error) {
 		name = fallbackName
 	}
 
-	return Skill{Name: name, Body: body}, nil
+	return Skill{
+		Name:        name,
+		Body:        body,
+		Paths:       fm.Paths,
+		Exclude:     fm.Exclude,
+		CrossBatch:  fm.CrossBatch,
+		HasBlocking: blockingHeading.MatchString(body),
+	}, nil
 }
