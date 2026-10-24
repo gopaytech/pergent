@@ -289,6 +289,10 @@ func TestFormatReview_FailedStillShowsFindings(t *testing.T) {
 	if !strings.Contains(got, "\u26a0\ufe0f **Review failed:**") || !strings.Contains(got, "**Real bug**") {
 		t.Errorf("want both the failure and the finding:\n%s", got)
 	}
+	prev, err := ParsePreviousFindings(got)
+	if err != nil || len(prev["code-review"]) != 1 || prev["code-review"][0].Title != "Real bug" {
+		t.Errorf("the failed skill's findings are missing from the hidden block: %+v, %v", prev, err)
+	}
 }
 
 func TestFormatReview_FailureWithMessageAndCause(t *testing.T) {
@@ -362,15 +366,18 @@ func TestFindingsBlock_RoundTrip(t *testing.T) {
 		{Skill: "security-review", Verdict: review.NoBlockingIssues},
 	}
 
-	got, err := ParsePreviousFindings(FormatReview(results, []string{"a.go"}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(got["code-review"], results[0].Findings) {
-		t.Errorf("code-review findings = %+v, want %+v", got["code-review"], results[0].Findings)
-	}
-	if len(got["security-review"]) != 0 {
-		t.Errorf("security-review findings = %+v, want none", got["security-review"])
+	comment := FormatReview(results, []string{"a.go"})
+	for name, body := range map[string]string{"LF": comment, "CRLF": strings.ReplaceAll(comment, "\n", "\r\n")} {
+		got, err := ParsePreviousFindings(body)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if !reflect.DeepEqual(got["code-review"], results[0].Findings) {
+			t.Errorf("%s: code-review findings = %+v, want %+v", name, got["code-review"], results[0].Findings)
+		}
+		if len(got["security-review"]) != 0 {
+			t.Errorf("%s: security-review findings = %+v, want none", name, got["security-review"])
+		}
 	}
 }
 
@@ -425,5 +432,67 @@ func TestParsePreviousFindings_Corrupt(t *testing.T) {
 		if got, err := ParsePreviousFindings(body); err == nil {
 			t.Errorf("ParsePreviousFindings(%q) = %v, nil; want an error", body, got)
 		}
+	}
+}
+
+func TestFormatReview_ModelTextCannotBreakLayout(t *testing.T) {
+	hostile := []finding.Finding{
+		{File: "b.go", Line: 2, Severity: finding.Suggestion, Title: "Second", Explanation: "fine\n````\nstill open"},
+		{
+			File: "a.go", Line: 1, Severity: finding.Suggestion,
+			Title:        "Bad `name`\n```\nsecond line",
+			Explanation:  "Closes early </details> and <DETAILS> and </summary>.\n```go\nfunc main() {",
+			SuggestedFix: "~~~\nunbalanced",
+		},
+	}
+	results := []review.SkillResult{
+		{Skill: "first", Verdict: review.NoBlockingIssues, Findings: hostile},
+		{Skill: "second", Verdict: review.NoBlockingIssues},
+	}
+	got := FormatReview(results, nil)
+
+	idx := strings.Index(got, "<!-- pergent:findings ")
+	if idx < 0 {
+		t.Fatalf("no hidden line:\n%s", got)
+	}
+	visible := got[:idx]
+	if o, c := strings.Count(visible, "<details>"), strings.Count(visible, "</details>"); o != c {
+		t.Errorf("%d <details> but %d </details>:\n%s", o, c, got)
+	}
+	// Walk the lines the way markdown does: every fence opened must close
+	// before the following skill's section and the hidden line.
+	open := ""
+	for _, line := range strings.Split(visible, "\n") {
+		if strings.HasPrefix(line, "<!-- /pergent:first -->") && open != "" {
+			t.Errorf("fence %q is still open at the end of the first skill:\n%s", open, got)
+		}
+		ch, n, bare := fenceLine(line)
+		switch {
+		case ch == 0:
+		case open == "":
+			open = strings.Repeat(string(ch), n)
+		case open[0] == ch && n >= len(open) && bare:
+			open = ""
+		}
+	}
+	if open != "" {
+		t.Errorf("fence %q is still open before the hidden line:\n%s", open, got)
+	}
+	if !strings.Contains(visible, "\u2705 **No blocking issues**\n\n<!-- /pergent:second -->") {
+		t.Errorf("the second skill's verdict is missing or displaced:\n%s", got)
+	}
+	if !strings.Contains(visible, "**Bad `name` ``` second line**") {
+		t.Errorf("title was not collapsed to one line:\n%s", got)
+	}
+	if !strings.Contains(visible, "<details><summary>Suggestions (2)</summary>") {
+		t.Errorf("suggestions block missing:\n%s", got)
+	}
+
+	prev, err := ParsePreviousFindings(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(prev["first"], hostile) {
+		t.Errorf("hidden block changed the original text:\n got %+v\nwant %+v", prev["first"], hostile)
 	}
 }
