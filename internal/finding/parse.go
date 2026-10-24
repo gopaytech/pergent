@@ -41,49 +41,73 @@ func JSONBlocks(text string) []JSONBlock {
 	return blocks
 }
 
+// maxSummaryLen caps an answer's summary, in runes, so one verbose answer
+// can't crowd out the rest of the comment.
+const maxSummaryLen = 600
+
+// Answer is the model's parsed final answer.
+type Answer struct {
+	// Summary is what the model says it checked and concluded, on one line.
+	// Empty when the answer has none; a missing summary is not an error.
+	Summary  string
+	Findings []Finding
+}
+
 type answer struct {
+	Summary  string     `json:"summary"`
 	Findings *[]Finding `json:"findings"`
 }
 
-// ParseAnswer extracts the findings from the model's final answer. It looks
-// at every ```json fenced block, from last to first, and returns the findings
-// of the first block that parses and validates.
-func ParseAnswer(text string) ([]Finding, error) {
+// ParseAnswer extracts the summary and findings from the model's final
+// answer. It looks at every ```json fenced block, from last to first, and
+// returns the first block that parses and validates.
+func ParseAnswer(text string) (Answer, error) {
 	blocks := JSONBlocks(text)
 	if len(blocks) == 0 {
-		return nil, errors.New("no json code block found in the answer")
+		return Answer{}, errors.New("no json code block found in the answer")
 	}
 
 	var lastErr error
 	for i := len(blocks) - 1; i >= 0; i-- {
-		fs, err := parseBlock(blocks[i])
+		a, err := parseBlock(blocks[i])
 		if err == nil {
-			return fs, nil
+			return a, nil
 		}
 		if lastErr == nil {
 			lastErr = err
 		}
 	}
-	return nil, lastErr
+	return Answer{}, lastErr
 }
 
-func parseBlock(block JSONBlock) ([]Finding, error) {
+func parseBlock(block JSONBlock) (Answer, error) {
 	if block.Err != nil {
-		return nil, fmt.Errorf("invalid json: %w", block.Err)
+		return Answer{}, fmt.Errorf("invalid json: %w", block.Err)
 	}
 	var a answer
 	if err := json.Unmarshal(block.Value, &a); err != nil {
-		return nil, fmt.Errorf("invalid json: %w", err)
+		return Answer{}, fmt.Errorf("invalid json: %w", err)
 	}
 	if a.Findings == nil {
-		return nil, errors.New(`json block has no "findings" key`)
+		return Answer{}, errors.New(`json block has no "findings" key`)
 	}
 	for i, f := range *a.Findings {
 		if err := validate(f); err != nil {
-			return nil, fmt.Errorf("finding %d: %w", i, err)
+			return Answer{}, fmt.Errorf("finding %d: %w", i, err)
 		}
 	}
-	return *a.Findings, nil
+	return Answer{Summary: cleanSummary(a.Summary), Findings: *a.Findings}, nil
+}
+
+// cleanSummary collapses a summary to one line and caps it at maxSummaryLen
+// runes, ending with "…" when it is cut.
+func cleanSummary(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	r := []rune(s)
+	if len(r) <= maxSummaryLen {
+		return s
+	}
+	return string(r[:maxSummaryLen-1]) + "…"
 }
 
 func validate(f Finding) error {

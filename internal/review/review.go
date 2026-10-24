@@ -313,9 +313,9 @@ func (r *reviewer) reviewBatch(ctx context.Context, s skill.Skill, batch []diff.
 		}
 		return batchOutcome{failure: &BatchFailure{Files: paths, Cause: res.Cause}}
 	}
-	fs, parseErr := finding.ParseAnswer(res.Output)
+	ans, parseErr := finding.ParseAnswer(res.Output)
 	if parseErr == nil {
-		return batchOutcome{findings: fs}
+		return batchOutcome{findings: ans.Findings}
 	}
 
 	bad, err := write("review-answer.md", res.Output)
@@ -335,8 +335,8 @@ func (r *reviewer) reviewBatch(ctx context.Context, s skill.Skill, batch []diff.
 		}
 		return batchOutcome{failure: &BatchFailure{Files: paths, Cause: repaired.Cause, Message: fmt.Sprintf(repairFailedPrefix, parseErr)}}
 	}
-	if fs, err := finding.ParseAnswer(repaired.Output); err == nil {
-		return batchOutcome{findings: fs}
+	if ans, err := finding.ParseAnswer(repaired.Output); err == nil {
+		return batchOutcome{findings: ans.Findings}
 	}
 	return notReviewed("the answer was not in the required format (%v), and a repair run did not fix it. The answer began: %s",
 		parseErr, excerpt(res.Output))
