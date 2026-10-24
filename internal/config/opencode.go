@@ -20,6 +20,11 @@ type openCodeConfig struct {
 	Provider     map[string]openCodeProvider `json:"provider"`
 	Agent        map[string]openCodeAgent    `json:"agent"`
 	Permission   map[string]any              `json:"permission"`
+	Compaction   openCodeCompaction          `json:"compaction"`
+}
+
+type openCodeCompaction struct {
+	Auto bool `json:"auto"`
 }
 
 type openCodeProvider struct {
@@ -34,12 +39,14 @@ type openCodeProviderOptions struct {
 }
 
 type openCodeModelLimits struct {
-	Limit openCodeLimit `json:"limit"`
+	Limit *openCodeLimit `json:"limit,omitempty"`
 }
 
 type openCodeLimit struct {
 	Context int `json:"context"`
-	Output  int `json:"output"`
+	// Output is required by opencode's schema; 0 makes opencode use its
+	// default output cap.
+	Output int `json:"output"`
 }
 
 type openCodeAgent struct {
@@ -50,7 +57,10 @@ type openCodeAgent struct {
 	Prompt      string `json:"prompt,omitempty"`
 }
 
-func GenerateOpenCodeConfig(maxTurns int, maxTokens int, skillPrompt string, repoPath string) (string, func(), error) {
+// GenerateOpenCodeConfig writes a temporary opencode.json for one skill run.
+// contextLimit overrides the model's context window when > 0; otherwise
+// opencode uses the limits from its model registry.
+func GenerateOpenCodeConfig(maxTurns int, contextLimit int, skillPrompt string, repoPath string) (string, func(), error) {
 	provider := os.Getenv("OPENCODE_PROVIDER")
 	model := os.Getenv("OPENCODE_MODEL")
 
@@ -73,10 +83,12 @@ func GenerateOpenCodeConfig(maxTurns int, maxTokens int, skillPrompt string, rep
 		npm = "@ai-sdk/openai-compatible"
 	}
 
-	// Cap output tokens to fit within context
-	outputTokens := 10000
-	if maxTokens < 20000 {
-		outputTokens = maxTokens / 4
+	// The model is always declared: opencode doesn't know models served from a
+	// custom base URL otherwise ("Model not found"). An entry without a limit
+	// keeps the limits from opencode's model registry.
+	modelEntry := openCodeModelLimits{}
+	if contextLimit > 0 {
+		modelEntry.Limit = &openCodeLimit{Context: contextLimit}
 	}
 
 	cfg := openCodeConfig{
@@ -91,14 +103,7 @@ func GenerateOpenCodeConfig(maxTurns int, maxTokens int, skillPrompt string, rep
 					APIKey:  "{env:OPENCODE_API_KEY}",
 					BaseURL: baseURL,
 				},
-				Models: map[string]openCodeModelLimits{
-					model: {
-						Limit: openCodeLimit{
-							Context: maxTokens,
-							Output:  outputTokens,
-						},
-					},
-				},
+				Models: map[string]openCodeModelLimits{model: modelEntry},
 			},
 		},
 		Agent: map[string]openCodeAgent{
@@ -131,6 +136,11 @@ func GenerateOpenCodeConfig(maxTurns int, maxTokens int, skillPrompt string, rep
 			"webfetch":  "deny",
 			"websearch": "deny",
 		},
+		// Auto-compaction summarises the conversation when the context fills
+		// and then prompts the model to continue, which can end a run with no
+		// review. With it off, an overflow ends the run with a
+		// ContextOverflowError, which pergent reports as the failure cause.
+		Compaction: openCodeCompaction{Auto: false},
 	}
 
 	tmpDir, err := os.MkdirTemp("", "pergent-*")

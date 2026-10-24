@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -50,8 +51,11 @@ func TestResolve_Defaults(t *testing.T) {
 	if cfg.MaxTurns != 20 {
 		t.Errorf("MaxTurns = %d, want 20", cfg.MaxTurns)
 	}
-	if cfg.MaxTokens != 100000 {
-		t.Errorf("MaxTokens = %d, want 100000", cfg.MaxTokens)
+	if cfg.ContextLimit != 0 {
+		t.Errorf("ContextLimit = %d, want 0 (use the model's own limit)", cfg.ContextLimit)
+	}
+	if len(cfg.Warnings) != 0 {
+		t.Errorf("Warnings = %v, want none", cfg.Warnings)
 	}
 	if cfg.Timeout != 10*time.Minute {
 		t.Errorf("Timeout = %v, want 10m", cfg.Timeout)
@@ -405,5 +409,217 @@ func TestResolve_PreviousReviewEnvLocalError(t *testing.T) {
 	})
 	if err == nil {
 		t.Error("Resolve() should error when PERGENT_PREVIOUS_REVIEW=true combined with --local")
+	}
+}
+
+func TestResolve_ContextLimit(t *testing.T) {
+	setupValidGitHub(t)
+
+	t.Setenv("PERGENT_CONTEXT_LIMIT", "64000")
+	cfg, err := Resolve(Options{Skills: []string{"code-review"}, Platform: "github"})
+	if err != nil {
+		t.Fatalf("Resolve() error: %v", err)
+	}
+	if cfg.ContextLimit != 64000 {
+		t.Errorf("ContextLimit from env = %d, want 64000", cfg.ContextLimit)
+	}
+
+	cfg, err = Resolve(Options{Skills: []string{"code-review"}, Platform: "github", ContextLimit: 128000})
+	if err != nil {
+		t.Fatalf("Resolve() error: %v", err)
+	}
+	if cfg.ContextLimit != 128000 {
+		t.Errorf("ContextLimit from flag = %d, want 128000", cfg.ContextLimit)
+	}
+
+	if _, err := Resolve(Options{Skills: []string{"code-review"}, Platform: "github", ContextLimit: -1}); err == nil {
+		t.Error("negative --context-limit should be rejected")
+	}
+}
+
+func TestResolve_MaxTokensDeprecated(t *testing.T) {
+	setupValidGitHub(t)
+
+	cfg, err := Resolve(Options{Skills: []string{"code-review"}, Platform: "github", MaxTokens: 30000})
+	if err != nil {
+		t.Fatalf("--max-tokens should still be accepted: %v", err)
+	}
+	if len(cfg.Warnings) != 1 || !strings.Contains(cfg.Warnings[0], "deprecated") {
+		t.Errorf("Warnings = %v, want one deprecation warning", cfg.Warnings)
+	}
+	if cfg.ContextLimit != 0 {
+		t.Errorf("ContextLimit = %d, want 0: --max-tokens must not set the context window", cfg.ContextLimit)
+	}
+
+	t.Setenv("PERGENT_MAX_TOKENS", "30000")
+	cfg, err = Resolve(Options{Skills: []string{"code-review"}, Platform: "github"})
+	if err != nil {
+		t.Fatalf("PERGENT_MAX_TOKENS should still be accepted: %v", err)
+	}
+	if len(cfg.Warnings) != 1 {
+		t.Errorf("Warnings = %v, want one deprecation warning for PERGENT_MAX_TOKENS", cfg.Warnings)
+	}
+}
+
+func TestResolve_ConcurrencyDefault(t *testing.T) {
+	setupValidGitHub(t)
+
+	cfg, err := Resolve(Options{
+		Skills:   []string{"./skills/code-review.md"},
+		Platform: "github",
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error: %v", err)
+	}
+	if cfg.Concurrency != 4 {
+		t.Errorf("Concurrency = %d, want 4", cfg.Concurrency)
+	}
+}
+
+func TestResolve_ConcurrencyEnv(t *testing.T) {
+	setupValidGitHub(t)
+	t.Setenv("PERGENT_CONCURRENCY", "8")
+
+	cfg, err := Resolve(Options{
+		Skills:   []string{"./skills/code-review.md"},
+		Platform: "github",
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error: %v", err)
+	}
+	if cfg.Concurrency != 8 {
+		t.Errorf("Concurrency = %d, want 8 (from env)", cfg.Concurrency)
+	}
+}
+
+func TestResolve_ConcurrencyFlagOverridesEnv(t *testing.T) {
+	setupValidGitHub(t)
+	t.Setenv("PERGENT_CONCURRENCY", "8")
+
+	cfg, err := Resolve(Options{
+		Skills:      []string{"./skills/code-review.md"},
+		Platform:    "github",
+		Concurrency: 2,
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error: %v", err)
+	}
+	if cfg.Concurrency != 2 {
+		t.Errorf("Concurrency = %d, want 2 (flag should override env)", cfg.Concurrency)
+	}
+}
+
+func TestResolve_ConcurrencyInvalid(t *testing.T) {
+	tests := []struct {
+		name string
+		env  string
+		flag int
+		want string
+	}{
+		{"env zero", "0", 0, "--concurrency must be at least 1, got 0"},
+		{"env negative", "-3", 0, "--concurrency must be at least 1, got -3"},
+		{"flag negative", "", -2, "--concurrency must be at least 1, got -2"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setupValidGitHub(t)
+			if tt.env != "" {
+				t.Setenv("PERGENT_CONCURRENCY", tt.env)
+			}
+
+			_, err := Resolve(Options{
+				Skills:      []string{"./skills/code-review.md"},
+				Platform:    "github",
+				Concurrency: tt.flag,
+			})
+			if err == nil || err.Error() != tt.want {
+				t.Fatalf("Resolve() error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolve_ConcurrencyExplicitFlagBelowOne(t *testing.T) {
+	tests := []struct {
+		name string
+		env  string
+		flag int
+		want string
+	}{
+		{"flag zero", "", 0, "--concurrency must be at least 1, got 0"},
+		{"flag zero beats env", "8", 0, "--concurrency must be at least 1, got 0"},
+		{"flag negative beats env", "8", -1, "--concurrency must be at least 1, got -1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setupValidGitHub(t)
+			if tt.env != "" {
+				t.Setenv("PERGENT_CONCURRENCY", tt.env)
+			}
+
+			_, err := Resolve(Options{
+				Skills:         []string{"./skills/code-review.md"},
+				Platform:       "github",
+				Concurrency:    tt.flag,
+				ConcurrencySet: true,
+			})
+			if err == nil || err.Error() != tt.want {
+				t.Fatalf("Resolve() error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolve_ConcurrencyExplicitFlagBeatsEnv(t *testing.T) {
+	setupValidGitHub(t)
+	t.Setenv("PERGENT_CONCURRENCY", "8")
+
+	cfg, err := Resolve(Options{
+		Skills:         []string{"./skills/code-review.md"},
+		Platform:       "github",
+		Concurrency:    2,
+		ConcurrencySet: true,
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error: %v", err)
+	}
+	if cfg.Concurrency != 2 {
+		t.Errorf("Concurrency = %d, want 2", cfg.Concurrency)
+	}
+}
+
+func TestResolve_TimeoutNegative(t *testing.T) {
+	tests := []struct {
+		name string
+		env  string
+		flag time.Duration
+		want string
+	}{
+		{"flag negative", "", -time.Minute, "--timeout must be positive, got -1m0s"},
+		{"env negative", "-30s", 0, "--timeout must be positive, got -30s"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setupValidGitHub(t)
+			if tt.env != "" {
+				t.Setenv("PERGENT_TIMEOUT", tt.env)
+			}
+			_, err := Resolve(Options{Skills: []string{"./skills/code-review.md"}, Platform: "github", Timeout: tt.flag})
+			if err == nil || err.Error() != tt.want {
+				t.Fatalf("Resolve() error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolve_TimeoutZeroMeansDefault(t *testing.T) {
+	setupValidGitHub(t)
+	t.Setenv("PERGENT_TIMEOUT", "0s")
+	cfg, err := Resolve(Options{Skills: []string{"./skills/code-review.md"}, Platform: "github"})
+	if err != nil {
+		t.Fatalf("Resolve() error: %v", err)
+	}
+	if cfg.Timeout != 10*time.Minute {
+		t.Errorf("Timeout = %v, want the 10m default for an explicit 0", cfg.Timeout)
 	}
 }

@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+
+	"github.com/gopaytech/pergent/internal/redact"
 )
 
 // progressWriter parses NDJSON from opencode stdout and writes formatted
@@ -14,13 +16,25 @@ type progressWriter struct {
 	buf  *bytes.Buffer
 	step int
 	w    io.Writer
+	// onStep, if set, is called with the step number at each step_start.
+	onStep func(step int)
+	// partial holds a line split across writes.
+	partial []byte
 }
 
 func (pw *progressWriter) Write(p []byte) (n int, err error) {
 	pw.buf.Write(p)
 
-	scanner := bufio.NewScanner(bytes.NewReader(p))
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	data := append(pw.partial, p...)
+	end := bytes.LastIndexByte(data, '\n')
+	if end < 0 {
+		pw.partial = data
+		return len(p), nil
+	}
+	pw.partial = append([]byte(nil), data[end+1:]...)
+
+	scanner := bufio.NewScanner(bytes.NewReader(data[:end+1]))
+	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if len(line) == 0 {
@@ -41,6 +55,9 @@ func (pw *progressWriter) formatEvent(event openCodeEvent) {
 	case "step_start":
 		pw.step++
 		fmt.Fprintf(pw.w, "  Step %d: starting...\n", pw.step)
+		if pw.onStep != nil {
+			pw.onStep(pw.step)
+		}
 	case "step_finish":
 		if event.Part != nil && event.Part.Tokens != nil {
 			fmt.Fprintf(pw.w, "  Step %d: done (%d tokens)\n", pw.step, event.Part.Tokens.Output)
@@ -55,22 +72,27 @@ func (pw *progressWriter) formatEvent(event openCodeEvent) {
 				status = event.Part.State.Status
 			}
 			if status == "error" && event.Part.State != nil {
-				fmt.Fprintf(pw.w, "  Step %d: tool %s (error: %s)\n", pw.step, tool, truncate(event.Part.State.Error, 80))
+				fmt.Fprintf(pw.w, "  Step %d: tool %s (error: %s)\n", pw.step, tool, truncate(redact.String(event.Part.State.Error), 80))
 			} else {
 				fmt.Fprintf(pw.w, "  Step %d: tool %s\n", pw.step, tool)
 			}
 		}
 	case "text":
 		if event.Part != nil && event.Part.Type == "text" {
-			fmt.Fprintf(pw.w, "  Step %d: generating text...\n", pw.step)
+			if event.Part.Synthetic {
+				fmt.Fprintf(pw.w, "  Step %d: opencode added its own message (%s)\n", pw.step, truncate(redact.String(event.Part.Text), 80))
+			} else {
+				fmt.Fprintf(pw.w, "  Step %d: generating text...\n", pw.step)
+			}
 		}
 	case "error":
 		if event.Error != nil {
 			msg := event.Error.Name
 			if event.Error.Data != nil && event.Error.Data.Message != "" {
-				msg = truncate(event.Error.Data.Message, 120)
+				// Redact before cutting, so a key across the cut can't print in part.
+				msg = truncate(redact.String(event.Error.Data.Message), 120)
 			}
-			fmt.Fprintf(pw.w, "  Error: %s\n", msg)
+			fmt.Fprintf(pw.w, "  Error: %s\n", redact.String(msg))
 		}
 	}
 }
