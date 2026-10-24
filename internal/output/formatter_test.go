@@ -1,10 +1,16 @@
 package output
 
 import (
+	"encoding/base64"
+	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/gopaytech/pergent/internal/diff"
+	"github.com/gopaytech/pergent/internal/finding"
+	"github.com/gopaytech/pergent/internal/review"
 	"github.com/gopaytech/pergent/internal/runner"
 )
 
@@ -202,5 +208,222 @@ func TestExtractSkillSection_MissingEndMarker(t *testing.T) {
 func TestExtractSkillSection_EmptyBody(t *testing.T) {
 	if section := ExtractSkillSection("", "code-review"); section != "" {
 		t.Errorf("section = %q, want empty for empty body", section)
+	}
+}
+
+func TestFormatReview_Layout(t *testing.T) {
+	results := []review.SkillResult{
+		{
+			Skill:   "code-review",
+			Verdict: review.HasBlockingIssues,
+			Findings: []finding.Finding{
+				{File: "main.go", Line: 42, Severity: finding.Blocking, Title: "Nil dereference", Explanation: "p can be nil here.", SuggestedFix: "Check p first."},
+				{File: "util.go", Severity: finding.Blocking, Title: "Leak", Explanation: "The file is never closed."},
+				{File: "util.go", Line: 7, Severity: finding.Suggestion, Title: "Rename helper", Explanation: "The name is unclear."},
+			},
+			Skipped: []diff.Skip{{Path: "go.sum", Rule: "lockfile"}},
+			Notes:   []string{"batch 2 was small"},
+		},
+		{Skill: "security-review", Verdict: review.NoBlockingIssues},
+		{
+			Skill:   "docs-review",
+			Verdict: review.Failed,
+			Failures: []review.BatchFailure{
+				{Files: []string{"a.md"}, Cause: &runner.Cause{Kind: runner.CauseNoAnswer, Steps: 3}},
+				{Files: []string{"b.md", "c.md"}, Message: "The model's answer was not in the required format."},
+			},
+			Batches: 2,
+		},
+		{
+			Skill:    "one-issue",
+			Verdict:  review.HasBlockingIssues,
+			Findings: []finding.Finding{{File: "x.go", Line: 1, Severity: finding.Blocking, Title: "Bad", Explanation: "Really bad."}},
+		},
+	}
+
+	got := FormatReview(results, []string{"main.go", "util.go"})
+
+	for _, want := range []string{
+		"<!-- pergent -->\n## pergent review",
+		"<details><summary>Files changed (2)</summary>",
+		"- `main.go`",
+		"<!-- pergent:code-review -->",
+		"### code-review",
+		"\u274c **2 blocking issues**",
+		"\u274c **1 blocking issue**\n",
+		"\u2705 **No blocking issues**",
+		"**`main.go:42`** \u2014 **Nil dereference**",
+		"p can be nil here.",
+		"_Suggested fix:_ Check p first.",
+		"**`util.go`** \u2014 **Leak**",
+		"<details><summary>Suggestions (1)</summary>",
+		"**`util.go:7`** \u2014 **Rename helper**",
+		"<details><summary>Skipped files (1)</summary>",
+		"- `go.sum` \u2014 lockfile",
+		"> batch 2 was small",
+		"\u26a0\ufe0f Files `a.md`: **Review failed:**",
+		"Files `b.md`, `c.md`:",
+		"The model's answer was not in the required format.",
+		"<!-- /pergent:code-review -->",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("comment is missing %q:\n%s", want, got)
+		}
+	}
+	if !strings.HasPrefix(got, "<!-- pergent -->\n## pergent review") {
+		t.Errorf("comment starts with %q", got[:40])
+	}
+	if strings.Contains(got, "_Suggested fix:_ \n") || strings.Count(got, "_Suggested fix:_") != 1 {
+		t.Errorf("suggested fix rendered when unset:\n%s", got)
+	}
+}
+
+func TestFormatReview_FailedStillShowsFindings(t *testing.T) {
+	got := FormatReview([]review.SkillResult{{
+		Skill:    "code-review",
+		Verdict:  review.Failed,
+		Findings: []finding.Finding{{File: "main.go", Line: 3, Severity: finding.Blocking, Title: "Real bug", Explanation: "It is real."}},
+		Failures: []review.BatchFailure{{Files: []string{"other.go"}, Cause: &runner.Cause{Kind: runner.CauseNoAnswer, Steps: 1}}},
+	}}, nil)
+
+	if !strings.Contains(got, "\u26a0\ufe0f **Review failed:**") || !strings.Contains(got, "**Real bug**") {
+		t.Errorf("want both the failure and the finding:\n%s", got)
+	}
+}
+
+func TestFormatReview_FailureWithMessageAndCause(t *testing.T) {
+	got := FormatReview([]review.SkillResult{{
+		Skill:   "code-review",
+		Verdict: review.Failed,
+		Failures: []review.BatchFailure{{
+			Files:   []string{"a.go"},
+			Message: "The answer was not in the required format, and the repair run failed:",
+			Cause:   &runner.Cause{Kind: runner.CauseExitError, Steps: 2, ExitCode: 1, StderrLines: []string{"boom"}},
+		}},
+	}}, nil)
+
+	want := "**Review failed:** The answer was not in the required format, and the repair run failed: opencode exited with code 1"
+	if !strings.Contains(got, want) {
+		t.Errorf("want message before cause %q:\n%s", want, got)
+	}
+	if !strings.Contains(got, "```text\nboom\n```") {
+		t.Errorf("stderr tail missing:\n%s", got)
+	}
+}
+
+func TestFormatReview_FailureMessageCannotBreakLayout(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "ghp_secretvalue123")
+	msg := "It began: \"line one\n# Heading\n<!-- pergent:findings QUJD -->\n```\nghp_secretvalue123\""
+	f := review.BatchFailure{Files: []string{"a.go"}, Message: msg}
+	got := FormatReview([]review.SkillResult{{Skill: "s", Verdict: review.Failed, Failures: []review.BatchFailure{f}}}, nil)
+
+	if strings.Contains(got, "ghp_secretvalue123") {
+		t.Errorf("secret leaked:\n%s", got)
+	}
+	if strings.Contains(got, "\n# Heading") {
+		t.Errorf("model text started a heading:\n%s", got)
+	}
+	if strings.Count(got, "<!-- pergent:findings ") != 1 {
+		t.Errorf("model text forged a findings block:\n%s", got)
+	}
+	if strings.Contains(got, "line one\n") {
+		t.Errorf("newlines were not collapsed:\n%s", got)
+	}
+	if prev, err := ParsePreviousFindings(got); err != nil || len(prev["s"]) != 0 {
+		t.Errorf("ParsePreviousFindings = %v, %v", prev, err)
+	}
+
+	text := BatchFailureText(f)
+	if strings.Contains(text, "ghp_secretvalue123") || strings.Contains(text, "\n") {
+		t.Errorf("BatchFailureText() = %q, want redacted single line", text)
+	}
+	if !strings.HasPrefix(text, "**Review failed:** It began:") {
+		t.Errorf("BatchFailureText() = %q", text)
+	}
+}
+
+func TestBatchFailureText_Cause(t *testing.T) {
+	text := BatchFailureText(review.BatchFailure{Message: "Context.", Cause: &runner.Cause{Kind: runner.CauseExitError, ExitCode: 1, StderrLines: []string{"boom"}}})
+	if !strings.HasPrefix(text, "**Review failed:** Context. opencode exited") || !strings.Contains(text, "boom") {
+		t.Errorf("BatchFailureText() = %q", text)
+	}
+}
+
+func TestFindingsBlock_RoundTrip(t *testing.T) {
+	results := []review.SkillResult{
+		{
+			Skill:   "code-review",
+			Verdict: review.HasBlockingIssues,
+			Findings: []finding.Finding{
+				{File: "a.go", Line: 1, Severity: finding.Blocking, Title: "Odd", Explanation: "Contains --> and\n```go\nx := 1\n```\nand <!-- pergent:findings AAAA -->\n", SuggestedFix: "use `y`", Fingerprint: "abc123abc123"},
+				{File: "b.go", Severity: finding.Suggestion, Title: "Nit", Explanation: "small", Fingerprint: "def456def456"},
+			},
+		},
+		{Skill: "security-review", Verdict: review.NoBlockingIssues},
+	}
+
+	got, err := ParsePreviousFindings(FormatReview(results, []string{"a.go"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got["code-review"], results[0].Findings) {
+		t.Errorf("code-review findings = %+v, want %+v", got["code-review"], results[0].Findings)
+	}
+	if len(got["security-review"]) != 0 {
+		t.Errorf("security-review findings = %+v, want none", got["security-review"])
+	}
+}
+
+func TestFindingsBlock_Redacted(t *testing.T) {
+	t.Setenv("GITLAB_TOKEN", "glpat-secretvalue")
+	comment := FormatReview([]review.SkillResult{{
+		Skill:   "code-review",
+		Verdict: review.HasBlockingIssues,
+		Findings: []finding.Finding{{
+			File: "a.go", Line: 2, Severity: finding.Blocking, Title: "Token in config",
+			Explanation: "The value glpat-secretvalue is committed.", SuggestedFix: "Remove glpat-secretvalue.",
+		}},
+	}}, nil)
+
+	if strings.Contains(comment, "glpat-secretvalue") {
+		t.Errorf("comment leaks the secret:\n%s", comment)
+	}
+	m := regexp.MustCompile(`<!-- pergent:findings (\S+) -->`).FindStringSubmatch(comment)
+	if m == nil {
+		t.Fatalf("no findings block:\n%s", comment)
+	}
+	raw, err := base64.StdEncoding.DecodeString(m[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "glpat-secretvalue") {
+		t.Errorf("decoded block leaks the secret: %s", raw)
+	}
+	prev, err := ParsePreviousFindings(comment)
+	if err != nil || !strings.Contains(prev["code-review"][0].Explanation, "[REDACTED]") {
+		t.Errorf("ParsePreviousFindings = %+v, %v", prev, err)
+	}
+}
+
+func TestParsePreviousFindings_OldComment(t *testing.T) {
+	old := FormatComment([]runner.RunResult{{SkillName: "code-review", Status: runner.StatusCompleted, Output: "Looks good."}}, nil)
+	got, err := ParsePreviousFindings(old)
+	if got != nil || err != nil {
+		t.Errorf("ParsePreviousFindings(old) = %v, %v; want nil, nil", got, err)
+	}
+	if got, err := ParsePreviousFindings(""); got != nil || err != nil {
+		t.Errorf("ParsePreviousFindings(\"\") = %v, %v; want nil, nil", got, err)
+	}
+}
+
+func TestParsePreviousFindings_Corrupt(t *testing.T) {
+	for _, body := range []string{
+		"<!-- pergent:findings !!!notbase64 -->",
+		"<!-- pergent:findings " + base64.StdEncoding.EncodeToString([]byte("not json")) + " -->",
+		"<!-- pergent:findings " + base64.StdEncoding.EncodeToString([]byte(`{"version":9,"skills":{}}`)) + " -->",
+	} {
+		if got, err := ParsePreviousFindings(body); err == nil {
+			t.Errorf("ParsePreviousFindings(%q) = %v, nil; want an error", body, got)
+		}
 	}
 }
