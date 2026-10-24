@@ -25,11 +25,6 @@ type RunResult struct {
 	Cause     *Cause
 }
 
-// Failed builds a failed result for errors that happen around the run itself.
-func Failed(skillName string, cause Cause) RunResult {
-	return RunResult{SkillName: skillName, Status: StatusFailed, Cause: &cause}
-}
-
 // Options configures a skill run.
 type Options struct {
 	SkillName  string

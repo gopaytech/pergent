@@ -56,10 +56,13 @@ func main() {
 	flag.BoolVar(&previousReview, "previous-review", false, "Attach pergent's previous review comment as context (platform mode only)")
 	flag.Parse()
 
-	previousReviewSet := false
+	previousReviewSet, concurrencySet := false, false
 	flag.Visit(func(f *flag.Flag) {
-		if f.Name == "previous-review" {
+		switch f.Name {
+		case "previous-review":
 			previousReviewSet = true
+		case "concurrency":
+			concurrencySet = true
 		}
 	})
 
@@ -75,6 +78,7 @@ func main() {
 		MaxTokens:         maxTokens,
 		ContextLimit:      contextLimit,
 		Concurrency:       concurrency,
+		ConcurrencySet:    concurrencySet,
 		Timeout:           timeout,
 		RepoPath:          repoPath,
 		Local:             localMode,

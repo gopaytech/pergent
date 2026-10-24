@@ -538,3 +538,52 @@ func TestResolve_ConcurrencyInvalid(t *testing.T) {
 		})
 	}
 }
+
+func TestResolve_ConcurrencyExplicitFlagBelowOne(t *testing.T) {
+	tests := []struct {
+		name string
+		env  string
+		flag int
+		want string
+	}{
+		{"flag zero", "", 0, "--concurrency must be at least 1, got 0"},
+		{"flag zero beats env", "8", 0, "--concurrency must be at least 1, got 0"},
+		{"flag negative beats env", "8", -1, "--concurrency must be at least 1, got -1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setupValidGitHub(t)
+			if tt.env != "" {
+				t.Setenv("PERGENT_CONCURRENCY", tt.env)
+			}
+
+			_, err := Resolve(Options{
+				Skills:         []string{"./skills/code-review.md"},
+				Platform:       "github",
+				Concurrency:    tt.flag,
+				ConcurrencySet: true,
+			})
+			if err == nil || err.Error() != tt.want {
+				t.Fatalf("Resolve() error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolve_ConcurrencyExplicitFlagBeatsEnv(t *testing.T) {
+	setupValidGitHub(t)
+	t.Setenv("PERGENT_CONCURRENCY", "8")
+
+	cfg, err := Resolve(Options{
+		Skills:         []string{"./skills/code-review.md"},
+		Platform:       "github",
+		Concurrency:    2,
+		ConcurrencySet: true,
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error: %v", err)
+	}
+	if cfg.Concurrency != 2 {
+		t.Errorf("Concurrency = %d, want 2", cfg.Concurrency)
+	}
+}

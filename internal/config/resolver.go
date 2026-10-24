@@ -15,6 +15,7 @@ type Options struct {
 	MaxTokens         int // deprecated: accepted for compatibility, ignored
 	ContextLimit      int
 	Concurrency       int
+	ConcurrencySet    bool // true when the flag was explicitly passed on the command line
 	Timeout           time.Duration
 	RepoPath          string
 	Local             bool
@@ -80,6 +81,10 @@ func Resolve(opts Options) (Config, error) {
 
 	if cfg.ContextLimit < 0 {
 		return Config{}, fmt.Errorf("--context-limit must be a positive number of tokens, got %d", cfg.ContextLimit)
+	}
+	if opts.ConcurrencySet {
+		// An explicit flag is used as given, so 0 is an error rather than "unset".
+		cfg.Concurrency = opts.Concurrency
 	}
 	if cfg.Concurrency < 1 {
 		return Config{}, fmt.Errorf("--concurrency must be at least 1, got %d", cfg.Concurrency)
