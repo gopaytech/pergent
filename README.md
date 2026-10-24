@@ -256,7 +256,7 @@ pergent appends its own output-format instructions to every skill: the model mus
 pergent posts one comment per PR/MR, updated in place on each run. It starts with a collapsed list of the changed files, then has one section per skill:
 
 - a verdict line first: `No blocking issues`, `N blocking issues`, or a warning that part of the review failed (and which files it did not cover)
-- the model's summary of what it checked and concluded, written even when it found nothing: one paragraph, or one bullet per batch (`Batch N of M`) for a batched review
+- the model's summary of what it checked and concluded, written even when it found nothing: a `Summary:` line, or one bullet per batch (`Batch N of M`) for a batched review
 - each blocking finding in full: `file:line`, a title, the explanation and an optional suggested fix
 - the suggestions in a collapsed block
 - the files the skill reviewed, in a collapsed block
@@ -272,7 +272,7 @@ A clean review looks like this:
 
 ✅ **No blocking issues**
 
-Checked the handler and its tests in api/: input is validated before use, errors are returned to the caller, and the new query is parameterised.
+**Summary:** Checked the handler and its tests in api/: input is validated before use, errors are returned to the caller, and the new query is parameterised.
 
 <details><summary>Reviewed files (2)</summary> …
 ```

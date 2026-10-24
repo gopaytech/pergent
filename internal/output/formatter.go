@@ -356,13 +356,20 @@ func writeSummaries(b *strings.Builder, r review.SkillResult, l layout) {
 		return
 	}
 	if r.Batches <= 1 && len(r.Summaries) == 1 {
-		b.WriteString(modelText(oneLine(r.Summaries[0].Text)) + "\n\n")
+		fmt.Fprintf(b, "**Summary:** %s\n\n", summaryText(r.Summaries[0].Text))
 		return
 	}
 	for _, sum := range r.Summaries {
-		fmt.Fprintf(b, "- **Batch %d of %d:** %s\n", sum.Batch, r.Batches, neutralizeComments(oneLine(sum.Text)))
+		fmt.Fprintf(b, "- **Batch %d of %d:** %s\n", sum.Batch, r.Batches, summaryText(sum.Text))
 	}
 	b.WriteString("\n")
+}
+
+// summaryText renders a summary as plain text. It always follows a fixed
+// prefix, so it never starts a line and can't open a code block, heading or
+// HTML block; escaping "<" keeps any HTML in it, comments included, inert.
+func summaryText(s string) string {
+	return strings.ReplaceAll(oneLine(s), "<", "&lt;")
 }
 
 func plural(n int, word string) string {
