@@ -6,10 +6,12 @@ package review
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gopaytech/pergent/internal/config"
@@ -36,7 +38,9 @@ type Request struct {
 	Skills         []skill.Skill
 	Diff, RepoPath string
 	// Budget bounds the whole review (10 minutes when not positive).
-	Budget                              time.Duration
+	Budget time.Duration
+	// Concurrency is the most opencode runs in flight at once across the
+	// whole review (1 when not positive).
 	Concurrency, MaxTurns, ContextLimit int
 	// Previous holds each skill's findings from the previous review, by
 	// skill name.
@@ -46,7 +50,8 @@ type Request struct {
 }
 
 // BatchFailure records in-scope files that were not reviewed. Message
-// explains why when Cause is nil.
+// explains why when Cause is nil; when both are set, Message is context
+// shown before the cause.
 type BatchFailure struct {
 	Files   []string
 	Cause   *runner.Cause
@@ -77,7 +82,15 @@ const (
 	multiBatchMessage  = "Review the attached diff. It is batch %d of %d of this change; the attached list shows every changed file. Review only the files in this batch's diff, and read any file in the repository you need."
 	previousMessage    = "Also attached are the findings from your previous review of an earlier revision, as JSON. Stay consistent with them: focus on what changed since, don't re-litigate unchanged code, drop findings the new changes resolve, and reuse a finding's fingerprint when it still applies."
 	repairMessage      = "The attached review is not in the required output format (%s). Rewrite it in the required format without changing its findings."
+	repairFailedPrefix = "The model's answer was not in the required format (%v), and the repair run failed:"
 )
+
+// errBudget is the review context's cause when the budget runs out.
+var errBudget = errors.New("review budget ran out")
+
+// errNotStarted reports that a run was not started because the review's
+// deadline passed or its context ended.
+var errNotStarted = errors.New("run not started")
 
 // reviewer holds what every skill's review shares.
 type reviewer struct {
@@ -85,10 +98,14 @@ type reviewer struct {
 	files       []diff.FileDiff
 	changedList string
 	classifier  diff.Classifier
+	// slots holds one token per opencode run in flight.
+	slots    chan struct{}
+	deadline time.Time
 }
 
-// Run reviews the change with each skill, one batch at a time, and returns
-// the results in req.Skills order.
+// Run reviews the change with every skill and batch concurrently, with at
+// most req.Concurrency opencode runs at once and all of them within
+// req.Budget, and returns the results in req.Skills order.
 func Run(ctx context.Context, req Request) []SkillResult {
 	if req.Run == nil {
 		req.Run = runner.Run
@@ -104,13 +121,37 @@ func Run(ctx context.Context, req Request) []SkillResult {
 	for _, f := range files {
 		fmt.Fprintf(&list, "- %s\n", f.Path)
 	}
-	r := &reviewer{req: req, files: files, changedList: list.String(), classifier: diff.NewClassifier(req.RepoPath)}
+	ctx, cancel := context.WithDeadlineCause(ctx, time.Now().Add(req.Budget), errBudget)
+	defer cancel()
+	deadline, _ := ctx.Deadline()
+	r := &reviewer{
+		req:         req,
+		files:       files,
+		changedList: list.String(),
+		classifier:  diff.NewClassifier(req.RepoPath),
+		slots:       make(chan struct{}, req.Concurrency),
+		deadline:    deadline,
+	}
 
 	results := make([]SkillResult, len(req.Skills))
+	var wg sync.WaitGroup
 	for i, s := range req.Skills {
-		results[i] = r.reviewSkill(ctx, s)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results[i] = r.reviewSkill(ctx, s)
+		}()
 	}
+	wg.Wait()
 	return results
+}
+
+// batchOutcome is one batch's review: its findings, why it was not
+// reviewed, or that its run never started.
+type batchOutcome struct {
+	findings   []finding.Finding
+	failure    *BatchFailure
+	notStarted bool
 }
 
 func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) SkillResult {
@@ -135,15 +176,39 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) SkillResult {
 	}
 
 	prev, hasPrev := r.req.Previous[s.Name]
-	var all []finding.Finding
+	outcomes := make([]batchOutcome, len(batches))
+	var wg sync.WaitGroup
 	for i, b := range batches {
-		fs, failure := r.reviewBatch(ctx, s, b, i+1, len(batches), prev, hasPrev)
-		if failure != nil {
-			res.Failures = append(res.Failures, *failure)
-			continue
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			outcomes[i] = r.reviewBatch(ctx, s, b, i+1, len(batches), prev, hasPrev)
+		}()
+	}
+	wg.Wait()
+
+	// Collect in batch order so the result doesn't depend on which run
+	// finished first.
+	var all []finding.Finding
+	var unstarted []string
+	for i, o := range outcomes {
+		switch {
+		case o.notStarted:
+			for _, f := range batches[i] {
+				unstarted = append(unstarted, f.Path)
+			}
+		case o.failure != nil:
+			res.Failures = append(res.Failures, *o.failure)
+		default:
+			res.BatchesFinished++
+			all = append(all, o.findings...)
 		}
-		res.BatchesFinished++
-		all = append(all, fs...)
+	}
+	if len(unstarted) > 0 {
+		res.Failures = append(res.Failures, BatchFailure{
+			Files:   unstarted,
+			Message: fmt.Sprintf("Not reviewed: %s; %d of %d batches finished.", r.stopReason(ctx), res.BatchesFinished, res.Batches),
+		})
 	}
 	res.Findings = finding.Dedup(assignFingerprints(s.Name, all, prev))
 	res.Verdict = verdict(res)
@@ -151,28 +216,22 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) SkillResult {
 }
 
 // reviewBatch runs the review of one batch, and one repair run when the
-// answer is not in the required format. It returns the batch's findings, or
-// why the batch was not reviewed.
-func (r *reviewer) reviewBatch(ctx context.Context, s skill.Skill, batch []diff.FileDiff, n, total int, prev []finding.Finding, hasPrev bool) ([]finding.Finding, *BatchFailure) {
+// answer is not in the required format. It returns the batch's findings, why
+// the batch was not reviewed, or that its run never started.
+func (r *reviewer) reviewBatch(ctx context.Context, s skill.Skill, batch []diff.FileDiff, n, total int, prev []finding.Finding, hasPrev bool) batchOutcome {
 	paths := make([]string, len(batch))
 	var patch strings.Builder
 	for i, f := range batch {
 		paths[i] = f.Path
 		patch.WriteString(f.Patch)
 	}
-	notReviewed := func(format string, args ...any) *BatchFailure {
-		return &BatchFailure{Files: paths, Message: "Not reviewed: " + fmt.Sprintf(format, args...)}
-	}
-	runFailed := func(res runner.RunResult) *BatchFailure {
-		if res.Cause == nil {
-			return notReviewed("the run failed without a reported cause.")
-		}
-		return &BatchFailure{Files: paths, Cause: res.Cause}
+	notReviewed := func(format string, args ...any) batchOutcome {
+		return batchOutcome{failure: &BatchFailure{Files: paths, Message: "Not reviewed: " + fmt.Sprintf(format, args...)}}
 	}
 
 	dir, err := os.MkdirTemp("", "pergent-batch-*")
 	if err != nil {
-		return nil, notReviewed("could not write the batch files: %v", err)
+		return notReviewed("could not write the batch files: %v", err)
 	}
 	defer os.RemoveAll(dir)
 	write := func(name, content string) (string, error) {
@@ -195,7 +254,7 @@ func (r *reviewer) reviewBatch(ctx context.Context, s skill.Skill, batch []diff.
 		}
 		data, err := json.MarshalIndent(map[string][]finding.Finding{"findings": prev}, "", "  ")
 		if err != nil {
-			return nil, notReviewed("could not encode the previous findings: %v", err)
+			return notReviewed("could not encode the previous findings: %v", err)
 		}
 		attachments = append(attachments, attachment{"previous-findings.json", string(data)})
 		message += " " + previousMessage
@@ -204,48 +263,99 @@ func (r *reviewer) reviewBatch(ctx context.Context, s skill.Skill, batch []diff.
 	for _, a := range attachments {
 		p, err := write(a.name, a.content)
 		if err != nil {
-			return nil, notReviewed("could not write the batch files: %v", err)
+			return notReviewed("could not write the batch files: %v", err)
 		}
 		files = append(files, p)
 	}
 
 	res, err := r.run(ctx, s, files, message)
+	if errors.Is(err, errNotStarted) {
+		return batchOutcome{notStarted: true}
+	}
 	if err != nil {
-		return nil, notReviewed("could not generate the opencode config: %v", err)
+		return notReviewed("could not generate the opencode config: %v", err)
 	}
 	if res.Status != runner.StatusCompleted {
-		return nil, runFailed(res)
+		if res.Cause == nil {
+			return notReviewed("the run failed without a reported cause.")
+		}
+		return batchOutcome{failure: &BatchFailure{Files: paths, Cause: res.Cause}}
 	}
 	fs, parseErr := finding.ParseAnswer(res.Output)
 	if parseErr == nil {
-		return fs, nil
+		return batchOutcome{findings: fs}
 	}
 
 	bad, err := write("review-answer.md", res.Output)
 	if err != nil {
-		return nil, notReviewed("could not write the answer for repair: %v", err)
+		return notReviewed("could not write the answer for repair: %v", err)
 	}
 	repaired, err := r.run(ctx, s, []string{bad}, fmt.Sprintf(repairMessage, parseErr))
+	if errors.Is(err, errNotStarted) {
+		return notReviewed("%s before the repair run could start; the model's answer was not in the required format (%v).", r.stopReason(ctx), parseErr)
+	}
 	if err != nil {
-		return nil, notReviewed("could not generate the opencode config: %v", err)
+		return notReviewed("could not generate the opencode config: %v", err)
 	}
 	if repaired.Status != runner.StatusCompleted {
-		return nil, runFailed(repaired)
+		if repaired.Cause == nil {
+			return notReviewed("the answer was not in the required format (%v), and the repair run failed without a reported cause.", parseErr)
+		}
+		return batchOutcome{failure: &BatchFailure{Files: paths, Cause: repaired.Cause, Message: fmt.Sprintf(repairFailedPrefix, parseErr)}}
 	}
 	if fs, err := finding.ParseAnswer(repaired.Output); err == nil {
-		return fs, nil
+		return batchOutcome{findings: fs}
 	}
-	return nil, notReviewed("the answer was not in the required format (%v), and a repair run did not fix it. The answer began: %s",
+	return notReviewed("the answer was not in the required format (%v), and a repair run did not fix it. The answer began: %s",
 		parseErr, excerpt(res.Output))
 }
 
-// run generates the opencode config for skill s and runs opencode once.
+// stopReason says why runs can no longer start: the budget ran out, or the
+// caller's context ended first.
+func (r *reviewer) stopReason(ctx context.Context) string {
+	if cause := context.Cause(ctx); cause != nil && !errors.Is(cause, errBudget) {
+		return fmt.Sprintf("the review was cancelled (%v)", cause)
+	}
+	return fmt.Sprintf("the %s review budget ran out", r.req.Budget)
+}
+
+// acquire waits for a free run slot. It reports false, holding no slot,
+// when the review's context ends or its deadline has passed.
+func (r *reviewer) acquire(ctx context.Context) bool {
+	if ctx.Err() != nil {
+		return false
+	}
+	select {
+	case r.slots <- struct{}{}:
+	case <-ctx.Done():
+		return false
+	}
+	if ctx.Err() != nil || time.Until(r.deadline) <= 0 {
+		<-r.slots
+		return false
+	}
+	return true
+}
+
+func (r *reviewer) release() { <-r.slots }
+
+// run waits for a run slot, generates the opencode config for skill s and
+// runs opencode once with the time left in the budget. It returns
+// errNotStarted when no time is left.
 func (r *reviewer) run(ctx context.Context, s skill.Skill, files []string, message string) (runner.RunResult, error) {
+	if !r.acquire(ctx) {
+		return runner.RunResult{}, errNotStarted
+	}
+	defer r.release()
 	configPath, cleanup, err := config.GenerateOpenCodeConfig(r.req.MaxTurns, r.req.ContextLimit, s.Prompt(), r.req.RepoPath)
 	if err != nil {
 		return runner.RunResult{}, err
 	}
 	defer cleanup()
+	timeout := time.Until(r.deadline)
+	if timeout <= 0 {
+		return runner.RunResult{}, errNotStarted
+	}
 	// The step and context limits only apply when pergent wrote the config.
 	stepLimit, ctxLimit := 0, 0
 	if configPath != "" {
@@ -257,7 +367,7 @@ func (r *reviewer) run(ctx context.Context, s skill.Skill, files []string, messa
 		Files:        files,
 		Message:      message,
 		RepoPath:     r.req.RepoPath,
-		Timeout:      r.req.Budget,
+		Timeout:      timeout,
 		StepLimit:    stepLimit,
 		ContextLimit: ctxLimit,
 	}), nil
