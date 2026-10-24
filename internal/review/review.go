@@ -196,8 +196,8 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) SkillResult {
 	for _, f := range oversize {
 		res.Failures = append(res.Failures, BatchFailure{
 			Files: []string{f.Path},
-			Message: fmt.Sprintf("Not reviewed: its diff is about %d tokens, larger than the per-batch limit of %d tokens.",
-				diff.EstimateTokens(f.Patch), budget),
+			Message: fmt.Sprintf("Not reviewed: `%s` \u2014 its diff is about %s tokens, larger than the per-batch limit of %s.",
+				f.Path, runner.FormatInt(diff.EstimateTokens(f.Patch)), runner.FormatInt(budget)),
 		})
 	}
 

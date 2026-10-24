@@ -184,7 +184,9 @@ func writeSkill(b *strings.Builder, r review.SkillResult, fs []finding.Finding) 
 	case len(r.Failures) > 0:
 		for _, f := range r.Failures {
 			b.WriteString("\u26a0\ufe0f ")
-			if r.Batches > 1 && len(f.Files) > 0 {
+			// Name the files when the reader can't tell which ones failed: the
+			// skill had several batches or there are several failures.
+			if len(f.Files) > 0 && (r.Batches > 1 || len(r.Failures) > 1) {
 				quoted := make([]string, len(f.Files))
 				for i, file := range f.Files {
 					quoted[i] = codeSpan(file)
