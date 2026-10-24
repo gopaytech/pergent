@@ -167,7 +167,9 @@ func main() {
 		log.Printf("%d of %d skill reviews failed; the failures are reported in the review comment", failed, len(results))
 	}
 
-	comment := output.FormatReview(results, changedFiles)
+	// A comment over the platform's size limit would fail to post, so it is
+	// shrunk to fit; local mode prints it whole.
+	comment := output.FormatReviewWithin(results, changedFiles, commentLimit(cfg.Platform))
 
 	if cfg.Local {
 		fmt.Print(comment)
@@ -197,6 +199,19 @@ func main() {
 	}
 
 	fmt.Fprintf(os.Stderr, "Done.\n")
+}
+
+// commentLimit is the most characters a platform accepts in one comment
+// (0, no limit, in local mode). It is applied in bytes, which never count
+// fewer than characters.
+func commentLimit(platform string) int {
+	switch platform {
+	case "github":
+		return 65536
+	case "gitlab":
+		return 1000000
+	}
+	return 0
 }
 
 // failureLogLine renders a failed batch for the CI log, with the files it

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/gopaytech/pergent/internal/finding"
 	"github.com/gopaytech/pergent/internal/redact"
@@ -140,6 +141,73 @@ type findingsBlock struct {
 // skipped files. A hidden last line carries the findings for the next run.
 // Credentials are redacted from the whole comment and from the hidden block.
 func FormatReview(results []review.SkillResult, changedFiles []string) string {
+	return render(results, changedFiles, layout{listLimit: -1})
+}
+
+// Notes FormatReviewWithin adds for what it left out.
+const (
+	hiddenDroppedNote  = "> Findings were too large to store for the next run; --previous-review will treat the next run as a first review."
+	detailsDroppedNote = "> Suggestion details omitted to fit the comment size limit."
+	truncatedNote      = "\n\n> Comment truncated to fit the comment size limit.\n"
+)
+
+// layout says what render leaves out of the comment.
+type layout struct {
+	noHidden         bool
+	suggestionTitles bool // suggestions without their explanation and fix
+	noSuggestions    bool
+	// listLimit caps the changed-files and skipped-files lists; -1 means no cap.
+	listLimit int
+}
+
+// FormatReviewWithin is FormatReview for a platform that limits a comment to
+// maxLen bytes (no limit when maxLen is not positive). A comment over the
+// limit is shrunk in steps until it fits: the hidden findings block goes
+// first, then the suggestions' explanations and fixes, then the suggestions,
+// then the file lists are cut to a count. Blocking findings and failures are
+// never dropped; if they alone are over the limit, the comment is cut at the
+// limit with a note.
+func FormatReviewWithin(results []review.SkillResult, changedFiles []string, maxLen int) string {
+	out := FormatReview(results, changedFiles)
+	if maxLen <= 0 || len(out) <= maxLen {
+		return out
+	}
+	for _, l := range []layout{
+		{noHidden: true, listLimit: -1},
+		{noHidden: true, suggestionTitles: true, listLimit: -1},
+		{noHidden: true, noSuggestions: true, listLimit: -1},
+		{noHidden: true, noSuggestions: true, listLimit: 20},
+		{noHidden: true, noSuggestions: true, listLimit: 0},
+	} {
+		out = render(results, changedFiles, l)
+		if len(out) <= maxLen {
+			return out
+		}
+	}
+	keep := maxLen - len(truncatedNote)
+	if keep < 0 {
+		return cutBytes(out, maxLen)
+	}
+	out = cutBytes(out, keep)
+	if i := strings.LastIndexByte(out, '\n'); i >= 0 {
+		out = out[:i]
+	}
+	return out + truncatedNote
+}
+
+// cutBytes returns the longest prefix of s of at most n bytes that doesn't
+// split a UTF-8 sequence.
+func cutBytes(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
+}
+
+func render(results []review.SkillResult, changedFiles []string, l layout) string {
 	var b strings.Builder
 
 	b.WriteString("<!-- pergent -->\n")
@@ -147,9 +215,11 @@ func FormatReview(results []review.SkillResult, changedFiles []string) string {
 
 	if len(changedFiles) > 0 {
 		fmt.Fprintf(&b, "<details><summary>Files changed (%d)</summary>\n\n", len(changedFiles))
-		for _, f := range changedFiles {
-			fmt.Fprintf(&b, "- %s\n", codeSpan(f))
+		lines := make([]string, len(changedFiles))
+		for i, f := range changedFiles {
+			lines[i] = codeSpan(f)
 		}
+		writeList(&b, lines, l.listLimit)
 		b.WriteString("\n</details>\n\n")
 	}
 
@@ -157,17 +227,32 @@ func FormatReview(results []review.SkillResult, changedFiles []string) string {
 	for _, r := range results {
 		fs := redactFindings(r.Findings)
 		block.Skills[r.Skill] = fs
-		writeSkill(&b, r, fs)
+		writeSkill(&b, r, fs, l)
 	}
 
 	out := redact.String(b.String())
+	if l.noHidden {
+		return out + hiddenDroppedNote + "\n"
+	}
 	if data, err := json.Marshal(block); err == nil {
 		out += findingsMarker + base64.StdEncoding.EncodeToString(data) + " -->\n"
 	}
 	return out
 }
 
-func writeSkill(b *strings.Builder, r review.SkillResult, fs []finding.Finding) {
+// writeList writes lines as a markdown list, at most limit of them (all when
+// limit is negative) and then a count of the rest.
+func writeList(b *strings.Builder, lines []string, limit int) {
+	for i, line := range lines {
+		if limit >= 0 && i == limit {
+			fmt.Fprintf(b, "- and %d more not listed to fit the comment size limit\n", len(lines)-limit)
+			return
+		}
+		fmt.Fprintf(b, "- %s\n", line)
+	}
+}
+
+func writeSkill(b *strings.Builder, r review.SkillResult, fs []finding.Finding, l layout) {
 	fmt.Fprintf(b, "<!-- pergent:%s -->\n", r.Skill)
 	fmt.Fprintf(b, "### %s\n\n", r.Skill)
 
@@ -212,20 +297,29 @@ func writeSkill(b *strings.Builder, r review.SkillResult, fs []finding.Finding) 
 	}
 
 	for _, f := range blocking {
-		writeFinding(b, f)
+		writeFinding(b, f, false)
 	}
-	if len(suggestions) > 0 {
+	switch {
+	case len(suggestions) == 0:
+	case l.noSuggestions:
+		fmt.Fprintf(b, "> %s omitted to fit the comment size limit.\n\n", plural(len(suggestions), "suggestion"))
+	default:
 		fmt.Fprintf(b, "<details><summary>Suggestions (%d)</summary>\n\n", len(suggestions))
+		if l.suggestionTitles {
+			b.WriteString(detailsDroppedNote + "\n\n")
+		}
 		for _, f := range suggestions {
-			writeFinding(b, f)
+			writeFinding(b, f, l.suggestionTitles)
 		}
 		b.WriteString("</details>\n\n")
 	}
 	if len(r.Skipped) > 0 {
 		fmt.Fprintf(b, "<details><summary>Skipped files (%d)</summary>\n\n", len(r.Skipped))
-		for _, s := range r.Skipped {
-			fmt.Fprintf(b, "- %s \u2014 %s\n", codeSpan(s.Path), neutralizeComments(oneLine(s.Rule)))
+		lines := make([]string, len(r.Skipped))
+		for i, s := range r.Skipped {
+			lines[i] = fmt.Sprintf("%s \u2014 %s", codeSpan(s.Path), neutralizeComments(oneLine(s.Rule)))
 		}
+		writeList(b, lines, l.listLimit)
 		b.WriteString("\n</details>\n\n")
 	}
 	for _, n := range r.Notes {
@@ -238,12 +332,24 @@ func writeSkill(b *strings.Builder, r review.SkillResult, fs []finding.Finding) 
 	fmt.Fprintf(b, "<!-- /pergent:%s -->\n\n", r.Skill)
 }
 
-func writeFinding(b *strings.Builder, f finding.Finding) {
+func plural(n int, word string) string {
+	if n == 1 {
+		return "1 " + word
+	}
+	return fmt.Sprintf("%d %ss", n, word)
+}
+
+// writeFinding writes a finding; titleOnly leaves out its explanation and
+// suggested fix.
+func writeFinding(b *strings.Builder, f finding.Finding, titleOnly bool) {
 	where := f.File
 	if f.Line > 0 {
 		where = fmt.Sprintf("%s:%d", f.File, f.Line)
 	}
 	fmt.Fprintf(b, "**%s** \u2014 **%s**\n\n", codeSpan(where), neutralizeComments(oneLine(f.Title)))
+	if titleOnly {
+		return
+	}
 	if f.Explanation != "" {
 		fmt.Fprintf(b, "%s\n\n", modelText(f.Explanation))
 	}

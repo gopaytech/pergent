@@ -73,3 +73,11 @@ func TestFailureLogLine(t *testing.T) {
 		}
 	}
 }
+
+func TestCommentLimit(t *testing.T) {
+	for platform, want := range map[string]int{"github": 65536, "gitlab": 1000000, "": 0} {
+		if got := commentLimit(platform); got != want {
+			t.Errorf("commentLimit(%q) = %d, want %d", platform, got, want)
+		}
+	}
+}
