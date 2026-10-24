@@ -565,3 +565,18 @@ func TestRun_LockfileWithoutPlatformDiffIsStillSkipped(t *testing.T) {
 		t.Errorf("Skipped = %+v, want go.sum skipped as a lockfile", r.Skipped)
 	}
 }
+
+func TestRun_OversizeMessageNamesTheFile(t *testing.T) {
+	f := &fake{respond: func(int, call) runner.RunResult { return completed(answer(t)) }}
+	req := newRequest(t, f, patch("big/huge.go", strings.Repeat("z", 10000)))
+	req.ContextLimit = 8000 // per-batch budget of 2,000 tokens
+
+	r := Run(context.Background(), req)[0]
+	const want = "Not reviewed: `big/huge.go` \u2014 its diff is about 2,524 tokens, larger than the per-batch limit of 2,000."
+	if len(r.Failures) != 1 || r.Failures[0].Message != want {
+		t.Errorf("Failures = %+v, want one with message %q", r.Failures, want)
+	}
+	if r.Batches != 0 || len(f.calls) != 0 {
+		t.Errorf("Batches = %d, calls = %d, want no batch and no run", r.Batches, len(f.calls))
+	}
+}

@@ -313,3 +313,41 @@ func TestFormatReview_ModelTextCannotBreakLayout(t *testing.T) {
 		t.Errorf("hidden block changed the original text:\n got %+v\nwant %+v", prev["first"], hostile)
 	}
 }
+
+func TestFormatReview_FailureFilesShownWhenAmbiguous(t *testing.T) {
+	two := review.SkillResult{
+		Skill:   "two-failures",
+		Verdict: review.Failed,
+		Failures: []review.BatchFailure{
+			{Files: []string{"a.go"}, Message: "Not reviewed: first."},
+			{Files: []string{"b.go"}, Message: "Not reviewed: second."},
+		},
+		Batches: 1,
+	}
+	one := review.SkillResult{
+		Skill:    "one-failure",
+		Verdict:  review.Failed,
+		Failures: []review.BatchFailure{{Files: []string{"c.go"}, Message: "Not reviewed: third."}},
+		Batches:  1,
+	}
+	noFiles := review.SkillResult{
+		Skill:    "no-files",
+		Verdict:  review.Failed,
+		Failures: []review.BatchFailure{{Message: "Not reviewed: fourth."}, {Message: "Not reviewed: fifth."}},
+	}
+	got := FormatReview([]review.SkillResult{two, one, noFiles}, nil)
+
+	for _, want := range []string{
+		"\u26a0\ufe0f Files `a.go`: **Review failed:** Not reviewed: first.",
+		"\u26a0\ufe0f Files `b.go`: **Review failed:** Not reviewed: second.",
+		"\u26a0\ufe0f **Review failed:** Not reviewed: third.",
+		"\u26a0\ufe0f **Review failed:** Not reviewed: fourth.",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("comment is missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "`c.go`:") {
+		t.Errorf("a single failure in a single-batch skill lists its files:\n%s", got)
+	}
+}

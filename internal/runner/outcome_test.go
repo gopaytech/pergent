@@ -273,8 +273,8 @@ func TestEventError_Transient(t *testing.T) {
 func TestFormatInt(t *testing.T) {
 	tests := map[int]string{0: "0", 999: "999", 1000: "1,000", 96210: "96,210", 1234567: "1,234,567", -4500: "-4,500"}
 	for n, want := range tests {
-		if got := formatInt(n); got != want {
-			t.Errorf("formatInt(%d) = %q, want %q", n, got, want)
+		if got := FormatInt(n); got != want {
+			t.Errorf("FormatInt(%d) = %q, want %q", n, got, want)
 		}
 	}
 }

@@ -86,7 +86,7 @@ func (c Cause) Message() string {
 		// counts the steps that came before it.
 		if c.LastStepTokens > 0 {
 			msg = fmt.Sprintf("The model's context window overflowed after %s: the last completed step used %s tokens (limit: %s).",
-				plural(c.Steps, "step"), formatInt(c.LastStepTokens), c.contextLimitText())
+				plural(c.Steps, "step"), FormatInt(c.LastStepTokens), c.contextLimitText())
 		} else {
 			msg = fmt.Sprintf("The model's context window overflowed on the first request: the skill prompt, diff and instructions alone exceed it (limit: %s).", c.contextLimitText())
 		}
@@ -147,7 +147,7 @@ func (c Cause) Message() string {
 		switch {
 		case c.Compacted:
 			msg = fmt.Sprintf("opencode compacted the context at %s tokens after %s, and the run ended before the model produced a review.",
-				formatInt(c.CompactedAtTokens), plural(c.CompactedAtStep, "step"))
+				FormatInt(c.CompactedAtTokens), plural(c.CompactedAtStep, "step"))
 		case c.FinishReason == "length":
 			msg = fmt.Sprintf("The model's answer was cut off at its output token limit %s (finish reason: length).", c.atStep())
 		case c.EndedMidStep:
@@ -172,7 +172,7 @@ func (c Cause) atStep() string {
 
 func (c Cause) contextLimitText() string {
 	if c.ContextLimit > 0 {
-		return formatInt(c.ContextLimit) + " tokens, set by --context-limit"
+		return FormatInt(c.ContextLimit) + " tokens, set by --context-limit"
 	}
 	return "the model's context window as known to opencode"
 }
@@ -307,11 +307,11 @@ func plural(n int, word string) string {
 	return fmt.Sprintf("%d %ss", n, word)
 }
 
-// formatInt renders 96210 as "96,210".
-func formatInt(n int) string {
+// FormatInt renders 96210 as "96,210".
+func FormatInt(n int) string {
 	s := fmt.Sprint(n)
 	if n < 0 {
-		return "-" + formatInt(-n)
+		return "-" + FormatInt(-n)
 	}
 	for i := len(s) - 3; i > 0; i -= 3 {
 		s = s[:i] + "," + s[i:]

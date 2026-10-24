@@ -58,3 +58,18 @@ func TestPreviousFindings_CorruptBlockWarnsAndContinues(t *testing.T) {
 		t.Errorf("log = %q, want a warning", logs.String())
 	}
 }
+
+func TestFailureLogLine(t *testing.T) {
+	tests := []struct {
+		f    review.BatchFailure
+		want string
+	}{
+		{review.BatchFailure{Files: []string{"a.go", "b.go"}, Message: "Not reviewed: x."}, "skill s, files a.go, b.go: **Review failed:** Not reviewed: x."},
+		{review.BatchFailure{Message: "Not reviewed: y."}, "skill s: **Review failed:** Not reviewed: y."},
+	}
+	for _, tt := range tests {
+		if got := failureLogLine("s", tt.f); got != tt.want {
+			t.Errorf("failureLogLine() = %q, want %q", got, tt.want)
+		}
+	}
+}

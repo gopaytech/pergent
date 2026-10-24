@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/gopaytech/pergent/internal/finding"
 	"github.com/gopaytech/pergent/internal/output"
 	"github.com/gopaytech/pergent/internal/platform"
+	"github.com/gopaytech/pergent/internal/redact"
 	"github.com/gopaytech/pergent/internal/review"
 	"github.com/gopaytech/pergent/internal/skill"
 )
@@ -158,7 +160,7 @@ func main() {
 		}
 		failed++
 		for _, f := range r.Failures {
-			log.Printf("skill %s: %s", r.Skill, output.BatchFailureText(f))
+			log.Print(failureLogLine(r.Skill, f))
 		}
 	}
 	if failed > 0 {
@@ -195,6 +197,15 @@ func main() {
 	}
 
 	fmt.Fprintf(os.Stderr, "Done.\n")
+}
+
+// failureLogLine renders a failed batch for the CI log, with the files it
+// left unreviewed.
+func failureLogLine(skillName string, f review.BatchFailure) string {
+	if len(f.Files) == 0 {
+		return fmt.Sprintf("skill %s: %s", skillName, output.BatchFailureText(f))
+	}
+	return fmt.Sprintf("skill %s, files %s: %s", skillName, redact.String(strings.Join(f.Files, ", ")), output.BatchFailureText(f))
 }
 
 // previousFindings reads the findings a previous pergent comment carries. A
