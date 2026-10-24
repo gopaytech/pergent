@@ -5,17 +5,19 @@ Agentic PR/MR review tool for CI/CD pipelines. Unlike single-shot review tools, 
 ## How It Works
 
 1. You define review behavior via **skill files** (`.md` files with review instructions)
-2. pergent spawns one `opencode run` per skill, attaching the PR diff
-3. The agent explores the repo iteratively (reads files, greps, follows references)
-4. pergent collects outputs and posts a combined review comment on the PR/MR
+2. For each skill, pergent picks the changed files in its scope, groups them into batches that fit the model's context, and spawns one `opencode run` per batch, attaching that batch's diff
+3. The agent explores the repo iteratively (reads files, greps, follows references) and answers with structured findings
+4. pergent merges the findings, re-checks the blocking ones, decides a verdict per skill, and posts one combined review comment on the PR/MR
+
+Skills and batches run in parallel (see `--concurrency`), all within one time budget for the whole review (see `--timeout`).
 
 The agent also picks up project context from the repo root's `AGENTS.md` (or `CLAUDE.md` if there is no `AGENTS.md`).
 
 ### Agent sandbox
 
-When `OPENCODE_PROVIDER` is set, pergent writes a temporary `opencode.json` for each skill and points opencode at it with `OPENCODE_CONFIG`. That config:
+When `OPENCODE_PROVIDER` is set, pergent writes a temporary `opencode.json` for each opencode run and points opencode at it with `OPENCODE_CONFIG`. That config:
 
-- defines a `pergent` agent that carries the skill body as its prompt and `--max-turns` as its step limit, and makes it the default agent (pergent also passes `--agent pergent`)
+- defines a `pergent` agent that carries the skill's prompt (its body plus pergent's output-format instructions) and `--max-turns` as its step limit, and makes it the default agent (pergent also passes `--agent pergent`)
 - allows only `read`, `glob`, `grep` and `list`, and denies `edit` (which covers file writes and patches), `bash`, `task`, `skill`, `webfetch` and `websearch`
 - denies reading `*.env` / `*.env.*` files (except `*.env.example`)
 - turns off opencode's auto-compaction (`compaction.auto: false`), so a run that fills the model's context fails with the overflow error instead of continuing from a summary
@@ -25,7 +27,7 @@ pergent also sets `OPENCODE_DISABLE_PROJECT_CONFIG=true`, so an `opencode.json` 
 
 ## When a review fails
 
-Each skill run ends in one of two ways: the model's own final answer is posted as the review, or the skill's section says **Review failed:** with the cause. pergent never posts opencode's internal messages or the model's in-progress text ("Let me check...") as a review.
+Each opencode run (one per batch) ends in one of two ways: the model's own final answer, in the required format, is parsed into findings, or the batch is reported as **Review failed:** with the cause and the files it covered. pergent never posts opencode's internal messages or the model's in-progress text ("Let me check...") as a review. A skill with any failed batch has the verdict **failed**, never "no blocking issues", even if the other batches found nothing.
 
 | Cause | Example |
 |---|---|
@@ -37,8 +39,9 @@ Each skill run ends in one of two ways: the model's own final answer is posted a
 | No answer | opencode exited normally after 6 steps, but the model did not produce a final answer (last step finished with reason "tool-calls"). |
 
 - **The CI job stays green** when a review fails; the cause is in the comment and the job log. Configuration errors found before any review starts (missing token, bad flag) still fail the job.
-- **Transient provider errors** (HTTP 429, 5xx, connection errors) are retried up to 3 times with exponential backoff (5s, 10s, 20s) within `--timeout`. opencode already retries these itself before giving up, so pergent's retries cover longer outages. If every attempt fails, the last error is reported as is.
+- **Transient provider errors** (HTTP 429, 5xx, connection errors) are retried up to 3 times with exponential backoff (5s, 10s, 20s) within the review's `--timeout` budget. opencode already retries these itself before giving up, so pergent's retries cover longer outages. If every attempt fails, the last error is reported as is.
 - **Step limit:** on the last allowed step opencode asks the model to stop and summarise its progress. That summary is not a review, so it is reported as a step-limit failure. If the model ignores the instruction and keeps calling tools, pergent stops opencode.
+- **An answer in the wrong format** (no JSON block, or a block that does not parse) gets one repair run that rewrites it; if that fails too, the batch is reported as failed with an excerpt of the answer.
 - **Secrets are redacted** from the comment and the log: the values of `OPENCODE_API_KEY`, `GITHUB_TOKEN` and `GITLAB_TOKEN`, bearer tokens, and API keys in URLs.
 
 ## Installation
@@ -196,11 +199,79 @@ and sensitive data exposure.
 pergent --skill ./skills/security-review.md
 ```
 
+### Scope: `paths`, `exclude` and `cross_batch`
+
+The frontmatter can narrow which changed files a skill reviews and ask for an extra check across batches:
+
+```yaml
+---
+name: api-review
+paths:
+  - "api/**"
+  - "*.proto"
+exclude:
+  - "**/*_test.go"
+cross_batch: true
+---
+```
+
+| Field | Meaning |
+|---|---|
+| `paths` | Glob patterns. When set, the skill reviews only changed files matching one of them. Files that match none are listed under "Skipped files" as out of scope. Unset means every changed file. |
+| `exclude` | Glob patterns for files the skill skips even though they are in scope. |
+| `cross_batch` | `true` adds one extra run, after all batches, that looks for problems spanning batches (for example conflicting changes in different directories). It only runs when the change needed more than one batch. Default `false`. |
+
+Patterns use `/`-separated paths from the repo root. `*` matches within one path segment and `**` matches any number of segments. A pattern with no `/` (such as `*.proto`) matches the file name at any depth.
+
+### Default exclusions
+
+Every skill skips these files, and the comment lists them under "Skipped files" with the reason:
+
+- **Always skipped:** deleted files, binary files, and files with no content changes (for example a pure rename).
+- **Skipped unless a skill's `paths` match them:** lockfiles (`package-lock.json`, `go.sum`, `yarn.lock`, `pnpm-lock.yaml`, `Cargo.lock`, `composer.lock`, `Gemfile.lock`, `poetry.lock`, `Pipfile.lock`), vendored code (anything under a `vendor`, `node_modules` or `third_party` directory), and generated files (paths marked `linguist-generated` in the repo's `.gitattributes`, or files whose first lines say the code is generated and not to be edited).
+
+A file larger than a batch can hold (about a quarter of the model's context window, 40,000 tokens when the window is unknown) is not reviewed and is reported as a failure for that file.
+
+### The `## Blocking` section
+
+A review has two kinds of findings: **blocking** ones, which decide the verdict, and **suggestions**. Tell the skill what blocks by adding a `## Blocking` heading (any level) to its body and listing the problems that must be fixed before merging:
+
+```markdown
+## Blocking
+
+- Logic errors that cause wrong behaviour, crashes, or data loss.
+- Security vulnerabilities.
+
+Everything else is a suggestion.
+```
+
+When a skill has no `## Blocking` section, pergent appends a default one: bugs, security vulnerabilities and broken configuration are blocking, and everything else is a suggestion. Before a blocking finding is reported, pergent runs a separate check that opens the code again and drops the finding if the problem is not real.
+
+### Don't put output-format instructions in skills
+
+pergent appends its own output-format instructions to every skill: the model must end its answer with one JSON block of findings. Don't tell a skill how to format its answer (no "use bullet points", "start with a summary", or JSON schemas of your own). Instructions like that conflict with the required format and make runs fail. Write what to look for and what counts as blocking; pergent handles the rest.
+
+## The review comment
+
+pergent posts one comment per PR/MR, updated in place on each run. It starts with a collapsed list of the changed files, then has one section per skill:
+
+- a verdict line first: `No blocking issues`, `N blocking issues`, or a warning that part of the review failed (and which files it did not cover)
+- each blocking finding in full: `file:line`, a title, the explanation and an optional suggested fix
+- the suggestions in a collapsed block
+- the skipped files, with the reason for each, in a collapsed block
+- notes, such as a skill with no files in scope, or a verification that was skipped
+
+A skill with failed batches still shows the findings from the batches that finished, next to the failure.
+
+The last line of the comment is a hidden HTML comment holding the findings for the next run (see below). Don't edit it. Secrets are redacted from the comment and from that block.
+
 ## Previous Review as Context
 
-By default each run reviews from scratch. With `--previous-review` (or `PERGENT_PREVIOUS_REVIEW=true`), pergent fetches the review comment it posted on the previous run, extracts each skill's own section, and attaches it to the agent alongside the diff. The agent is instructed to stay consistent with its earlier findings, focus on what changed since, and drop findings the new commits resolve.
+By default each run reviews from scratch. With `--previous-review` (or `PERGENT_PREVIOUS_REVIEW=true`), pergent fetches the review comment it posted on the previous run, reads the findings from its hidden findings block, and attaches each skill's findings to that skill's runs alongside the diff. The agent is instructed to stay consistent with them, focus on what changed since, drop findings the new commits resolve, and reuse a finding's fingerprint when it still applies. A skill with no previous findings gets nothing attached.
 
 pergent stays stateless, the PR/MR comment is the only persistent state. First runs (no existing comment) behave exactly as before. Requires platform mode (not available with `--local`).
+
+Comments posted by older versions of pergent have no findings block, so they are ignored: the first run after upgrading is a first review. A findings block that cannot be read is skipped with a warning in the log.
 
 ```yaml
 mr-review:
@@ -226,12 +297,13 @@ mr-review:
 | `--local` | Local mode: diff from git, output to stdout | `false` |
 | `--base-branch` | Base branch for local git diff | `main` |
 | `--test` | Test opencode connection (sends a hello prompt) | `false` |
-| `--previous-review` | Attach pergent's previous review comment as context on re-runs (platform mode only) | `false` |
+| `--previous-review` | Attach the findings from pergent's previous review comment as context on re-runs (platform mode only) | `false` |
 | `--platform` | `github` or `gitlab` | auto-detect |
-| `--max-turns` | Max agentic turns per skill run | `20` |
+| `--max-turns` | Max agentic turns per opencode run | `20` |
 | `--context-limit` | Model context window in tokens. Only for models opencode has no limits for (e.g. behind a custom `OPENCODE_BASE_URL`); otherwise opencode's model registry is used | unset |
 | `--max-tokens` | **Deprecated and ignored.** It used to set the context window, which made opencode compact far below the model's real limit. Prints a warning | — |
-| `--timeout` | Max wall-clock time per skill run, retries included | `10m` |
+| `--timeout` | **Breaking:** max wall-clock time for the whole review, all skills, batches, retries and checks together. It used to apply to each skill run separately, so a job that relied on a per-skill limit now shares one budget | `10m` |
+| `--concurrency` | Max opencode runs in flight at once, across all skills and batches. Must be at least 1 | `4` |
 | `--repo-path` | Path to repo root | `.` |
 
 ## Environment Variables
@@ -257,11 +329,12 @@ mr-review:
 
 | Variable | Description |
 |---|---|
-| `PERGENT_MAX_TURNS` | Max agentic turns per skill run |
+| `PERGENT_MAX_TURNS` | Max agentic turns per opencode run |
 | `PERGENT_CONTEXT_LIMIT` | Model context window in tokens (see `--context-limit`) |
 | `PERGENT_MAX_TOKENS` | **Deprecated and ignored** (see `--max-tokens`) |
-| `PERGENT_TIMEOUT` | Max wall-clock time per skill run, retries included |
-| `PERGENT_PREVIOUS_REVIEW` | `true`/`false` — attach the previous review comment as context (explicit `--previous-review` flag wins over this) |
+| `PERGENT_TIMEOUT` | Max wall-clock time for the whole review (see `--timeout`; **breaking**: it used to be per skill run) |
+| `PERGENT_CONCURRENCY` | Max opencode runs in flight at once (see `--concurrency`) |
+| `PERGENT_PREVIOUS_REVIEW` | `true`/`false` — attach the previous review's findings as context (explicit `--previous-review` flag wins over this) |
 
 Config resolution priority: CLI flags > `PERGENT_*` env vars > auto-detect from CI > defaults.
 
@@ -269,9 +342,8 @@ Config resolution priority: CLI flags > `PERGENT_*` env vars > auto-detect from 
 
 ### opencode seems slow or stuck
 
-pergent shows step-by-step progress as opencode works:
+pergent shows step-by-step progress as opencode works. Skills and batches run in parallel, so lines from different runs interleave:
 ```
-Running skill: code-review
   Step 1: starting...
   Step 1: tool read
   Step 1: done (472 tokens)

@@ -14,6 +14,7 @@ type Options struct {
 	MaxTurns          int
 	MaxTokens         int // deprecated: accepted for compatibility, ignored
 	ContextLimit      int
+	Concurrency       int
 	Timeout           time.Duration
 	RepoPath          string
 	Local             bool
@@ -43,8 +44,9 @@ type Config struct {
 	Skills         []string
 	Platform       string
 	MaxTurns       int
-	ContextLimit   int // explicit model context window; 0 = use opencode's model registry
-	Timeout        time.Duration
+	ContextLimit   int           // explicit model context window; 0 = use opencode's model registry
+	Concurrency    int           // most opencode runs in flight at once
+	Timeout        time.Duration // bounds the whole review, all skills and batches together
 	RepoPath       string
 	Local          bool
 	BaseBranch     string
@@ -70,6 +72,7 @@ func Resolve(opts Options) (Config, error) {
 		Skills:       opts.Skills,
 		MaxTurns:     resolveInt(opts.MaxTurns, "PERGENT_MAX_TURNS", 20),
 		ContextLimit: resolveInt(opts.ContextLimit, "PERGENT_CONTEXT_LIMIT", 0),
+		Concurrency:  resolveInt(opts.Concurrency, "PERGENT_CONCURRENCY", 4),
 		Timeout:      resolveDuration(opts.Timeout, "PERGENT_TIMEOUT", 10*time.Minute),
 		RepoPath:     resolveString(opts.RepoPath, "", "."),
 		Local:        opts.Local,
@@ -77,6 +80,9 @@ func Resolve(opts Options) (Config, error) {
 
 	if cfg.ContextLimit < 0 {
 		return Config{}, fmt.Errorf("--context-limit must be a positive number of tokens, got %d", cfg.ContextLimit)
+	}
+	if cfg.Concurrency < 1 {
+		return Config{}, fmt.Errorf("--concurrency must be at least 1, got %d", cfg.Concurrency)
 	}
 	if opts.MaxTokens != 0 || os.Getenv("PERGENT_MAX_TOKENS") != "" {
 		cfg.Warnings = append(cfg.Warnings, maxTokensDeprecation)

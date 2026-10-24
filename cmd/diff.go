@@ -35,17 +35,3 @@ func gatherDiff(cfg config.Config, plat platform.Platform) (string, []string, er
 
 	return plat.FetchDiff()
 }
-
-func writeTempFile(pattern string, content string) (string, error) {
-	f, err := os.CreateTemp("", pattern)
-	if err != nil {
-		return "", err
-	}
-	if _, err := f.WriteString(content); err != nil {
-		f.Close()
-		os.Remove(f.Name())
-		return "", err
-	}
-	f.Close()
-	return f.Name(), nil
-}

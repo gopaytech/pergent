@@ -460,3 +460,81 @@ func TestResolve_MaxTokensDeprecated(t *testing.T) {
 		t.Errorf("Warnings = %v, want one deprecation warning for PERGENT_MAX_TOKENS", cfg.Warnings)
 	}
 }
+
+func TestResolve_ConcurrencyDefault(t *testing.T) {
+	setupValidGitHub(t)
+
+	cfg, err := Resolve(Options{
+		Skills:   []string{"./skills/code-review.md"},
+		Platform: "github",
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error: %v", err)
+	}
+	if cfg.Concurrency != 4 {
+		t.Errorf("Concurrency = %d, want 4", cfg.Concurrency)
+	}
+}
+
+func TestResolve_ConcurrencyEnv(t *testing.T) {
+	setupValidGitHub(t)
+	t.Setenv("PERGENT_CONCURRENCY", "8")
+
+	cfg, err := Resolve(Options{
+		Skills:   []string{"./skills/code-review.md"},
+		Platform: "github",
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error: %v", err)
+	}
+	if cfg.Concurrency != 8 {
+		t.Errorf("Concurrency = %d, want 8 (from env)", cfg.Concurrency)
+	}
+}
+
+func TestResolve_ConcurrencyFlagOverridesEnv(t *testing.T) {
+	setupValidGitHub(t)
+	t.Setenv("PERGENT_CONCURRENCY", "8")
+
+	cfg, err := Resolve(Options{
+		Skills:      []string{"./skills/code-review.md"},
+		Platform:    "github",
+		Concurrency: 2,
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error: %v", err)
+	}
+	if cfg.Concurrency != 2 {
+		t.Errorf("Concurrency = %d, want 2 (flag should override env)", cfg.Concurrency)
+	}
+}
+
+func TestResolve_ConcurrencyInvalid(t *testing.T) {
+	tests := []struct {
+		name string
+		env  string
+		flag int
+		want string
+	}{
+		{"env zero", "0", 0, "--concurrency must be at least 1, got 0"},
+		{"env negative", "-3", 0, "--concurrency must be at least 1, got -3"},
+		{"flag negative", "", -2, "--concurrency must be at least 1, got -2"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setupValidGitHub(t)
+			if tt.env != "" {
+				t.Setenv("PERGENT_CONCURRENCY", tt.env)
+			}
+
+			_, err := Resolve(Options{
+				Skills:      []string{"./skills/code-review.md"},
+				Platform:    "github",
+				Concurrency: tt.flag,
+			})
+			if err == nil || err.Error() != tt.want {
+				t.Fatalf("Resolve() error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
