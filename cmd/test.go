@@ -26,7 +26,7 @@ func runTest(ctx context.Context) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 
-	cmd := runner.BuildCommand(ctx, configPath, "", "", "Reply with exactly: hello from opencode", ".")
+	cmd := runner.BuildCommand(ctx, configPath, nil, "Reply with exactly: hello from opencode", ".")
 
 	var stdout bytes.Buffer
 	cmd.Stdout = io.MultiWriter(&stdout, os.Stderr)

@@ -32,12 +32,12 @@ func Failed(skillName string, cause Cause) RunResult {
 
 // Options configures a skill run.
 type Options struct {
-	SkillName      string
-	ConfigPath     string
-	DiffFile       string
-	PrevReviewFile string
-	Message        string
-	RepoPath       string
+	SkillName  string
+	ConfigPath string
+	// Files are attached to the message, in order, with --file.
+	Files    []string
+	Message  string
+	RepoPath string
 	// Timeout bounds the whole skill run, retries included.
 	Timeout time.Duration
 	// StepLimit is the agent step limit pergent configured (0 if unknown).
@@ -61,7 +61,9 @@ const stderrTailLines = 10
 // close after the process is killed (child processes may hold them open).
 const waitDelay = 10 * time.Second
 
-func BuildCommand(ctx context.Context, configPath string, diffFile string, prevReviewFile string, message string, repoPath string) *exec.Cmd {
+// BuildCommand returns the opencode run command for message, attaching each
+// of files with --file.
+func BuildCommand(ctx context.Context, configPath string, files []string, message, repoPath string) *exec.Cmd {
 	args := []string{
 		"run",
 		"--format", "json",
@@ -69,11 +71,8 @@ func BuildCommand(ctx context.Context, configPath string, diffFile string, prevR
 	if configPath != "" {
 		args = append(args, "--agent", config.AgentName)
 	}
-	if diffFile != "" {
-		args = append(args, "--file", diffFile)
-	}
-	if prevReviewFile != "" {
-		args = append(args, "--file", prevReviewFile)
+	for _, f := range files {
+		args = append(args, "--file", f)
 	}
 	args = append(args, "--", message)
 
@@ -144,7 +143,7 @@ func runAttempt(ctx context.Context, opts Options) attempt {
 	// it, so a model that keeps calling tools would run until the timeout.
 	runCtx, stop := context.WithCancel(ctx)
 	defer stop()
-	cmd := BuildCommand(runCtx, opts.ConfigPath, opts.DiffFile, opts.PrevReviewFile, opts.Message, opts.RepoPath)
+	cmd := BuildCommand(runCtx, opts.ConfigPath, opts.Files, opts.Message, opts.RepoPath)
 
 	pw := &progressWriter{buf: &bytes.Buffer{}, w: os.Stderr}
 	if opts.StepLimit > 0 {
