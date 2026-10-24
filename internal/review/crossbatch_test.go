@@ -124,14 +124,13 @@ func TestCrossBatch_AddsFindings(t *testing.T) {
 
 func TestCrossBatch_FindingsAreVerified(t *testing.T) {
 	blocking := finding.Finding{File: "d1/f.go", Line: 2, Severity: finding.Blocking, Title: "Spanning bug", Explanation: "e"}
-	fp := finding.Fingerprint("s", blocking.File, blocking.Title)
 	f := &fake{}
 	f.respond = func(_ int, c call) runner.RunResult {
 		switch {
 		case isCrossBatchCall(c):
 			return completed(answer(t, blocking))
 		case isVerifyCall(c):
-			return completed(verifyAnswer(t, map[string]any{"fingerprint": fp, "real": false, "reason": "r"}))
+			return completed(verifyAnswer(t, map[string]any{"id": "1", "real": false, "reason": "r"}))
 		}
 		return completed(answer(t))
 	}
