@@ -17,7 +17,7 @@ import (
 
 func TestBuildCommand(t *testing.T) {
 	ctx := context.Background()
-	cmd := BuildCommand(ctx, "/tmp/config.json", "/tmp/diff.patch", "", "Review the attached diff", ".")
+	cmd := BuildCommand(ctx, "/tmp/config.json", []string{"/tmp/diff.patch"}, "Review the attached diff", ".")
 
 	found := false
 	for _, env := range cmd.Env {
@@ -78,7 +78,7 @@ func TestBuildCommand(t *testing.T) {
 
 func TestBuildCommand_NoDiffFile(t *testing.T) {
 	ctx := context.Background()
-	cmd := BuildCommand(ctx, "/tmp/config.json", "", "", "Say hello", ".")
+	cmd := BuildCommand(ctx, "/tmp/config.json", nil, "Say hello", ".")
 
 	hasFile := false
 	for _, arg := range cmd.Args {
@@ -87,13 +87,13 @@ func TestBuildCommand_NoDiffFile(t *testing.T) {
 		}
 	}
 	if hasFile {
-		t.Error("should not have --file flag when diffFile is empty")
+		t.Error("should not have --file flag when there are no files")
 	}
 }
 
 func TestBuildCommand_NoConfig(t *testing.T) {
 	ctx := context.Background()
-	cmd := BuildCommand(ctx, "", "/tmp/diff.patch", "", "Review", ".")
+	cmd := BuildCommand(ctx, "", []string{"/tmp/diff.patch"}, "Review", ".")
 
 	for _, env := range cmd.Env {
 		if env == "OPENCODE_CONFIG=" {
@@ -108,43 +108,22 @@ func TestBuildCommand_NoConfig(t *testing.T) {
 	}
 }
 
-func TestBuildCommand_WithPrevReviewFile(t *testing.T) {
+func TestBuildCommand_MultipleFiles(t *testing.T) {
 	ctx := context.Background()
-	cmd := BuildCommand(ctx, "/tmp/config.json", "/tmp/diff.patch", "/tmp/prev-review.md", "Review the attached diff", ".")
+	files := []string{"/tmp/diff.patch", "/tmp/changed-files.md", "/tmp/previous-findings.json"}
+	cmd := BuildCommand(ctx, "/tmp/config.json", files, "Review the attached diff", ".")
 
-	diffIdx := -1
-	prevIdx := -1
+	var got []string
 	for i, arg := range cmd.Args {
-		if arg == "--file" && i+1 < len(cmd.Args) && cmd.Args[i+1] == "/tmp/diff.patch" {
-			diffIdx = i
-		}
-		if arg == "--file" && i+1 < len(cmd.Args) && cmd.Args[i+1] == "/tmp/prev-review.md" {
-			prevIdx = i
+		if arg == "--file" && i+1 < len(cmd.Args) {
+			got = append(got, cmd.Args[i+1])
 		}
 	}
-	if diffIdx == -1 {
-		t.Error("missing --file flag for diff")
+	if !slices.Equal(got, files) {
+		t.Errorf("--file values = %q, want %q in order", got, files)
 	}
-	if prevIdx == -1 {
-		t.Error("missing --file flag for previous review")
-	}
-	if diffIdx != -1 && prevIdx != -1 && diffIdx > prevIdx {
-		t.Errorf("diff --file (index %d) should come before previous-review --file (index %d)", diffIdx, prevIdx)
-	}
-}
-
-func TestBuildCommand_NoPrevReviewFile(t *testing.T) {
-	ctx := context.Background()
-	cmd := BuildCommand(ctx, "/tmp/config.json", "/tmp/diff.patch", "", "Review the attached diff", ".")
-
-	fileCount := 0
-	for _, arg := range cmd.Args {
-		if arg == "--file" {
-			fileCount++
-		}
-	}
-	if fileCount != 1 {
-		t.Errorf("--file count = %d, want 1 (diff only)", fileCount)
+	if n := len(cmd.Args); n < 2 || cmd.Args[n-2] != "--" || cmd.Args[n-1] != "Review the attached diff" {
+		t.Errorf("args = %q, want the message last, after --", cmd.Args)
 	}
 }
 

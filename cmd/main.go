@@ -165,16 +165,19 @@ func main() {
 			}
 		}
 
+		files := []string{diffFile}
+		if prevReviewFile != "" {
+			files = append(files, prevReviewFile)
+		}
 		result := runner.Run(ctx, runner.Options{
-			SkillName:      s.Name,
-			ConfigPath:     configPath,
-			DiffFile:       diffFile,
-			PrevReviewFile: prevReviewFile,
-			Message:        message,
-			RepoPath:       cfg.RepoPath,
-			Timeout:        cfg.Timeout,
-			StepLimit:      stepLimit,
-			ContextLimit:   ctxLimit,
+			SkillName:    s.Name,
+			ConfigPath:   configPath,
+			Files:        files,
+			Message:      message,
+			RepoPath:     cfg.RepoPath,
+			Timeout:      cfg.Timeout,
+			StepLimit:    stepLimit,
+			ContextLimit: ctxLimit,
 		})
 		cleanup()
 		if prevReviewFile != "" {
