@@ -9,7 +9,7 @@ const outputFormatSection = "## Output format\n\n" +
 	`{"summary": "What you checked and what you concluded, in 1-3 sentences.", "checks": [{"section": "Checklist heading", "name": "What was checked", "status": "pass", "detail": "Evidence: the values you compared, with file and field"}], "findings": [{"file": "path/from/repo/root", "line": 42, "severity": "blocking", "title": "One-line summary", "explanation": "Why it matters", "suggested_fix": "Optional fix"}]}` + "\n" +
 	"```\n\n" +
 	"- `summary` is 1-3 sentences on what you checked and what you concluded, including when you found nothing. Name the files or resources you looked at.\n" +
-	"- `checks`: if the instructions above include a checklist, report every item in it as a check, in the checklist's order, with its section heading in `section`. `status` is `pass`, `fail` or `n/a`. Put the concrete evidence in `detail`. Every `fail` must also appear as a finding. With no checklist, answer `\"checks\": []`.\n" +
+	"- `checks`: if the instructions above include a checklist, report every item in it as a check, in the checklist's order, with its section heading in `section`. `status` is `pass`, `fail` or `n/a`. Put the concrete evidence in `detail`. Every `fail` must also appear as a finding. The Blocking section is not a checklist; don't report it as checks. With no checklist, answer `\"checks\": []`.\n" +
 	"- `severity` is `blocking` or `suggestion`. Only problems described under Blocking are `blocking`; everything else is a `suggestion`.\n" +
 	"- `line` is the line number in the new version of the file. Omit it when the finding is not about one line.\n" +
 	"- `suggested_fix` is optional.\n" +

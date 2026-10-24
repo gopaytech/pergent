@@ -249,7 +249,7 @@ When a skill has no `## Blocking` section, pergent appends a default one: bugs, 
 
 ### Checklists become a checks table
 
-If a skill contains a checklist (section headings with items under them, as bullets or checkboxes), the model reports every item as a check: pass, fail or n/a, with the evidence it compared. The comment shows them as one table per section. No special syntax is needed; write the checklist as you would for a human reviewer. Findings still decide the verdict: a failed check should come with a finding, and the comment notes it when one doesn't.
+If a skill contains a checklist (section headings with items under them, as bullets or checkboxes), the model reports every item as a check: pass, fail or n/a, with the evidence it compared. The comment shows them as one table per section. No special syntax is needed; write the checklist as you would for a human reviewer. The `## Blocking` section is not treated as a checklist. Findings still decide the verdict: a failed check should come with a finding, and the comment notes it when one doesn't.
 
 ### Don't put output-format instructions in skills
 

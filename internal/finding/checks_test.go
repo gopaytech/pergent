@@ -106,3 +106,23 @@ func TestParseAnswer_CheckFieldsCleaned(t *testing.T) {
 		t.Errorf("detail leaks part of the secret: %q", a.Checks[1].Detail)
 	}
 }
+
+func TestParseAnswer_CheckStatusWordForms(t *testing.T) {
+	a, err := ParseAnswer(jsonAnswer(`{"checks":[
+		{"name":"a","status":"passed"},
+		{"name":"b","status":"Failed"},
+		{"name":"c","status":"not applicable"}
+	],"findings":[]}`))
+	if err != nil {
+		t.Fatalf("ParseAnswer() error: %v", err)
+	}
+	want := []CheckStatus{CheckPass, CheckFail, CheckNA}
+	if len(a.Checks) != 3 {
+		t.Fatalf("Checks = %+v, want all 3 kept", a.Checks)
+	}
+	for i, w := range want {
+		if a.Checks[i].Status != w {
+			t.Errorf("Checks[%d].Status = %q, want %q", i, a.Checks[i].Status, w)
+		}
+	}
+}

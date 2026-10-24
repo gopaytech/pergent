@@ -56,3 +56,10 @@ func TestPrompt_AsksForChecks(t *testing.T) {
 		}
 	}
 }
+
+func TestPrompt_BlockingIsNotAChecklist(t *testing.T) {
+	p := Skill{Name: "a", Body: "Review it."}.Prompt()
+	if !strings.Contains(p, "The Blocking section is not a checklist") {
+		t.Error("prompt doesn't say the Blocking section is not a checklist")
+	}
+}
