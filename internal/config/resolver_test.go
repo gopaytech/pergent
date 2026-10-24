@@ -587,3 +587,39 @@ func TestResolve_ConcurrencyExplicitFlagBeatsEnv(t *testing.T) {
 		t.Errorf("Concurrency = %d, want 2", cfg.Concurrency)
 	}
 }
+
+func TestResolve_TimeoutNegative(t *testing.T) {
+	tests := []struct {
+		name string
+		env  string
+		flag time.Duration
+		want string
+	}{
+		{"flag negative", "", -time.Minute, "--timeout must be positive, got -1m0s"},
+		{"env negative", "-30s", 0, "--timeout must be positive, got -30s"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setupValidGitHub(t)
+			if tt.env != "" {
+				t.Setenv("PERGENT_TIMEOUT", tt.env)
+			}
+			_, err := Resolve(Options{Skills: []string{"./skills/code-review.md"}, Platform: "github", Timeout: tt.flag})
+			if err == nil || err.Error() != tt.want {
+				t.Fatalf("Resolve() error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolve_TimeoutZeroMeansDefault(t *testing.T) {
+	setupValidGitHub(t)
+	t.Setenv("PERGENT_TIMEOUT", "0s")
+	cfg, err := Resolve(Options{Skills: []string{"./skills/code-review.md"}, Platform: "github"})
+	if err != nil {
+		t.Fatalf("Resolve() error: %v", err)
+	}
+	if cfg.Timeout != 10*time.Minute {
+		t.Errorf("Timeout = %v, want the 10m default for an explicit 0", cfg.Timeout)
+	}
+}

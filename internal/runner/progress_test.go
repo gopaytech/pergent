@@ -179,3 +179,31 @@ func TestProgressWriter_LineSplitAcrossWrites(t *testing.T) {
 		t.Errorf("buffer = %q, want both raw lines", pw.buf.String())
 	}
 }
+
+func TestProgressWriter_KeyStraddlingTheCutIsRedacted(t *testing.T) {
+	const key = "sk-test-abcdef0123456789"
+	t.Setenv("OPENCODE_API_KEY", key)
+	var out bytes.Buffer
+	pw := &progressWriter{buf: &bytes.Buffer{}, w: &out}
+
+	// The key starts 10 bytes before the 120-byte cut.
+	msg := strings.Repeat("x", 110) + key
+	pw.Write([]byte(`{"type":"error","error":{"name":"ProviderAuthError","data":{"message":"` + msg + `"}}}` + "\n"))
+
+	if got := out.String(); strings.Contains(got, key[:10]) {
+		t.Errorf("output = %q, prints part of the API key", got)
+	}
+}
+
+func TestProgressWriter_ToolErrorRedacted(t *testing.T) {
+	const key = "sk-test-abcdef0123456789"
+	t.Setenv("OPENCODE_API_KEY", key)
+	var out bytes.Buffer
+	pw := &progressWriter{buf: &bytes.Buffer{}, step: 1, w: &out}
+
+	pw.Write([]byte(`{"type":"tool_use","part":{"tool":"read","state":{"status":"error","error":"cannot read ` + strings.Repeat("y", 64) + key + `"}}}` + "\n"))
+
+	if got := out.String(); strings.Contains(got, key[:4]) {
+		t.Errorf("output = %q, prints part of the API key", got)
+	}
+}

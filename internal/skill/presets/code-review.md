@@ -11,11 +11,9 @@ A diff file has been attached showing the changes. Review the code changes and p
 3. **Performance** -- Are there obvious performance issues?
 4. **Security** -- Are there potential security vulnerabilities?
 
-If the changes look good, say so briefly. Do not invent issues that don't exist.
+Do not invent issues that don't exist.
 
 Use the repository's AGENTS.md or CLAUDE.md for project-specific conventions if available.
-
-Keep your review concise and actionable.
 
 ## Blocking
 

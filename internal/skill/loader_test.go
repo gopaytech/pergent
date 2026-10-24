@@ -82,6 +82,14 @@ func TestResolve_PresetByName(t *testing.T) {
 	if strings.Contains(s.Body, "**[filename:line]**") {
 		t.Error("preset body should no longer carry the old output format instruction")
 	}
+	for _, format := range []string{"If the changes look good, say so briefly", "Keep your review concise and actionable"} {
+		if strings.Contains(s.Body, format) {
+			t.Errorf("preset body still carries the output-format line %q", format)
+		}
+	}
+	if !strings.Contains(s.Body, "Do not invent issues that don't exist.") || !strings.Contains(s.Body, "**Security**") {
+		t.Error("preset body lost its review focus")
+	}
 }
 
 func TestParse_ScopeFrontmatter(t *testing.T) {
