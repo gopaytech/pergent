@@ -244,7 +244,6 @@ func TestLoadDir_BothLayouts(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "a.md"), "---\nname: alpha\n---\n\nAlpha body.")
 	writeFile(t, filepath.Join(dir, "b", "SKILL.md"), "---\nname: beta\n---\n\nBeta body.")
 	writeFile(t, filepath.Join(dir, "b", "README.md"), "Not a skill.")
-	writeFile(t, filepath.Join(dir, "c", "deeper", "SKILL.md"), "Too deep.")
 	writeFile(t, filepath.Join(dir, "notes.txt"), "Not markdown.")
 
 	skills, err := LoadDir(dir)
@@ -354,5 +353,59 @@ func TestLoadDir_SortedByPath(t *testing.T) {
 	}
 	if len(skills) != 2 || skills[0].Name != "a" || skills[1].Name != "b" {
 		t.Fatalf("skills = %+v, want [a, b]", skills)
+	}
+}
+
+func symlink(t *testing.T, target, link string) {
+	t.Helper()
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A Kubernetes ConfigMap, Secret or projected volume makes every top-level
+// entry a symlink into ..data/, the folder skills included.
+func TestLoadDir_ConfigMapLayout(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "..2026_x", "code-review", "SKILL.md"), "---\nname: folder-skill\n---\n\nFolder body.")
+	writeFile(t, filepath.Join(dir, "..2026_x", "flat.md"), "Flat body.")
+	symlink(t, "..2026_x", filepath.Join(dir, "..data"))
+	symlink(t, filepath.Join("..data", "code-review"), filepath.Join(dir, "code-review"))
+	symlink(t, filepath.Join("..data", "flat.md"), filepath.Join(dir, "flat.md"))
+
+	skills, err := LoadDir(dir)
+	if err != nil {
+		t.Fatalf("LoadDir() error: %v", err)
+	}
+	if len(skills) != 2 || skills[0].Name != "folder-skill" || skills[1].Name != "flat" {
+		t.Fatalf("skills = %+v, want folder-skill and flat", skills)
+	}
+	if skills[0].Body != "Folder body." {
+		t.Errorf("Body = %q, want %q", skills[0].Body, "Folder body.")
+	}
+}
+
+func TestLoadDir_FolderWithoutSkillMd(t *testing.T) {
+	for name, setup := range map[string]func(t *testing.T, dir string){
+		"real folder": func(t *testing.T, dir string) {
+			writeFile(t, filepath.Join(dir, "c", "deeper", "SKILL.md"), "Too deep.")
+		},
+		"symlinked folder": func(t *testing.T, dir string) {
+			writeFile(t, filepath.Join(dir, ".store", "c", "README.md"), "Not a skill.")
+			symlink(t, filepath.Join(".store", "c"), filepath.Join(dir, "c"))
+		},
+		"SKILL.md is a folder": func(t *testing.T, dir string) {
+			writeFile(t, filepath.Join(dir, "c", "SKILL.md", "x.md"), "Not a file.")
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeFile(t, filepath.Join(dir, "a.md"), "A.")
+			setup(t, dir)
+			_, err := LoadDir(dir)
+			if err == nil || !strings.Contains(err.Error(), "SKILL.md") {
+				t.Fatalf("LoadDir() error = %v, want one naming the missing SKILL.md", err)
+			}
+		})
 	}
 }

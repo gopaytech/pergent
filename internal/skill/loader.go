@@ -79,8 +79,10 @@ func Load(path string) (Skill, error) {
 }
 
 // LoadDir loads skills from a directory. Two layouts are accepted: top-level
-// "*.md" files and "<name>/SKILL.md" folders. Anything else is ignored. The
-// result is sorted by path. Entries starting with "." are skipped. A
+// "*.md" files and "<name>/SKILL.md" folders. A folder, or a symlink to one
+// (a Kubernetes ConfigMap volume makes every entry a symlink into ..data/),
+// without a regular SKILL.md is an error; other files are ignored. The result
+// is sorted by path. Entries starting with "." are skipped. A
 // "<name>/SKILL.md" without a frontmatter name takes the folder name; a flat
 // "*.md" file (including a top-level SKILL.md) takes its file name.
 func LoadDir(dir string) ([]Skill, error) {
@@ -101,11 +103,18 @@ func LoadDir(dir string) ([]Skill, error) {
 			continue
 		}
 
-		if entry.IsDir() {
-			path := filepath.Join(dir, name, "SKILL.md")
-			if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
-				candidates = append(candidates, candidate{path: path, fallback: name})
+		isDir := entry.IsDir()
+		if entry.Type()&os.ModeSymlink != 0 {
+			if info, err := os.Stat(filepath.Join(dir, name)); err == nil {
+				isDir = info.IsDir()
 			}
+		}
+		if isDir {
+			path := filepath.Join(dir, name, "SKILL.md")
+			if info, err := os.Stat(path); err != nil || !info.Mode().IsRegular() {
+				return nil, fmt.Errorf("%s: a skill folder needs a SKILL.md file", filepath.Join(dir, name))
+			}
+			candidates = append(candidates, candidate{path: path, fallback: name})
 			continue
 		}
 
