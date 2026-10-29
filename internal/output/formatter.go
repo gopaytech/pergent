@@ -164,6 +164,17 @@ type layout struct {
 	noCheckTables    bool // only the checks count line is kept
 	// listLimit caps the changed-files and skipped-files lists; -1 means no cap.
 	listLimit int
+	// ids maps a finding's fingerprint to the short ID shown after its title;
+	// nil shows none.
+	ids map[string]string
+}
+
+// Options changes how a review comment is rendered. The zero value is the CI
+// comment.
+type Options struct {
+	// IDs maps a finding's fingerprint to its short ID. A finding with an ID
+	// shows it as a code span after its title.
+	IDs map[string]string
 }
 
 // FormatReviewWithin is FormatReview for a platform that limits a comment to
@@ -175,7 +186,13 @@ type layout struct {
 // Blocking findings and failures are never dropped; if they alone are over
 // the limit, the comment is cut at the limit with a note.
 func FormatReviewWithin(results []review.SkillResult, changedFiles []string, maxLen int) string {
-	out := FormatReview(results, changedFiles)
+	return FormatReviewWithinOptions(results, changedFiles, maxLen, Options{})
+}
+
+// FormatReviewWithinOptions is FormatReviewWithin with rendering options; the
+// IDs are shown in every layout, so they survive each shrink step.
+func FormatReviewWithinOptions(results []review.SkillResult, changedFiles []string, maxLen int, o Options) string {
+	out := render(results, changedFiles, layout{listLimit: -1, ids: o.IDs})
 	if maxLen <= 0 || len(out) <= maxLen {
 		return out
 	}
@@ -189,6 +206,7 @@ func FormatReviewWithin(results []review.SkillResult, changedFiles []string, max
 		{noHidden: true, noSuggestions: true, checksFailOnly: true, noCheckTables: true, noSummaries: true, listLimit: 20},
 		{noHidden: true, noSuggestions: true, checksFailOnly: true, noCheckTables: true, noSummaries: true, listLimit: 0},
 	} {
+		l.ids = o.IDs
 		out = render(results, changedFiles, l)
 		if len(out) <= maxLen {
 			return out
@@ -233,21 +251,30 @@ func render(results []review.SkillResult, changedFiles []string, l layout) strin
 		b.WriteString("\n</details>\n\n")
 	}
 
-	block := findingsBlock{Version: findingsBlockVersion, Skills: make(map[string][]finding.Finding, len(results))}
 	for _, r := range results {
-		fs := redactFindings(r.Findings)
-		block.Skills[r.Skill] = fs
-		writeSkill(&b, r, fs, l)
+		writeSkill(&b, r, redactFindings(r.Findings), l)
 	}
 
 	out := redact.String(b.String())
 	if l.noHidden {
 		return out + hiddenDroppedNote + "\n"
 	}
-	if data, err := json.Marshal(block); err == nil {
-		out += findingsMarker + base64.StdEncoding.EncodeToString(data) + " -->\n"
+	return out + FindingsBlock(results)
+}
+
+// FindingsBlock returns the hidden line that carries the findings to the next
+// run, including its newline: the same bytes the comment ends with. The
+// findings are redacted. It is empty if the block cannot be encoded.
+func FindingsBlock(results []review.SkillResult) string {
+	block := findingsBlock{Version: findingsBlockVersion, Skills: make(map[string][]finding.Finding, len(results))}
+	for _, r := range results {
+		block.Skills[r.Skill] = redactFindings(r.Findings)
 	}
-	return out
+	data, err := json.Marshal(block)
+	if err != nil {
+		return ""
+	}
+	return findingsMarker + base64.StdEncoding.EncodeToString(data) + " -->\n"
 }
 
 // writeList writes lines as a markdown list, at most limit of them (all when
@@ -309,7 +336,7 @@ func writeSkill(b *strings.Builder, r review.SkillResult, fs []finding.Finding, 
 	writeSummaries(b, r, l)
 	writeChecks(b, r, l)
 	for _, f := range blocking {
-		writeFinding(b, f, false)
+		writeFinding(b, f, false, l.ids)
 	}
 	switch {
 	case len(suggestions) == 0:
@@ -321,7 +348,7 @@ func writeSkill(b *strings.Builder, r review.SkillResult, fs []finding.Finding, 
 			b.WriteString(detailsDroppedNote + "\n\n")
 		}
 		for _, f := range suggestions {
-			writeFinding(b, f, l.suggestionTitles)
+			writeFinding(b, f, l.suggestionTitles, l.ids)
 		}
 		b.WriteString("</details>\n\n")
 	}
@@ -572,13 +599,18 @@ func plural(n int, word string) string {
 }
 
 // writeFinding writes a finding; titleOnly leaves out its explanation and
-// suggested fix.
-func writeFinding(b *strings.Builder, f finding.Finding, titleOnly bool) {
+// suggested fix. A finding whose fingerprint is in ids shows its ID after the
+// title.
+func writeFinding(b *strings.Builder, f finding.Finding, titleOnly bool, ids map[string]string) {
 	where := f.File
 	if f.Line > 0 {
 		where = fmt.Sprintf("%s:%d", f.File, f.Line)
 	}
-	fmt.Fprintf(b, "**%s** \u2014 **%s**\n\n", codeSpan(where), neutralizeComments(oneLine(f.Title)))
+	idText := ""
+	if id := ids[f.Fingerprint]; id != "" {
+		idText = " " + codeSpan(id)
+	}
+	fmt.Fprintf(b, "**%s** \u2014 **%s**%s\n\n", codeSpan(where), neutralizeComments(oneLine(f.Title)), idText)
 	if titleOnly {
 		return
 	}
