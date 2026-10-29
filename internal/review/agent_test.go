@@ -101,7 +101,7 @@ func TestRun_HardenedConfigAndPrompt(t *testing.T) {
 	if !strings.HasPrefix(cfg.prompt, strings.TrimRight(s.Prompt(), "\n")) {
 		t.Errorf("agent prompt does not start with the skill's Prompt():\n%s", cfg.prompt)
 	}
-	if strings.Index(cfg.prompt, "## Output format") > strings.Index(cfg.prompt, "## Untrusted content") {
+	if of, uc := strings.Index(cfg.prompt, "## Output format"), strings.Index(cfg.prompt, "## Untrusted content"); of < 0 || uc < 0 || of > uc {
 		t.Errorf("untrusted-content section is not after the output format:\n%s", cfg.prompt)
 	}
 }
@@ -138,6 +138,54 @@ func TestRun_HardenedBatchPrefixes(t *testing.T) {
 	slices.Sort(prefixes)
 	if want := []string{"[s 1/2]", "[s 2/2]"}; !slices.Equal(prefixes, want) {
 		t.Errorf("prefixes = %q, want %q", prefixes, want)
+	}
+}
+
+func TestRun_HardenedRepairPrompt(t *testing.T) {
+	var mu sync.Mutex
+	var repairPrompts []string
+	f := &fake{}
+	f.respond = func(_ int, c call) runner.RunResult {
+		if strings.HasPrefix(c.opts.Message, "The attached review is not in the required output format") {
+			cfg := readConfig(t, c.opts.ConfigPath)
+			mu.Lock()
+			repairPrompts = append(repairPrompts, cfg.prompt)
+			mu.Unlock()
+			if c.opts.LogPrefix != "[s 1/1]" {
+				t.Errorf("repair LogPrefix = %q, want %q", c.opts.LogPrefix, "[s 1/1]")
+			}
+			return completed(answer(t))
+		}
+		return completed("no json here")
+	}
+	req := agentRequest(t, f, patch("cmd/a.go", "x"))
+	req.Sandbox = Sandbox{Hardened: true}
+
+	r := Run(context.Background(), req)[0]
+	if len(repairPrompts) != 1 {
+		t.Fatalf("repair ran %d times, want 1", len(repairPrompts))
+	}
+	if !strings.HasSuffix(strings.TrimRight(repairPrompts[0], "\n"), wantUntrusted) {
+		t.Errorf("repair prompt does not end with the untrusted-content section:\n%s", repairPrompts[0])
+	}
+	if r.Verdict != NoBlockingIssues {
+		t.Errorf("Verdict = %q, want %q", r.Verdict, NoBlockingIssues)
+	}
+}
+
+func TestRun_HardenedFailsClosedWithoutProvider(t *testing.T) {
+	f := &fake{respond: func(int, call) runner.RunResult { return completed(answer(t)) }}
+	req := newRequest(t, f, patch("cmd/a.go", "x"))
+	t.Setenv("OPENCODE_PROVIDER", "")
+	req.Sandbox = Sandbox{Hardened: true}
+
+	r := Run(context.Background(), req)[0]
+	if len(f.calls) != 0 {
+		t.Errorf("runner called %d times, want 0", len(f.calls))
+	}
+	const want = "agent mode requires OPENCODE_PROVIDER and OPENCODE_MODEL so pergent can generate its sandboxed opencode config"
+	if r.Verdict != Failed || len(r.Failures) != 1 || !strings.Contains(r.Failures[0].Message, want) {
+		t.Errorf("result = %+v, want verdict failed with one failure containing %q", r, want)
 	}
 }
 
@@ -230,7 +278,7 @@ func TestRun_ClassifierUsed(t *testing.T) {
 	req.Classifier = &c
 
 	r := Run(context.Background(), req)[0]
-	if !slices.ContainsFunc(r.Skipped, func(s diff.Skip) bool { return s.Path == "gen/a.go" }) {
+	if !slices.ContainsFunc(r.Skipped, func(s diff.Skip) bool { return s.Path == "gen/a.go" && s.Rule == "generated" }) {
 		t.Errorf("Skipped = %+v, want gen/a.go skipped as generated", r.Skipped)
 	}
 	if !slices.Equal(r.Reviewed, []string{"cmd/b.go"}) {

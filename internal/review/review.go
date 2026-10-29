@@ -148,6 +148,11 @@ type stopReasoner interface {
 // errBudget is the review context's cause when the budget runs out.
 var errBudget = errors.New("review budget ran out")
 
+// errNoSandboxConfig reports that a hardened run has no generated config:
+// without one opencode would run with its own config and none of the
+// sandbox, so the run is not started.
+var errNoSandboxConfig = errors.New("agent mode requires OPENCODE_PROVIDER and OPENCODE_MODEL so pergent can generate its sandboxed opencode config")
+
 // errNotStarted reports that a run was not started because the review's
 // deadline passed or its context ended.
 var errNotStarted = errors.New("run not started")
@@ -506,6 +511,10 @@ func (r *reviewer) runWithPrompt(ctx context.Context, s skill.Skill, label, prom
 		return runner.RunResult{}, err
 	}
 	defer cleanup()
+	if sb.Hardened && configPath == "" {
+		// Fail closed: the sandbox exists only in the generated config.
+		return runner.RunResult{}, errNoSandboxConfig
+	}
 	timeout := time.Until(r.deadline)
 	if timeout <= 0 {
 		return runner.RunResult{}, errNotStarted
