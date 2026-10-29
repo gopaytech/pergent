@@ -62,7 +62,8 @@ func (r *reviewer) crossBatch(ctx context.Context, s skill.Skill, res *SkillResu
 		files = append(files, p)
 	}
 
-	out, err := r.run(ctx, s, files, fmt.Sprintf(crossBatchMessage, res.Batches))
+	out, err := r.run(ctx, s, "cross", files, fmt.Sprintf(crossBatchMessage, res.Batches))
+	res.Usage = res.Usage.Add(out.Usage)
 	if errors.Is(err, errNotStarted) {
 		res.Notes = append(res.Notes, fmt.Sprintf("Cross-batch check skipped: %s before it could start.", r.stopReason(ctx)))
 		return

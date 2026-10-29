@@ -150,7 +150,8 @@ func (r *reviewer) verify(ctx context.Context, s skill.Skill, res *SkillResult) 
 		return
 	}
 
-	out, err := r.runWithPrompt(ctx, s, verifyPrompt, []string{path}, verifyMessage)
+	out, err := r.runWithPrompt(ctx, s, "verify", verifyPrompt, []string{path}, verifyMessage)
+	res.Usage = res.Usage.Add(out.Usage)
 	if errors.Is(err, errNotStarted) {
 		res.Notes = append(res.Notes, fmt.Sprintf("Verification skipped: %s before it could start; blocking findings are unverified.", r.stopReason(ctx)))
 		return
