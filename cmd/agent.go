@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -10,19 +11,23 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/gopaytech/pergent/internal/config"
 	"github.com/gopaytech/pergent/internal/diff"
 	"github.com/gopaytech/pergent/internal/finding"
+	"github.com/gopaytech/pergent/internal/output"
 	"github.com/gopaytech/pergent/internal/platform"
 	"github.com/gopaytech/pergent/internal/redact"
 	"github.com/gopaytech/pergent/internal/result"
+	"github.com/gopaytech/pergent/internal/review"
 	"github.com/gopaytech/pergent/internal/skill"
 )
 
@@ -66,23 +71,174 @@ const minGitMinor = 40
 // any directory it reads in, compared case-insensitively.
 var instructionNames = []string{"AGENTS.md", "CLAUDE.md", "CONTEXT.md"}
 
-// agentMain runs `pergent agent`. Running the review and delivering the
-// result are not wired in yet.
+// What a failure says when a signal stopped the review: SIGTERM before the
+// budget ran out is a cancellation, after it the Job's deadline.
+const (
+	cancelledReason = "the review was cancelled"
+	deadlineReason  = "stopped at the Job deadline after the review budget ran out"
+)
+
+// afterSignalLimit bounds delivery once a signal arrives, so it ends within
+// the Job's 30-second grace period.
+const afterSignalLimit = 20 * time.Second
+
+// oversizeMessage is the error result sent when even the trimmed result is
+// over the 10 MB limit.
+const oversizeMessage = "the result exceeded the 10 MB limit even after omitting checks and summaries"
+
+// stopSignal is the review context's cause after SIGTERM or SIGINT.
+type stopSignal struct{ reason string }
+
+func (s stopSignal) Error() string      { return "stopped by a signal: " + s.reason }
+func (s stopSignal) StopReason() string { return s.reason }
+
+// signalCause is the cause for a signal that arrived elapsed into a review
+// with the given budget.
+func signalCause(elapsed, budget time.Duration) stopSignal {
+	if elapsed < budget {
+		return stopSignal{cancelledReason}
+	}
+	return stopSignal{deadlineReason}
+}
+
+// agentMain runs `pergent agent` and exits with its exit code.
 func agentMain(args []string) {
-	in, e := parseAgent(args, os.Getenv)
-	if e != nil {
-		fmt.Fprintf(os.Stderr, "pergent agent: %s\n", redact.String(e.Message))
-		os.Exit(2)
+	os.Exit(runAgent(context.Background(), args, os.Getenv, os.Stdout, os.Stderr, nil))
+}
+
+// runAgent runs `pergent agent`: it checks the inputs and the checkout,
+// reviews the change, and delivers the result, or an error result when no
+// review could be done. stdout carries nothing but the result; everything
+// else goes to stderr. run nil means runner.Run. It returns the exit code:
+// 0 delivered, 2 usage error, 3 no review possible, 4 a delivery failed.
+func runAgent(ctx context.Context, args []string, getenv func(string) string, stdout, stderr io.Writer, run review.RunFunc) int {
+	logger := log.New(stderr, "", log.LstdFlags)
+	in, parseErr := parseAgent(args, getenv)
+
+	// A signal cancels the review with a cause that says why, and bounds the
+	// delivery that follows. Delivery gets its own context because the
+	// review's is cancelled by then.
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	deliverCtx, stopDelivery := context.WithCancel(context.WithoutCancel(ctx))
+	defer stopDelivery()
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT)
+	defer signal.Stop(sigs)
+	// The budget counts from here, a little before the review's own clock
+	// starts: the gap is prepareAgent's git commands.
+	start, budget := time.Now(), in.Review.Timeout
+	go func() {
+		select {
+		case <-sigs:
+		case <-deliverCtx.Done():
+			return
+		}
+		logger.Printf("received a stop signal: cancelling the review and delivering the result")
+		cancel(signalCause(time.Since(start), budget))
+		select {
+		case <-time.After(afterSignalLimit):
+			stopDelivery()
+		case <-deliverCtx.Done():
+		}
+	}()
+
+	// send delivers an encoded result to every target. After a signal (or
+	// with the caller's context ended) delivery is short: one quick retry
+	// within 20 seconds.
+	send := func(data []byte) bool {
+		if err := result.Deliver(deliverCtx, data, in.Target, stdout, ctx.Err() != nil); err != nil {
+			logger.Printf("delivering the result: %s", redact.String(err.Error()))
+			return false
+		}
+		return true
+	}
+	meta := result.Meta{PergentVersion: version, Base: in.Base, Head: in.Head}
+	// failWith delivers an error result, when there is a target, and returns
+	// the exit code. A usage error is exit 2 whether or not delivery worked.
+	failWith := func(e *result.Error) int {
+		logger.Printf("pergent agent: %s: %s", e.Code, redact.String(e.Message))
+		delivered := false
+		if in.Target != (result.Target{}) {
+			data, err := result.Encode(result.ErrorResult(meta, e.Code, e.Message))
+			if err != nil {
+				logger.Printf("encoding the error result: %v", err)
+			} else {
+				delivered = send(data)
+			}
+		}
+		switch {
+		case e.Code == result.CodeUsage:
+			return 2
+		case !delivered:
+			return 4
+		}
+		return 3
+	}
+
+	if parseErr != nil {
+		return failWith(parseErr)
 	}
 	for _, w := range in.Review.Warnings {
-		log.Printf("warning: %s", w)
+		logger.Printf("warning: %s", w)
 	}
 	if e := prepareAgent(&in); e != nil {
-		fmt.Fprintf(os.Stderr, "pergent agent: %s: %s\n", e.Code, redact.String(e.Message))
-		os.Exit(3)
+		return failWith(e)
 	}
-	fmt.Fprintln(os.Stderr, "pergent agent: running the review is not implemented yet")
-	os.Exit(1)
+
+	logger.Printf("Reviewing %d changed file(s) with %d skill(s), up to %d opencode runs at once, within %s",
+		len(in.Files), len(in.Skills), in.Review.Concurrency, in.Review.Timeout)
+	meta.Started = time.Now()
+	results := review.Run(ctx, review.Request{
+		Skills:       in.Skills,
+		Diff:         in.Diff,
+		RepoPath:     in.RepoPath,
+		Budget:       in.Review.Timeout,
+		Concurrency:  in.Review.Concurrency,
+		MaxTurns:     in.Review.MaxTurns,
+		ContextLimit: in.Review.ContextLimit,
+		Previous:     in.Previous,
+		Run:          run,
+		Classifier:   &in.Classifier,
+		Sandbox: review.Sandbox{
+			Hardened:     true,
+			Instructions: in.Instructions,
+			ExcludeEnv:   []string{"PERGENT_RESULT_TOKEN"},
+		},
+	})
+	meta.Finished = time.Now()
+	meta.Budget = in.Review.Timeout
+	for _, r := range results {
+		for _, f := range r.Failures {
+			logger.Print(failureLogLine(r.Skill, f))
+		}
+	}
+
+	res := result.Build(meta, results)
+	// The comment shows the IDs Build assigned.
+	ids := map[string]string{}
+	for _, s := range res.Skills {
+		for _, f := range s.Findings {
+			ids[f.Fingerprint] = f.ID
+		}
+	}
+	res.Comment = result.Comment{
+		Markdown:      output.FormatReviewWithinOptions(results, in.Files, in.MaxCommentSize, output.Options{IDs: ids}),
+		FindingsBlock: output.FindingsBlock(results),
+	}
+
+	data, err := result.Encode(res)
+	if err != nil {
+		// Even without checks and summaries the result is too large: the
+		// receiver must still learn why there is no review.
+		logger.Printf("encoding the result: %v", err)
+		return failWith(&result.Error{Code: result.CodeInternal, Message: oversizeMessage})
+	}
+	if !send(data) {
+		return 4
+	}
+	logger.Print("Done.")
+	return 0
 }
 
 // parseAgent parses the agent-mode flags. On a usage error the returned
