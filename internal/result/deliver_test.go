@@ -268,3 +268,54 @@ func TestDeliver_HTTPStillRunsWhenFileFails(t *testing.T) {
 		t.Errorf("requests = %d, want 1", got)
 	}
 }
+
+// Captured at package init, before any test shrinks the timing vars.
+var (
+	initRetryDelays     = append([]time.Duration(nil), retryDelays...)
+	initShortRetryDelay = shortRetryDelay
+	initShortDeadline   = shortDeadline
+)
+
+func TestDeliver_DefaultTimings(t *testing.T) {
+	want := []time.Duration{2 * time.Second, 4 * time.Second, 8 * time.Second}
+	if len(initRetryDelays) != len(want) {
+		t.Fatalf("retryDelays = %v, want %v", initRetryDelays, want)
+	}
+	for i := range want {
+		if initRetryDelays[i] != want[i] {
+			t.Fatalf("retryDelays = %v, want %v", initRetryDelays, want)
+		}
+	}
+	if initShortRetryDelay != time.Second {
+		t.Errorf("shortRetryDelay = %s, want 1s", initShortRetryDelay)
+	}
+	if initShortDeadline != 20*time.Second {
+		t.Errorf("shortDeadline = %s, want 20s", initShortDeadline)
+	}
+}
+
+func TestDeliver_RedirectIsNotFollowed(t *testing.T) {
+	shrinkDelays(t)
+	var targetHits, redirectHits int32
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&targetHits, 1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+	redirector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&redirectHits, 1)
+		http.Redirect(w, r, target.URL, http.StatusFound)
+	}))
+	defer redirector.Close()
+
+	err := Deliver(context.Background(), []byte("{}"), Target{URL: redirector.URL, Token: "tok"}, io.Discard, false)
+	if err == nil {
+		t.Fatal("want error: a redirect is not a delivery")
+	}
+	if got := atomic.LoadInt32(&targetHits); got != 0 {
+		t.Errorf("redirect target received %d requests, want 0", got)
+	}
+	if got := atomic.LoadInt32(&redirectHits); got != 1 {
+		t.Errorf("requests = %d, want 1", got)
+	}
+}

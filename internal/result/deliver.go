@@ -25,6 +25,12 @@ var (
 	requestTimeout = 30 * time.Second
 )
 
+// client never follows redirects: a followed 301/302/303 turns the POST into a
+// bodiless GET, and a 2xx on that GET would look like a delivery.
+var client = &http.Client{
+	CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+}
+
 // Target says where to send the encoded result. Path is a file, or "-" for
 // stdout. URL is empty when HTTP delivery is unused.
 type Target struct {
@@ -59,7 +65,18 @@ func Deliver(ctx context.Context, data []byte, t Target, stdout io.Writer, short
 // sees a partial file.
 func writeFile(path string, data []byte) error {
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(data)
+	if err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
 		_ = os.Remove(tmp)
 		return err
 	}
@@ -111,7 +128,7 @@ func postOnce(ctx context.Context, data []byte, t Target) (retry bool, err error
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+t.Token)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return true, fmt.Errorf("request failed: %s", scrub(err, t.Token))
 	}
