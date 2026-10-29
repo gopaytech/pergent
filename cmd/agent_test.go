@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/gopaytech/pergent/internal/diff"
+	"github.com/gopaytech/pergent/internal/platform"
 	"github.com/gopaytech/pergent/internal/result"
 )
 
@@ -669,17 +670,17 @@ func TestParseAgent_SHA256(t *testing.T) {
 }
 
 func TestGitVersionError(t *testing.T) {
-	e := gitVersionError("git version 2.39.5 (Apple Git-154)\n")
+	e := gitVersionError(platform.ParseGitVersion("git version 2.39.5 (Apple Git-154)\n"))
 	want := "agent mode needs git 2.40 or newer (found 2.39.5) so default skip rules come from the base commit"
 	if e == nil || e.Code != result.CodeInternal || e.Message != want {
 		t.Errorf("gitVersionError(2.39.5) = %+v, want %s %q", e, result.CodeInternal, want)
 	}
 	for _, ok := range []string{"git version 2.40.0", "git version 2.47.1.windows.1", "git version 3.1.0"} {
-		if e := gitVersionError(ok); e != nil {
+		if e := gitVersionError(platform.ParseGitVersion(ok)); e != nil {
 			t.Errorf("gitVersionError(%q) = %+v, want nil", ok, e)
 		}
 	}
-	if e := gitVersionError("nonsense"); e == nil || e.Code != result.CodeInternal {
+	if e := gitVersionError(platform.ParseGitVersion("nonsense")); e == nil || e.Code != result.CodeInternal {
 		t.Errorf("gitVersionError(nonsense) = %+v, want %s", e, result.CodeInternal)
 	}
 }

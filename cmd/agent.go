@@ -402,11 +402,7 @@ func prepareAgent(in *agentInputs, logger *log.Logger) *result.Error {
 		return &result.Error{Code: code, Message: fmt.Sprintf(format, a...)}
 	}
 
-	out, err := exec.Command("git", "version").Output()
-	if err != nil {
-		return fail(result.CodeInternal, "running git version: %v", err)
-	}
-	if e := gitVersionError(string(out)); e != nil {
+	if e := gitVersionError(platform.GitVersion()); e != nil {
 		return e
 	}
 
@@ -471,11 +467,10 @@ func prepareAgent(in *agentInputs, logger *log.Logger) *result.Error {
 	return nil
 }
 
-// gitVersionError checks the output of `git version`: agent mode refuses a
-// git older than 2.40, which ignores GIT_ATTR_SOURCE and so would let a
-// change's own .gitattributes hide its files from the review.
-func gitVersionError(out string) *result.Error {
-	version, major, minor, err := platform.ParseGitVersion(out)
+// gitVersionError checks git's version, as platform.GitVersion returns it:
+// agent mode refuses a git older than 2.40, which ignores GIT_ATTR_SOURCE and
+// so would let a change's own .gitattributes hide its files from the review.
+func gitVersionError(version string, major, minor int, err error) *result.Error {
 	if err != nil {
 		return &result.Error{Code: result.CodeInternal, Message: err.Error()}
 	}

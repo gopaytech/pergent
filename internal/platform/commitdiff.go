@@ -47,11 +47,14 @@ func CommitDiff(repoPath, base, head string) (unified string, files []string, er
 	}
 
 	// --name-only C-quotes unusual paths ("\303\251.go"); undo it as Split
-	// does, so Files and the split diff name files the same way.
-	for _, name := range strings.Split(strings.TrimSpace(string(names)), "\n") {
-		if name != "" {
-			files = append(files, diff.Unquote(name))
-		}
+	// does, so Files and the split diff name files the same way. Spaces are
+	// not quoted, so only the newline after the last name is dropped.
+	lines := strings.Split(string(names), "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	for _, name := range lines {
+		files = append(files, diff.Unquote(name))
 	}
 	return string(out), files, nil
 }

@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -60,6 +61,26 @@ func TestCommitDiff(t *testing.T) {
 	}
 	if len(files) != 1 || files[0] != "a.go" {
 		t.Errorf("CommitDiff() files = %v, want [a.go]", files)
+	}
+}
+
+// git doesn't quote spaces in --name-only output, so a name's own leading
+// or trailing spaces must survive.
+func TestCommitDiff_NamesWithEdgeSpaces(t *testing.T) {
+	dir := t.TempDir()
+	gitOut(t, dir, "init", "-q")
+	writeRepoFile(t, dir, "keep.go", "package a\n")
+	base := commitRepo(t, dir, "base")
+	writeRepoFile(t, dir, " lead.go", "package a\n")
+	writeRepoFile(t, dir, "trail.go ", "package a\n")
+	head := commitRepo(t, dir, "head")
+
+	_, files, err := CommitDiff(dir, base, head)
+	if err != nil {
+		t.Fatalf("CommitDiff() error: %v", err)
+	}
+	if want := []string{" lead.go", "trail.go "}; !slices.Equal(files, want) {
+		t.Errorf("CommitDiff() files = %q, want %q", files, want)
 	}
 }
 
