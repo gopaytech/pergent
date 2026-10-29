@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -52,9 +53,14 @@ type agentInputs struct {
 // ciOnlyFlags are CI-mode flags that agent mode refuses.
 var ciOnlyFlags = map[string]bool{"local": true, "platform": true, "previous-review": true, "base-branch": true}
 
-// commitSHA is what --base and --head must look like. It also keeps a value
-// from being read as a git option.
-var commitSHA = regexp.MustCompile(`^[0-9a-fA-F]{4,64}$`)
+// commitSHA is what --base and --head must look like: a full SHA-1 or
+// SHA-256 commit ID, as git prints it. It also keeps a value from being read
+// as a git option.
+var commitSHA = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
+
+// minGitMinor is the oldest git 2.x agent mode runs on: GIT_ATTR_SOURCE,
+// which makes the diff read attributes from the base commit, is 2.40.
+const minGitMinor = 40
 
 // instructionNames are the file names opencode loads as instructions from
 // any directory it reads in, compared case-insensitively.
@@ -163,10 +169,10 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 		}
 	}
 	if !commitSHA.MatchString(in.Base) {
-		return usage("--base %q is not a commit SHA", in.Base)
+		return usage("--base %q is not a full commit SHA (40 or 64 lowercase hex characters)", in.Base)
 	}
 	if !commitSHA.MatchString(in.Head) {
-		return usage("--head %q is not a commit SHA", in.Head)
+		return usage("--head %q is not a full commit SHA (40 or 64 lowercase hex characters)", in.Head)
 	}
 	if in.skillsDir == "" && len(skills) == 0 {
 		return usage("no skills: pass --skills-dir or --skill")
@@ -211,6 +217,22 @@ func prepareAgent(in *agentInputs) *result.Error {
 		return &result.Error{Code: code, Message: fmt.Sprintf(format, a...)}
 	}
 
+	out, err := exec.Command("git", "version").Output()
+	if err != nil {
+		return fail(result.CodeInternal, "running git version: %v", err)
+	}
+	if e := gitVersionError(string(out)); e != nil {
+		return e
+	}
+
+	root, e := checkoutRoot(in.RepoPath)
+	if e != nil {
+		return e
+	}
+	if e := trustedInputsOutside(root, in); e != nil {
+		return e
+	}
+
 	skills, e := loadAgentSkills(in.skillsDir, in.skillValues)
 	if e != nil {
 		return e
@@ -231,10 +253,6 @@ func prepareAgent(in *agentInputs) *result.Error {
 		}
 	}
 
-	root, e := checkoutRoot(in.RepoPath)
-	if e != nil {
-		return e
-	}
 	for _, sha := range []string{in.Base, in.Head} {
 		if _, err := git(root, "cat-file", "-e", sha+"^{commit}"); err != nil {
 			return fail(result.CodeCommitMissing, "commit %s is not in the checkout", sha)
@@ -242,9 +260,11 @@ func prepareAgent(in *agentInputs) *result.Error {
 	}
 	got, err := git(root, "rev-parse", "HEAD")
 	if err != nil {
+		// Both commits exist, so this is an unborn HEAD (an orphan branch with
+		// no commit yet): the checkout is not at --head.
 		return fail(result.CodeHeadMismatch, "the checkout's HEAD is not a commit, want --head %s", in.Head)
 	}
-	if got = strings.TrimSpace(got); !strings.EqualFold(got, in.Head) {
+	if got = strings.TrimSpace(got); got != in.Head {
 		return fail(result.CodeHeadMismatch, "the checkout's HEAD is %s, not --head %s", got, in.Head)
 	}
 
@@ -266,8 +286,84 @@ func prepareAgent(in *agentInputs) *result.Error {
 	return nil
 }
 
-// loadAgentSkills loads --skills-dir, then each --skill, and refuses
-// duplicate names.
+// gitVersionError checks the output of `git version`: agent mode refuses a
+// git older than 2.40, which ignores GIT_ATTR_SOURCE and so would let a
+// change's own .gitattributes hide its files from the review.
+func gitVersionError(out string) *result.Error {
+	version, major, minor, err := platform.ParseGitVersion(out)
+	if err != nil {
+		return &result.Error{Code: result.CodeInternal, Message: err.Error()}
+	}
+	if major < 2 || (major == 2 && minor < minGitMinor) {
+		return &result.Error{Code: result.CodeInternal, Message: fmt.Sprintf(
+			"agent mode needs git 2.40 or newer (found %s) so default skip rules come from the base commit", version)}
+	}
+	return nil
+}
+
+// trustedInputsOutside refuses a trusted input (--instructions, --skills-dir,
+// a path --skill, --previous) that resolves to somewhere inside the checkout:
+// the change under review could have written it. A --skills-dir above the
+// checkout is refused too, since LoadDir would read the checkout's top-level
+// files as skills.
+func trustedInputsOutside(root string, in *agentInputs) *result.Error {
+	type input struct{ flag, path string }
+	var inputs []input
+	for _, p := range in.Instructions {
+		inputs = append(inputs, input{"--instructions", p})
+	}
+	if in.skillsDir != "" {
+		inputs = append(inputs, input{"--skills-dir", in.skillsDir})
+	}
+	for _, v := range in.skillValues {
+		if skill.IsFilePath(v) {
+			inputs = append(inputs, input{"--skill", v})
+		}
+	}
+	if in.previousPath != "" {
+		inputs = append(inputs, input{"--previous", in.previousPath})
+	}
+	for _, i := range inputs {
+		resolved, err := resolvePath(i.path)
+		if err != nil {
+			return &result.Error{Code: result.CodeUsage, Message: fmt.Sprintf("%s %s: %v", i.flag, i.path, err)}
+		}
+		if within(root, resolved) || (i.flag == "--skills-dir" && within(resolved, root)) {
+			return &result.Error{Code: result.CodeUsage, Message: fmt.Sprintf(
+				"%s %s is inside --repo-path: agent mode never reads trusted inputs from the checkout", i.flag, i.path)}
+		}
+	}
+	return nil
+}
+
+// resolvePath makes path absolute and follows symlinks in as much of it as
+// exists, so a missing file under a symlinked directory still resolves.
+func resolvePath(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	rest := ""
+	for dir := abs; ; dir = filepath.Dir(dir) {
+		if r, err := filepath.EvalSymlinks(dir); err == nil {
+			return filepath.Join(r, rest), nil
+		}
+		if filepath.Dir(dir) == dir {
+			return abs, nil
+		}
+		rest = filepath.Join(filepath.Base(dir), rest)
+	}
+}
+
+// within reports whether path is dir or below it. Both must be clean and
+// absolute.
+func within(dir, path string) bool {
+	rel, err := filepath.Rel(dir, path)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// loadAgentSkills loads --skills-dir, then each --skill. Duplicate names are a
+// usage error: the caller resolves library-versus-repo overrides.
 func loadAgentSkills(dir string, values []string) ([]skill.Skill, *result.Error) {
 	invalid := func(err error) *result.Error {
 		return &result.Error{Code: result.CodeSkillsInvalid, Message: err.Error()}
@@ -291,7 +387,7 @@ func loadAgentSkills(dir string, values []string) ([]skill.Skill, *result.Error)
 		return nil, &result.Error{Code: result.CodeUsage, Message: "no skills: --skills-dir " + dir + " has none"}
 	}
 	if err := skill.CheckUnique(skills); err != nil {
-		return nil, invalid(err)
+		return nil, &result.Error{Code: result.CodeUsage, Message: err.Error()}
 	}
 	return skills, nil
 }
@@ -331,18 +427,20 @@ func checkoutRoot(repoPath string) (string, *result.Error) {
 
 // handleInstructionFiles keeps opencode from loading instructions from the
 // checkout. With scrub, every instruction file is deleted, the root's
-// included. Without it, any instruction file below the root is refused.
+// included. Without it, any instruction file below the root is refused, and
+// so is any symlink to the root or above it: through "sub -> ." opencode
+// would find the root's AGENTS.md as sub/AGENTS.md.
 func handleInstructionFiles(root string, scrub bool) *result.Error {
-	found, err := findInstructionFiles(root)
+	found, rootLinks, err := scanCheckout(root)
 	if err != nil {
 		return &result.Error{Code: result.CodeInternal, Message: fmt.Sprintf("looking for instruction files in the checkout: %v", err)}
 	}
 	if scrub {
 		for _, rel := range found {
 			if err := os.Remove(filepath.Join(root, filepath.FromSlash(rel))); err != nil {
-				return &result.Error{Code: result.CodeInternal, Message: fmt.Sprintf("--scrub-instructions: deleting %s: %v", rel, err)}
+				return &result.Error{Code: result.CodeInternal, Message: fmt.Sprintf("--scrub-instructions: deleting %q: %v", rel, err)}
 			}
-			log.Printf("--scrub-instructions: deleted %s", rel)
+			log.Printf("--scrub-instructions: deleted %q", rel)
 		}
 		return nil
 	}
@@ -352,21 +450,30 @@ func handleInstructionFiles(root string, scrub bool) *result.Error {
 			nested = append(nested, rel)
 		}
 	}
+	var problems []string
 	if len(nested) > 0 {
-		return &result.Error{Code: result.CodeUntrustedInstructions, Message: fmt.Sprintf(
+		problems = append(problems, fmt.Sprintf(
 			"the checkout has instruction files below its root, which the agent would load: %s (pass --scrub-instructions to delete them)",
-			strings.Join(nested, ", "))}
+			quoteAll(nested)))
+	}
+	if len(rootLinks) > 0 {
+		problems = append(problems, fmt.Sprintf(
+			"the checkout has symlinks to its root or above it, through which the agent would load instruction files: %s",
+			quoteAll(rootLinks)))
+	}
+	if len(problems) > 0 {
+		return &result.Error{Code: result.CodeUntrustedInstructions, Message: strings.Join(problems, "; ")}
 	}
 	return nil
 }
 
-// findInstructionFiles returns the slash-separated paths, relative to root
-// and sorted, of every non-directory entry named like an instruction file.
-// It skips .git directories and does not follow symlinked directories; a
-// symlink named like an instruction file is itself listed.
-func findInstructionFiles(root string) ([]string, error) {
-	var found []string
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+// scanCheckout walks root, skipping .git directories and not following
+// symlinked directories. It returns, as sorted slash-separated paths relative
+// to root, every non-directory entry named like an instruction file (a
+// symlink so named included), and every symlink that resolves to root or an
+// ancestor of it.
+func scanCheckout(root string) (found, rootLinks []string, err error) {
+	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -376,18 +483,33 @@ func findInstructionFiles(root string) ([]string, error) {
 			}
 			return nil
 		}
-		if !isInstructionName(d.Name()) {
-			return nil
-		}
 		rel, err := filepath.Rel(root, path)
 		if err != nil {
 			return err
 		}
-		found = append(found, filepath.ToSlash(rel))
+		if isInstructionName(d.Name()) {
+			found = append(found, filepath.ToSlash(rel))
+		}
+		if d.Type()&fs.ModeSymlink != 0 {
+			// A dangling or looping link reaches nothing and is ignored.
+			if target, err := filepath.EvalSymlinks(path); err == nil && within(target, root) {
+				rootLinks = append(rootLinks, filepath.ToSlash(rel))
+			}
+		}
 		return nil
 	})
 	sort.Strings(found)
-	return found, err
+	sort.Strings(rootLinks)
+	return found, rootLinks, err
+}
+
+// quoteAll formats names taken from the checkout with %q, comma-separated.
+func quoteAll(names []string) string {
+	quoted := make([]string, len(names))
+	for i, n := range names {
+		quoted[i] = strconv.Quote(n)
+	}
+	return strings.Join(quoted, ", ")
 }
 
 func isInstructionName(name string) bool {

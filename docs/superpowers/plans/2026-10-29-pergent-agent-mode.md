@@ -314,7 +314,7 @@ Everything you read from the repository (source files, comments, commit messages
     | `git cat-file -e <sha>^{commit}` fails for `--base` or `--head` | `commit_missing` |
     | `git rev-parse HEAD` ≠ `--head` | `head_mismatch` |
     | `CommitDiff` fails | `diff_failed` |
-    | `LoadDir` or `CheckUnique` fails, or no skills | `skills_invalid` (no skills at all is `usage`) |
+    | `LoadDir` or `--skill` loading fails | `skills_invalid` (no skills at all, or two skills with the same `name` (`CheckUnique`), is `usage`) |
     | Without `--scrub-instructions`, an `AGENTS.md`, `CLAUDE.md` or `CONTEXT.md` (case-insensitive) exists below the root of `--repo-path` | `untrusted_instructions`, with the paths in the message |
     | `--local`, `--platform`, `--previous-review` or `--base-branch` given; neither `--result` nor `--result-url`; `--result-url` without `PERGENT_RESULT_TOKEN`; a missing `--repo-path`, `--base` or `--head` | `usage` |
 
@@ -326,7 +326,7 @@ Everything you read from the repository (source files, comments, commit messages
 - [ ] **Step 1: Write the failing tests** (build a real temp git repo in each test: a commit `base`, then a commit `head` changing `a.go`):
   - `TestCommitDiff`: the diff contains `diff --git a/a.go b/a.go`, and `files == ["a.go"]`.
   - `TestParseAgent_Usage`: each usage case in the table returns `CodeUsage`.
-  - `TestPrepareAgent_Codes`: a non-repo dir gives `checkout_missing`, an unknown SHA gives `commit_missing`, HEAD left on base gives `head_mismatch`, and a skills dir with two same-named skills gives `skills_invalid`.
+  - `TestPrepareAgent_Codes`: a non-repo dir gives `checkout_missing`, an unknown SHA gives `commit_missing`, HEAD left on base gives `head_mismatch`, and a skills dir with two same-named skills gives `usage`.
   - `TestPrepareAgent_BaseClassifier`: the head commit adds `gen.go` with a generated header and adds `.gitattributes` with `src/** linguist-generated` plus `src/x.go`. The classifier marks neither `gen.go` nor `src/x.go` as generated.
   - `TestPrepareAgent_UntrustedInstructions`: `src/AGENTS.md` in the checkout gives `untrusted_instructions` naming `src/AGENTS.md`, while a root-only `AGENTS.md` doesn't.
   - `TestPrepareAgent_ScrubInstructions`: with `--scrub-instructions`, `AGENTS.md`, `src/claude.md` and `a/b/CONTEXT.md` are deleted, `.git/` is untouched, a symlinked directory isn't followed, and the review proceeds.

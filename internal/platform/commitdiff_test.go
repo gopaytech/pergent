@@ -87,6 +87,9 @@ func TestCommitDiff_IgnoresUserDiffConfig(t *testing.T) {
 // A change cannot hide its own files from review by marking them as binary
 // in a .gitattributes it adds: the diff reads attributes from the base.
 func TestCommitDiff_AttributesFromBase(t *testing.T) {
+	if version, major, minor, err := GitVersion(); err != nil || major < 2 || (major == 2 && minor < 40) {
+		t.Skipf("git %s (err %v) is older than 2.40 and ignores GIT_ATTR_SOURCE; agent mode refuses to run on it", version, err)
+	}
 	dir := t.TempDir()
 	gitOut(t, dir, "init", "-q")
 	writeRepoFile(t, dir, "README", "x\n")
@@ -120,5 +123,46 @@ func TestCommitDiff_Errors(t *testing.T) {
 				t.Errorf("CommitDiff(%q, %q) error = nil, want one", tt.base, tt.head)
 			}
 		})
+	}
+}
+
+func TestCommitDiff_NonASCIIPath(t *testing.T) {
+	dir := t.TempDir()
+	gitOut(t, dir, "init", "-q")
+	gitOut(t, dir, "config", "core.quotePath", "true")
+	writeRepoFile(t, dir, "a.go", "package a\n")
+	base := commitRepo(t, dir, "base")
+	writeRepoFile(t, dir, "\u00e9 x.go", "package a\n")
+	head := commitRepo(t, dir, "head")
+
+	_, files, err := CommitDiff(dir, base, head)
+	if err != nil {
+		t.Fatalf("CommitDiff() error: %v", err)
+	}
+	if len(files) != 1 || files[0] != "\u00e9 x.go" {
+		t.Errorf("CommitDiff() files = %q, want [\"\u00e9 x.go\"]", files)
+	}
+}
+
+func TestParseGitVersion(t *testing.T) {
+	for _, tt := range []struct {
+		out, version string
+		major, minor int
+	}{
+		{"git version 2.39.5\n", "2.39.5", 2, 39},
+		{"git version 2.39.5 (Apple Git-154)\n", "2.39.5", 2, 39},
+		{"git version 2.47.1.windows.1\n", "2.47.1.windows.1", 2, 47},
+		{"git version 2.40.0", "2.40.0", 2, 40},
+		{"git version 3.0", "3.0", 3, 0},
+	} {
+		version, major, minor, err := ParseGitVersion(tt.out)
+		if err != nil || version != tt.version || major != tt.major || minor != tt.minor {
+			t.Errorf("ParseGitVersion(%q) = %q, %d, %d, %v; want %q, %d, %d", tt.out, version, major, minor, err, tt.version, tt.major, tt.minor)
+		}
+	}
+	for _, bad := range []string{"", "git version", "hello 2.40", "git version x.y", "git version 2"} {
+		if _, _, _, err := ParseGitVersion(bad); err == nil {
+			t.Errorf("ParseGitVersion(%q) error = nil, want one", bad)
+		}
 	}
 }

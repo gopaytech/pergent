@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -168,6 +169,9 @@ func TestParseAgent_Usage(t *testing.T) {
 		{"no skills", without("--skills-dir"), nil},
 		{"base not a sha", append(without("--base"), "--base", "--output=x"), nil},
 		{"head not a sha", append(without("--head"), "--head", "main"), nil},
+		{"abbreviated sha", append(without("--base"), "--base", "abcdef1"), nil},
+		{"uppercase sha", append(without("--base"), "--base", strings.Repeat("A", 40)), nil},
+		{"41 hex characters", append(without("--base"), "--base", strings.Repeat("a", 41)), nil},
 		{"negative max comment size", with("--max-comment-size", "-1"), nil},
 		{"explicit concurrency zero", with("--concurrency", "0"), nil},
 		{"unknown flag", with("--nope"), nil},
@@ -255,8 +259,9 @@ func TestPrepareAgent_Codes(t *testing.T) {
 		writeFile(t, repo, "sub/b.go", "package sub\n")
 		defer os.RemoveAll(filepath.Join(repo, "sub"))
 		in := mustParse(t, agentArgs(filepath.Join(repo, "sub"), base, head, skills))
-		if e := prepareAgent(&in); e == nil || e.Code != result.CodeCheckoutMissing {
-			t.Errorf("prepareAgent() error = %+v, want %s", e, result.CodeCheckoutMissing)
+		e := prepareAgent(&in)
+		if e == nil || e.Code != result.CodeCheckoutMissing || !strings.Contains(e.Message, "is not the top of its git work tree") {
+			t.Errorf("prepareAgent() error = %+v, want %s saying it is not the top", e, result.CodeCheckoutMissing)
 		}
 	})
 	t.Run("checkout_missing for a missing path", func(t *testing.T) {
@@ -286,22 +291,60 @@ func TestPrepareAgent_Codes(t *testing.T) {
 			t.Errorf("prepareAgent() error = %+v, want %s", e, result.CodeHeadMismatch)
 		}
 	})
-	t.Run("skills_invalid duplicate", func(t *testing.T) {
+	t.Run("usage for duplicate skill names", func(t *testing.T) {
 		dup := skillsDir(t, map[string]string{
 			"a.md": "---\nname: dup\n---\nOne.\n",
 			"b.md": "---\nname: dup\n---\nTwo.\n",
 		})
 		in := mustParse(t, agentArgs(repo, base, head, dup))
 		e := prepareAgent(&in)
-		if e == nil || e.Code != result.CodeSkillsInvalid || !strings.Contains(e.Message, "dup") {
-			t.Errorf("prepareAgent() error = %+v, want %s naming dup", e, result.CodeSkillsInvalid)
+		if e == nil || e.Code != result.CodeUsage || !strings.Contains(e.Message, "dup") {
+			t.Errorf("prepareAgent() error = %+v, want %s naming dup", e, result.CodeUsage)
 		}
 	})
-	t.Run("skills_invalid duplicate across --skills-dir and --skill", func(t *testing.T) {
+	t.Run("usage for duplicates across --skills-dir and --skill", func(t *testing.T) {
 		dir := skillsDir(t, map[string]string{"x.md": "---\nname: code-review\n---\nMine.\n"})
 		in := mustParse(t, agentArgs(repo, base, head, dir, "--skill", "code-review"))
+		if e := prepareAgent(&in); e == nil || e.Code != result.CodeUsage {
+			t.Errorf("prepareAgent() error = %+v, want %s", e, result.CodeUsage)
+		}
+	})
+	t.Run("skills_invalid unparsable skill", func(t *testing.T) {
+		dir := skillsDir(t, map[string]string{"x.md": "---\nname: [unclosed\n---\nBody.\n"})
+		in := mustParse(t, agentArgs(repo, base, head, dir))
 		if e := prepareAgent(&in); e == nil || e.Code != result.CodeSkillsInvalid {
 			t.Errorf("prepareAgent() error = %+v, want %s", e, result.CodeSkillsInvalid)
+		}
+	})
+	for _, flag := range []string{"--skills-dir", "--skill", "--instructions", "--previous"} {
+		t.Run("usage for "+flag+" inside the checkout", func(t *testing.T) {
+			writeFile(t, repo, "inside/s.md", "---\nname: inside\n---\nBody.\n")
+			defer os.RemoveAll(filepath.Join(repo, "inside"))
+			target := filepath.Join(repo, "inside", "s.md")
+			if flag == "--skills-dir" {
+				target = filepath.Join(repo, "inside")
+			}
+			args := agentArgs(repo, base, head, skills, flag, target)
+			if flag == "--skills-dir" {
+				args = agentArgs(repo, base, head, target)
+			}
+			in := mustParse(t, args)
+			e := prepareAgent(&in)
+			if e == nil || e.Code != result.CodeUsage || !strings.Contains(e.Message, flag) {
+				t.Errorf("prepareAgent() error = %+v, want %s naming %s", e, result.CodeUsage, flag)
+			}
+		})
+	}
+	t.Run("usage for --instructions symlinked into the checkout", func(t *testing.T) {
+		writeFile(t, repo, "inside/i.md", "x\n")
+		defer os.RemoveAll(filepath.Join(repo, "inside"))
+		link := filepath.Join(t.TempDir(), "i.md")
+		if err := os.Symlink(filepath.Join(repo, "inside", "i.md"), link); err != nil {
+			t.Fatal(err)
+		}
+		in := mustParse(t, agentArgs(repo, base, head, skills, "--instructions", link))
+		if e := prepareAgent(&in); e == nil || e.Code != result.CodeUsage {
+			t.Errorf("prepareAgent() error = %+v, want %s", e, result.CodeUsage)
 		}
 	})
 	t.Run("skills_invalid missing dir", func(t *testing.T) {
@@ -380,7 +423,7 @@ func TestPrepareAgent_UntrustedInstructions(t *testing.T) {
 		if e == nil || e.Code != result.CodeUntrustedInstructions {
 			t.Fatalf("prepareAgent() error = %+v, want %s", e, result.CodeUntrustedInstructions)
 		}
-		if !strings.Contains(e.Message, "docs/deep/claude.md, src/AGENTS.md") {
+		if !strings.Contains(e.Message, `"docs/deep/claude.md", "src/AGENTS.md"`) {
 			t.Errorf("message = %q, want the sorted paths", e.Message)
 		}
 		if _, err := os.Stat(filepath.Join(repo, "src/AGENTS.md")); err != nil {
@@ -393,6 +436,36 @@ func TestPrepareAgent_UntrustedInstructions(t *testing.T) {
 		in := mustParse(t, agentArgs(repo, base, head, oneSkill(t)))
 		if e := prepareAgent(&in); e == nil || e.Code != result.CodeUntrustedInstructions {
 			t.Fatalf("prepareAgent() error = %+v, want %s", e, result.CodeUntrustedInstructions)
+		}
+	})
+	for _, target := range []string{".", "..", "/"} {
+		t.Run("symlink to "+target+" refuses", func(t *testing.T) {
+			repo, base, head := agentRepo(t, func(dir string) {
+				writeFile(t, dir, "AGENTS.md", "Root rules.\n")
+				if err := os.Symlink(target, filepath.Join(dir, "sub")); err != nil {
+					t.Fatal(err)
+				}
+			})
+			in := mustParse(t, agentArgs(repo, base, head, oneSkill(t)))
+			e := prepareAgent(&in)
+			if e == nil || e.Code != result.CodeUntrustedInstructions || !strings.Contains(e.Message, `"sub"`) {
+				t.Fatalf("prepareAgent() error = %+v, want %s naming \"sub\"", e, result.CodeUntrustedInstructions)
+			}
+		})
+	}
+	t.Run("symlink inside the checkout is fine", func(t *testing.T) {
+		repo, base, head := agentRepo(t, func(dir string) {
+			writeFile(t, dir, "pkg/x.go", "package pkg\n")
+			if err := os.Symlink("pkg", filepath.Join(dir, "alias")); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink("missing", filepath.Join(dir, "dangling")); err != nil {
+				t.Fatal(err)
+			}
+		})
+		in := mustParse(t, agentArgs(repo, base, head, oneSkill(t)))
+		if e := prepareAgent(&in); e != nil {
+			t.Fatalf("prepareAgent() error = %+v, want none", e)
 		}
 	})
 	t.Run("root file alone is fine", func(t *testing.T) {
@@ -436,7 +509,7 @@ func TestPrepareAgent_ScrubInstructions(t *testing.T) {
 		if _, err := os.Lstat(filepath.Join(repo, p)); !os.IsNotExist(err) {
 			t.Errorf("%s still exists (err %v), want it deleted", p, err)
 		}
-		if !strings.Contains(logs.String(), p) {
+		if !strings.Contains(logs.String(), "deleted "+strconv.Quote(p)) {
 			t.Errorf("log does not name deleted %s:\n%s", p, logs)
 		}
 	}
@@ -496,5 +569,28 @@ func TestPrepareAgent_PreviousBadVersion(t *testing.T) {
 				t.Errorf("no warning logged: %q", logs.String())
 			}
 		})
+	}
+}
+
+func TestParseAgent_SHA256(t *testing.T) {
+	sha := strings.Repeat("c", 64)
+	if _, e := parseAgent([]string{"--repo-path", "/r", "--base", sha, "--head", sha, "--skill", "code-review", "--result", "-"}, agentEnv(nil)); e != nil {
+		t.Errorf("parseAgent() error = %+v, want a 64-character SHA accepted", e)
+	}
+}
+
+func TestGitVersionError(t *testing.T) {
+	e := gitVersionError("git version 2.39.5 (Apple Git-154)\n")
+	want := "agent mode needs git 2.40 or newer (found 2.39.5) so default skip rules come from the base commit"
+	if e == nil || e.Code != result.CodeInternal || e.Message != want {
+		t.Errorf("gitVersionError(2.39.5) = %+v, want %s %q", e, result.CodeInternal, want)
+	}
+	for _, ok := range []string{"git version 2.40.0", "git version 2.47.1.windows.1", "git version 3.1.0"} {
+		if e := gitVersionError(ok); e != nil {
+			t.Errorf("gitVersionError(%q) = %+v, want nil", ok, e)
+		}
+	}
+	if e := gitVersionError("nonsense"); e == nil || e.Code != result.CodeInternal {
+		t.Errorf("gitVersionError(nonsense) = %+v, want %s", e, result.CodeInternal)
 	}
 }

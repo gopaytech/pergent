@@ -45,6 +45,10 @@ func Resolve(value string) (Skill, error) {
 	return LoadPreset(value)
 }
 
+// IsFilePath reports whether a --skill value names a file rather than a
+// preset.
+func IsFilePath(value string) bool { return isFilePath(value) }
+
 func isFilePath(value string) bool {
 	return strings.Contains(value, "/") || strings.HasSuffix(value, ".md")
 }

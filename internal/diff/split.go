@@ -177,6 +177,10 @@ func cutQuoted(s string) (inner, rest string, ok bool) {
 	return "", "", false
 }
 
+// Unquote undoes git's C-style path quoting, as Split does for the paths it
+// reads; unquoted input is returned as is.
+func Unquote(s string) string { return unquote(s) }
+
 // unquote undoes git's C-style path quoting; unquoted input is returned as is.
 func unquote(s string) string {
 	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
