@@ -76,6 +76,17 @@ type EventError struct {
 	IsRetryable bool
 }
 
+// Usage is the tokens a run consumed: the sum of the input and output tokens
+// of every finished step (cache tokens and totals are not counted).
+type Usage struct {
+	Input, Output int
+}
+
+// Add returns u plus o.
+func (u Usage) Add(o Usage) Usage {
+	return Usage{Input: u.Input + o.Input, Output: u.Output + o.Output}
+}
+
 // Transcript is what pergent can observe about one opencode run.
 type Transcript struct {
 	// Answer is the model's final answer: the text of the last step, when that
@@ -103,6 +114,9 @@ type Transcript struct {
 	LastToolTarget string
 	// Errors are opencode's error events, in order.
 	Errors []EventError
+	// Usage sums part.tokens.input and part.tokens.output over all
+	// step_finish events.
+	Usage Usage
 }
 
 // LastError returns the last error event, or nil.
@@ -169,6 +183,8 @@ func ParseOutput(stdout []byte) Transcript {
 			if event.Part != nil {
 				t.LastFinishReason = event.Part.Reason
 				if event.Part.Tokens != nil {
+					t.Usage.Input += event.Part.Tokens.Input
+					t.Usage.Output += event.Part.Tokens.Output
 					prevStepTokens = t.LastStepTokens
 					t.LastStepTokens = event.Part.Tokens.used()
 				}

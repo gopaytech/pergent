@@ -78,3 +78,15 @@ func TestString_PlainTextUnchanged(t *testing.T) {
 		}
 	}
 }
+
+func TestRedact_ResultToken(t *testing.T) {
+	t.Setenv("OPENCODE_API_KEY", "")
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("GITLAB_TOKEN", "")
+	t.Setenv("PERGENT_RESULT_TOKEN", "tok-abc123")
+
+	got := String("x tok-abc123")
+	if strings.Contains(got, "tok-abc123") {
+		t.Errorf("String() leaked the result token: %q", got)
+	}
+}

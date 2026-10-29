@@ -132,6 +132,7 @@ func TestBuildCommand_MultipleFiles(t *testing.T) {
 // file that counts how often the script ran.
 type fakeAttempt struct {
 	fixture string // testdata file to print on stdout
+	stdout  string // literal stdout, used when fixture is empty
 	stderr  string
 	code    int
 	sleep   string // seconds to hang after printing, to trigger the timeout
@@ -151,6 +152,9 @@ func fakeOpencode(t *testing.T, attempts ...fakeAttempt) string {
 				t.Fatal(err)
 			}
 			os.WriteFile(prefix+".out", data, 0644)
+		}
+		if a.fixture == "" && a.stdout != "" {
+			os.WriteFile(prefix+".out", []byte(a.stdout), 0644)
 		}
 		os.WriteFile(prefix+".err", []byte(a.stderr), 0644)
 		os.WriteFile(prefix+".code", []byte(fmt.Sprint(a.code)), 0644)
@@ -382,5 +386,77 @@ func TestRun_TimeoutElapsedCountsFromReviewStart(t *testing.T) {
 	}
 	if !strings.HasPrefix(c.Message(), "Timed out after 10s (review budget 10s) ") {
 		t.Errorf("Message() = %q, want it to state the review budget", c.Message())
+	}
+}
+
+// usageStep is a step_finish line with the given token counts.
+func usageStep(in, out int) string {
+	return fmt.Sprintf(`{"type":"step_finish","part":{"type":"step-finish","reason":"tool-calls","tokens":{"total":%d,"input":%d,"output":%d}}}`+"\n", in+out, in, out)
+}
+
+func TestRun_UsageAcrossAttempts(t *testing.T) {
+	shortBackoff(t)
+	rateLimited, err := os.ReadFile(filepath.Join("testdata", "rate_limited.ndjson"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The fixture's own step_finish counts too, so build both attempts from
+	// one step_finish each followed by the error.
+	errLine := ""
+	for _, l := range strings.Split(string(rateLimited), "\n") {
+		if strings.Contains(l, `"type":"error"`) {
+			errLine = l + "\n"
+		}
+	}
+	completed := `{"type":"step_start","part":{"type":"step-start"}}` + "\n" +
+		`{"type":"text","part":{"type":"text","text":"done"}}` + "\n" +
+		strings.Replace(usageStep(7, 2), "tool-calls", "stop", 1)
+	fakeOpencode(t,
+		fakeAttempt{stdout: `{"type":"step_start","part":{"type":"step-start"}}` + "\n" + usageStep(5, 1) + errLine, code: 1},
+		fakeAttempt{stdout: completed},
+	)
+
+	got := Run(context.Background(), testOptions(time.Minute))
+	if got.Status != StatusCompleted {
+		t.Fatalf("Run() = %+v, want completed", got)
+	}
+	if want := (Usage{Input: 12, Output: 3}); got.Usage != want {
+		t.Errorf("Usage = %+v, want %+v", got.Usage, want)
+	}
+}
+
+func TestRun_ExcludeEnv(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake opencode is a shell script")
+	}
+	dir := t.TempDir()
+	envFile := filepath.Join(dir, "env")
+	script := fmt.Sprintf("#!/bin/sh\nenv > %q\ncat <<'EOF'\n%sEOF\n", envFile,
+		`{"type":"step_start","part":{"type":"step-start"}}`+"\n"+
+			`{"type":"text","part":{"type":"text","text":"ok"}}`+"\n"+
+			`{"type":"step_finish","part":{"type":"step-finish","reason":"stop"}}`+"\n")
+	bin := filepath.Join(dir, "bin")
+	os.Mkdir(bin, 0755)
+	if err := os.WriteFile(filepath.Join(bin, "opencode"), []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("PERGENT_RESULT_TOKEN", "x")
+	t.Setenv("PERGENT_KEEP_ME", "y")
+
+	opts := testOptions(time.Minute)
+	opts.ExcludeEnv = []string{"PERGENT_RESULT_TOKEN"}
+	if got := Run(context.Background(), opts); got.Status != StatusCompleted {
+		t.Fatalf("Run() = %+v, want completed", got)
+	}
+	data, err := os.ReadFile(envFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "PERGENT_RESULT_TOKEN") {
+		t.Errorf("opencode's environment still has PERGENT_RESULT_TOKEN")
+	}
+	if !strings.Contains(string(data), "PERGENT_KEEP_ME=y") {
+		t.Errorf("opencode's environment lost an unrelated variable")
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -23,6 +24,8 @@ type RunResult struct {
 	Status    Status
 	Output    string
 	Cause     *Cause
+	// Usage is the tokens used, summed over all attempts.
+	Usage Usage
 }
 
 // Options configures a skill run.
@@ -45,6 +48,36 @@ type Options struct {
 	StepLimit int
 	// ContextLimit is the explicit context limit pergent configured (0 if none).
 	ContextLimit int
+	// ExcludeEnv names environment variables removed from opencode's
+	// environment (e.g. secrets only pergent itself needs).
+	ExcludeEnv []string
+	// LogPrefix, when set, is written as "<prefix> " before every progress
+	// line of the run.
+	LogPrefix string
+}
+
+// logPrefix returns the text written before each progress line. It is spliced
+// into format strings, so any % is doubled.
+func (o Options) logPrefix() string {
+	if o.LogPrefix == "" {
+		return ""
+	}
+	return strings.ReplaceAll(o.LogPrefix, "%", "%%") + " "
+}
+
+// withoutEnv returns env without the variables named in exclude.
+func withoutEnv(env, exclude []string) []string {
+	if len(exclude) == 0 {
+		return env
+	}
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		name, _, _ := strings.Cut(kv, "=")
+		if !slices.Contains(exclude, name) {
+			out = append(out, kv)
+		}
+	}
+	return out
 }
 
 // maxRetries is how many times a run that failed on a transient provider
@@ -107,33 +140,36 @@ func Run(ctx context.Context, opts Options) RunResult {
 	ctx, cancel := context.WithTimeout(ctx, opts.Timeout)
 	defer cancel()
 
+	prefix := opts.logPrefix()
+	var usage Usage
 	backoff := retryBackoff
 	for n := 1; ; n++ {
 		a := runAttempt(ctx, opts)
+		usage = usage.Add(a.transcript.Usage)
 		status, cause := classify(a, opts, time.Since(start))
 		if status == StatusCompleted {
-			return RunResult{SkillName: opts.SkillName, Status: status, Output: a.transcript.Answer}
+			return RunResult{SkillName: opts.SkillName, Status: status, Output: a.transcript.Answer, Usage: usage}
 		}
 
 		e := a.transcript.RootError()
 		retry := cause.Kind == CauseOpencodeError && e != nil && e.Transient() && n <= maxRetries
 		if retry {
 			if deadline, _ := ctx.Deadline(); time.Until(deadline) <= backoff {
-				fmt.Fprintf(os.Stderr, "  Transient error, but not enough time left to retry: %s\n", redact.String(cause.Message()))
+				fmt.Fprintf(os.Stderr, prefix+"  Transient error, but not enough time left to retry: %s\n", redact.String(cause.Message()))
 				retry = false
 			}
 		}
 		if !retry {
 			cause.Attempts = n
-			return RunResult{SkillName: opts.SkillName, Status: status, Cause: cause}
+			return RunResult{SkillName: opts.SkillName, Status: status, Cause: cause, Usage: usage}
 		}
 
-		fmt.Fprintf(os.Stderr, "  Transient error: %s\n  Retrying in %s (attempt %d of %d)\n",
+		fmt.Fprintf(os.Stderr, prefix+"  Transient error: %s\n"+prefix+"  Retrying in %s (attempt %d of %d)\n",
 			redact.String(cause.Message()), backoff, n+1, maxRetries+1)
 		select {
 		case <-ctx.Done():
 			cause.Attempts = n
-			return RunResult{SkillName: opts.SkillName, Status: status, Cause: cause}
+			return RunResult{SkillName: opts.SkillName, Status: status, Cause: cause, Usage: usage}
 		case <-time.After(backoff):
 		}
 		backoff *= 2
@@ -149,11 +185,13 @@ func runAttempt(ctx context.Context, opts Options) attempt {
 	defer stop()
 	cmd := BuildCommand(runCtx, opts.ConfigPath, opts.Files, opts.Message, opts.RepoPath)
 
-	pw := &progressWriter{buf: &bytes.Buffer{}, w: os.Stderr}
+	cmd.Env = withoutEnv(cmd.Env, opts.ExcludeEnv)
+
+	pw := &progressWriter{buf: &bytes.Buffer{}, w: os.Stderr, prefix: opts.logPrefix()}
 	if opts.StepLimit > 0 {
 		pw.onStep = func(step int) {
 			if step == opts.StepLimit+1 {
-				fmt.Fprintf(os.Stderr, "  Stopping opencode: step %d is past the %d-step limit\n", step, opts.StepLimit)
+				fmt.Fprintf(os.Stderr, opts.logPrefix()+"  Stopping opencode: step %d is past the %d-step limit\n", step, opts.StepLimit)
 				stop()
 			}
 		}

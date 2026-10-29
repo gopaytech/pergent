@@ -207,3 +207,33 @@ func TestProgressWriter_ToolErrorRedacted(t *testing.T) {
 		t.Errorf("output = %q, prints part of the API key", got)
 	}
 }
+
+func TestProgress_LogPrefix(t *testing.T) {
+	var out bytes.Buffer
+	pw := &progressWriter{buf: &bytes.Buffer{}, w: &out, prefix: "[s 2/3] "}
+
+	events := `{"type":"step_start","part":{"type":"step-start"}}` + "\n" +
+		`{"type":"tool_use","part":{"tool":"read","state":{"status":"success"}}}` + "\n" +
+		`{"type":"step_finish","part":{"type":"step-finish","tokens":{"output":4}}}` + "\n" +
+		`{"type":"error","error":{"name":"APIError","data":{"message":"boom"}}}` + "\n"
+	pw.Write([]byte(events))
+
+	lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
+	if len(lines) != 4 {
+		t.Fatalf("got %d lines, want 4: %q", len(lines), out.String())
+	}
+	for _, l := range lines {
+		if !strings.HasPrefix(l, "[s 2/3] ") {
+			t.Errorf("line %q does not start with the prefix", l)
+		}
+	}
+}
+
+func TestProgress_NoPrefixUnchanged(t *testing.T) {
+	var out bytes.Buffer
+	pw := &progressWriter{buf: &bytes.Buffer{}, w: &out}
+	pw.Write([]byte(`{"type":"step_start","part":{"type":"step-start"}}` + "\n"))
+	if got := out.String(); got != "  Step 1: starting...\n" {
+		t.Errorf("output = %q", got)
+	}
+}

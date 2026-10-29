@@ -18,6 +18,8 @@ type progressWriter struct {
 	w    io.Writer
 	// onStep, if set, is called with the step number at each step_start.
 	onStep func(step int)
+	// prefix is written before every progress line; empty for none.
+	prefix string
 	// partial holds a line split across writes.
 	partial []byte
 }
@@ -54,15 +56,15 @@ func (pw *progressWriter) formatEvent(event openCodeEvent) {
 	switch event.Type {
 	case "step_start":
 		pw.step++
-		fmt.Fprintf(pw.w, "  Step %d: starting...\n", pw.step)
+		pw.printf("  Step %d: starting...\n", pw.step)
 		if pw.onStep != nil {
 			pw.onStep(pw.step)
 		}
 	case "step_finish":
 		if event.Part != nil && event.Part.Tokens != nil {
-			fmt.Fprintf(pw.w, "  Step %d: done (%d tokens)\n", pw.step, event.Part.Tokens.Output)
+			pw.printf("  Step %d: done (%d tokens)\n", pw.step, event.Part.Tokens.Output)
 		} else {
-			fmt.Fprintf(pw.w, "  Step %d: done\n", pw.step)
+			pw.printf("  Step %d: done\n", pw.step)
 		}
 	case "tool_use":
 		if event.Part != nil {
@@ -72,17 +74,17 @@ func (pw *progressWriter) formatEvent(event openCodeEvent) {
 				status = event.Part.State.Status
 			}
 			if status == "error" && event.Part.State != nil {
-				fmt.Fprintf(pw.w, "  Step %d: tool %s (error: %s)\n", pw.step, tool, truncate(redact.String(event.Part.State.Error), 80))
+				pw.printf("  Step %d: tool %s (error: %s)\n", pw.step, tool, truncate(redact.String(event.Part.State.Error), 80))
 			} else {
-				fmt.Fprintf(pw.w, "  Step %d: tool %s\n", pw.step, tool)
+				pw.printf("  Step %d: tool %s\n", pw.step, tool)
 			}
 		}
 	case "text":
 		if event.Part != nil && event.Part.Type == "text" {
 			if event.Part.Synthetic {
-				fmt.Fprintf(pw.w, "  Step %d: opencode added its own message (%s)\n", pw.step, truncate(redact.String(event.Part.Text), 80))
+				pw.printf("  Step %d: opencode added its own message (%s)\n", pw.step, truncate(redact.String(event.Part.Text), 80))
 			} else {
-				fmt.Fprintf(pw.w, "  Step %d: generating text...\n", pw.step)
+				pw.printf("  Step %d: generating text...\n", pw.step)
 			}
 		}
 	case "error":
@@ -92,9 +94,14 @@ func (pw *progressWriter) formatEvent(event openCodeEvent) {
 				// Redact before cutting, so a key across the cut can't print in part.
 				msg = truncate(redact.String(event.Error.Data.Message), 120)
 			}
-			fmt.Fprintf(pw.w, "  Error: %s\n", redact.String(msg))
+			pw.printf("  Error: %s\n", redact.String(msg))
 		}
 	}
+}
+
+// printf writes one progress line, behind the prefix when there is one.
+func (pw *progressWriter) printf(format string, args ...any) {
+	fmt.Fprintf(pw.w, pw.prefix+format, args...)
 }
 
 func truncate(s string, max int) string {

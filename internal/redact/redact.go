@@ -10,7 +10,7 @@ import (
 const placeholder = "[REDACTED]"
 
 // secretEnvVars hold credentials whose values must never reach a comment or log.
-var secretEnvVars = []string{"OPENCODE_API_KEY", "GITHUB_TOKEN", "GITLAB_TOKEN"}
+var secretEnvVars = []string{"OPENCODE_API_KEY", "GITHUB_TOKEN", "GITLAB_TOKEN", "PERGENT_RESULT_TOKEN"}
 
 // minSecretLen keeps very short values (e.g. a placeholder like "x" in a local
 // run) from blanking out ordinary words. Real keys and tokens are far longer.
