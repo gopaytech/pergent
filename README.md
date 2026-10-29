@@ -319,6 +319,176 @@ mr-review:
     OPENCODE_MODEL: claude-sonnet-4
 ```
 
+## Agent mode
+
+`pergent agent` is for a service that runs reviews on code it does not trust, such as a merge request from a fork. It reviews a checkout that someone else prepared, between two commits, and **produces a result** (versioned JSON). It posts nothing.
+
+What it is:
+
+- **No platform token.** It never calls GitHub or GitLab. The caller reads the result, posts the comment, sets the status and approves.
+- **Trusted inputs only.** Skills, project instructions and the previous result come from paths you pass, never from the checkout: the checkout is the change under review, and a change could rewrite its own review rules. Default skip rules (lockfile, vendored, generated) are also read from the base commit, so a change can't mark its own files as generated to hide them.
+- **A result for every outcome.** A review where every skill failed is still a result (exit 0). A review that could not run is an error result with a code and a ready-to-post comment.
+
+What it isn't: it does not clone or fetch (the caller prepares the checkout), approve, post comments or set statuses. CI mode (`pergent --skill ...`) is unchanged.
+
+```bash
+pergent agent \
+  --repo-path /work/repo \
+  --base 4f1c2a9e8b7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b \
+  --head 9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b \
+  --skills-dir /in/skills \
+  --instructions /in/instructions.md \
+  --scrub-instructions \
+  --result result.json
+```
+
+stdout carries only the result, and only with `--result -`; all logs go to stderr, with each progress line prefixed by the skill and batch (`[code-review 2/3]`).
+
+### Agent flags
+
+| Flag | Description | Default |
+|---|---|---|
+| `--repo-path` | The checkout of the head commit. Must be the top of the git work tree | required |
+| `--base` | The change's merge base: a full 40- or 64-character lowercase commit SHA | required |
+| `--head` | The change's head: a full lowercase commit SHA. The checkout's `HEAD` must equal it | required |
+| `--skills-dir` | Directory of skills: flat `*.md` files and `<name>/SKILL.md` folders | required unless `--skill` is given |
+| `--skill` | Preset name or skill file path (repeatable); can be combined with `--skills-dir` | — |
+| `--instructions` | One file passed to the agent as project instructions. Without it the agent gets none; `AGENTS.md` / `CLAUDE.md` are never discovered | unset |
+| `--previous` | A previous agent result: its findings are attached per skill, as `--previous-review` does in CI mode. A missing, unreadable or other-version file logs a warning and the review runs as a first review | unset |
+| `--scrub-instructions` | Declares `--repo-path` a disposable checkout and deletes the files below before reviewing | `false` |
+| `--max-comment-size` | Byte limit for the rendered comment (`0`: no limit) | `0` |
+| `--result` | Write the result to this file, or `-` for stdout. A file is written to `<path>.tmp`, fsynced, then renamed | — |
+| `--result-url` | `POST` the result here, with `PERGENT_RESULT_TOKEN` as the bearer token | — |
+| `--timeout`, `--concurrency`, `--max-turns`, `--context-limit` | As in CI mode | as in CI mode |
+
+At least one of `--result` and `--result-url` is required; both can be used together. `--local`, `--platform`, `--previous-review` and `--base-branch` are CI-mode flags and are a usage error here.
+
+Environment: `OPENCODE_PROVIDER` and `OPENCODE_MODEL` are **required** (a usage error otherwise), so pergent can generate the sandboxed opencode config. `OPENCODE_API_KEY` and `OPENCODE_BASE_URL` work as in CI mode. `PERGENT_RESULT_TOKEN` is required with `--result-url`; it is removed from opencode's environment and redacted from the logs and the result (a value shorter than 8 characters is not redacted).
+
+### Rules for the inputs and the checkout
+
+- **git 2.40 or newer.** The diff reads `.gitattributes` from the base commit through `GIT_ATTR_SOURCE`, which older git ignores. Below 2.40 pergent refuses with the `internal` error code. The Docker image (`debian:trixie-slim`) has a recent enough git.
+- **Commits and checkout.** `--base` and `--head` must be full commit SHAs, not branch names or short SHAs. Both commits must exist in the checkout, and its `HEAD` must be `--head`. The diff is `git diff <base> <head>`, so no history between them is needed.
+- **Trusted inputs outside the checkout.** `--instructions`, `--skills-dir`, a path given to `--skill` and `--previous` must not resolve inside `--repo-path` (a usage error). Duplicate skill names are a usage error too: the caller decides which skill wins.
+- **Instruction files and symlinks.** opencode loads a nested `AGENTS.md`, `CLAUDE.md` or `CONTEXT.md` whenever the agent reads a file next to it, and no setting turns that off, so a change could plant instructions there. A symlink pointing outside the checkout would let the read-only agent read files beyond it. Pass `--scrub-instructions` and pergent deletes every file with those names (any case, the root included, `.git` skipped) and every symlink whose target resolves outside the checkout, and logs each path. Without the flag, pergent refuses with `untrusted_instructions` when such a file exists below the root, when a symlink resolves to the checkout root, or when a symlink resolves outside the checkout. A service that reviews untrusted changes should always pass the flag. Changes to these files still show up in the diff and are reviewed as content.
+- **Secrets in the checkout.** In agent mode the agent is also denied reading `*.pem`, `*.key` and `*.tfvars`, on top of `*.env` / `*.env.*`. The checkout must not hold credentials in `.git/config`, which the agent can read: see the init container below.
+
+### Exit codes
+
+| Code | Meaning |
+|---|---|
+| `0` | A result was produced and delivered, even if every skill failed. |
+| `2` | Usage error. An error result is delivered only when a delivery target could be parsed. |
+| `3` | No review was possible (for example a missing commit or an untrusted checkout). The error result was delivered. |
+| `4` | A delivery failed. |
+
+HTTP delivery never follows redirects. A `409` counts as delivered (the receiver already has the result); `401`, `403`, `413` and other `4xx` replies fail without a retry; `429`, `5xx` and connection errors are retried after 2s, 4s and 8s. The full table is in the [result schema](docs/agent-result-schema.md#delivery).
+
+After `SIGTERM` or `SIGINT`, pergent stops its opencode runs, fails the unfinished skills with a cause (cancelled, or stopped at the Job deadline if `--timeout` had already run out), and still delivers a `completed` result. Delivery then gets 20 seconds with one retry after 1s, so it fits Kubernetes' 30-second grace period.
+
+### Running as a Kubernetes Job
+
+A Job prepares the checkout in an init container and runs pergent in the main container. The two get different secrets: the init container holds only a read-only git token, and pergent holds the LLM key and the result token, never a platform token.
+
+```yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: review-7f3a9c
+spec:
+  backoffLimit: 0
+  # --timeout (10m) + 2 minutes to finish and deliver + allowance for the clone
+  activeDeadlineSeconds: 900
+  template:
+    spec:
+      restartPolicy: Never
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: work
+          emptyDir: {}
+        - name: inputs
+          configMap:
+            name: review-7f3a9c-inputs   # skills/ and instructions.md
+      initContainers:
+        - name: checkout
+          image: ghcr.io/gopaytech/pergent:latest
+          command:
+            - sh
+            - -ec
+            - |
+              # The token goes through git's environment config, so it is never
+              # in the remote URL or written to .git/config. Use the username your git
+              # host expects (x-access-token is GitHub's).
+              export GIT_CONFIG_COUNT=1
+              export GIT_CONFIG_KEY_0=http.extraHeader
+              export GIT_CONFIG_VALUE_0="Authorization: Basic $(printf 'x-access-token:%s' "$GIT_TOKEN" | base64 -w0)"
+              git init -q /work/repo
+              cd /work/repo
+              git remote add origin "$REPO_URL"
+              git fetch -q --depth=1 origin "$BASE_SHA" "$HEAD_SHA"
+              git checkout -q --detach "$HEAD_SHA"
+          env:
+            - name: REPO_URL
+              value: https://git.example.com/acme/widgets.git
+            - name: BASE_SHA
+              value: 4f1c2a9e8b7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b
+            - name: HEAD_SHA
+              value: 9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b
+            - name: GIT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: review-7f3a9c-git
+                  key: token
+          volumeMounts:
+            - name: work
+              mountPath: /work
+      containers:
+        - name: pergent
+          image: ghcr.io/gopaytech/pergent:latest
+          command:
+            - pergent
+            - agent
+            - --repo-path=/work/repo
+            - --base=4f1c2a9e8b7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b
+            - --head=9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b
+            - --skills-dir=/in/skills
+            - --instructions=/in/instructions.md
+            - --scrub-instructions
+            - --timeout=10m
+            - --result-url=https://reviews.example.com/runs/7f3a9c/result
+          env:
+            - name: OPENCODE_PROVIDER
+              value: anthropic
+            - name: OPENCODE_MODEL
+              value: claude-sonnet-4
+            - name: OPENCODE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: review-7f3a9c-llm
+                  key: api-key
+            - name: PERGENT_RESULT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: review-7f3a9c-llm
+                  key: result-token
+          volumeMounts:
+            - name: work
+              mountPath: /work
+            - name: inputs
+              mountPath: /in
+              readOnly: true
+```
+
+Notes:
+
+- `activeDeadlineSeconds` counts from the Job's start, so image pulls and the clone use it up. Keep it above `--timeout` plus time to finish and deliver, so pergent's own budget always ends first.
+- The Job's deadline and a cancelled Job both send `SIGTERM`; `terminationGracePeriodSeconds: 30` is what lets pergent deliver afterwards.
+- If the init container and the pergent container run as different users, git refuses the checkout as "dubious ownership" and pergent reports `checkout_missing`. Run both as the same user, or add `safe.directory` for the checkout (for example `GIT_CONFIG_COUNT=1`, `GIT_CONFIG_KEY_0=safe.directory`, `GIT_CONFIG_VALUE_0=/work/repo` in the pergent container's environment).
+- Fetching a commit by SHA depends on the git host allowing it. If the merge base can't be fetched that way, fetch the target branch with a larger `--depth` instead; pergent reports `commit_missing` when a commit is absent.
+- A crash, an out-of-memory kill or a deadline kill delivers no result. The service must read the Job's status for those.
+
+The result's fields, error codes and examples are in [docs/agent-result-schema.md](docs/agent-result-schema.md).
+
 ## CLI Flags
 
 | Flag | Description | Default |
