@@ -3,6 +3,7 @@ package config
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -298,5 +299,234 @@ func TestGenerateOpenCodeConfig_LimitsAndCompaction(t *testing.T) {
 				t.Errorf("limit.output = %v, want 0", limit["output"])
 			}
 		})
+	}
+}
+
+// generateWith writes a config via GenerateOpenCodeConfigWith and returns the
+// raw JSON.
+func generateWith(t *testing.T, o OpenCodeOptions) []byte {
+	t.Helper()
+	t.Setenv("OPENCODE_PROVIDER", "anthropic")
+	t.Setenv("OPENCODE_MODEL", "claude-sonnet-4")
+
+	configPath, cleanup, err := GenerateOpenCodeConfigWith(o)
+	if err != nil {
+		t.Fatalf("GenerateOpenCodeConfigWith() error: %v", err)
+	}
+	t.Cleanup(cleanup)
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("reading config: %v", err)
+	}
+	return data
+}
+
+func TestGenerateWith_ExplicitNoInstructions(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "AGENTS.md"), []byte("be nice"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	data := generateWith(t, OpenCodeOptions{
+		MaxTurns:             20,
+		Prompt:               "p",
+		RepoPath:             repo,
+		ExplicitInstructions: true,
+	})
+
+	var cfg openCodeConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Instructions) != 0 {
+		t.Errorf("instructions = %v, want none", cfg.Instructions)
+	}
+	if bytes.Contains(data, []byte("AGENTS.md")) {
+		t.Error("config must not mention the repo's AGENTS.md")
+	}
+}
+
+func TestGenerateWith_ExplicitInstructions(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "AGENTS.md"), []byte("be nice"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	data := generateWith(t, OpenCodeOptions{
+		MaxTurns:             20,
+		Prompt:               "p",
+		RepoPath:             repo,
+		ExplicitInstructions: true,
+		Instructions:         []string{"/in/instructions.md"},
+	})
+
+	var cfg openCodeConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Instructions) != 1 || cfg.Instructions[0] != "/in/instructions.md" {
+		t.Errorf("instructions = %v, want [/in/instructions.md]", cfg.Instructions)
+	}
+}
+
+func TestGenerateWith_DenySecretFiles(t *testing.T) {
+	data := generateWith(t, OpenCodeOptions{
+		MaxTurns:        20,
+		Prompt:          "p",
+		RepoPath:        t.TempDir(),
+		DenySecretFiles: true,
+	})
+
+	var cfg openCodeConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	read, ok := cfg.Permission["read"].(map[string]any)
+	if !ok {
+		t.Fatalf("permission.read = %T, want object", cfg.Permission["read"])
+	}
+	want := map[string]string{
+		"*":             "allow",
+		"*.env":         "deny",
+		"*.env.*":       "deny",
+		"*.env.example": "allow",
+		"*.key":         "deny",
+		"*.pem":         "deny",
+		"*.tfvars":      "deny",
+	}
+	for k, v := range want {
+		if read[k] != v {
+			t.Errorf("permission.read[%q] = %v, want %q", k, read[k], v)
+		}
+	}
+	if len(read) != len(want) {
+		t.Errorf("permission.read has %d rules, want %d: %v", len(read), len(want), read)
+	}
+
+	// Rules are last-match-wins, so the order in the file matters: read the
+	// keys back in document order.
+	dec := json.NewDecoder(bytes.NewReader(data))
+	var order []string
+	inRead := false
+	depth := 0
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			break
+		}
+		switch v := tok.(type) {
+		case json.Delim:
+			if v == '{' {
+				depth++
+			} else if v == '}' {
+				if inRead && depth == 3 {
+					inRead = false
+				}
+				depth--
+			}
+		case string:
+			if depth == 2 && v == "read" {
+				// next token is the opening brace of the read object
+				if next, err := dec.Token(); err == nil {
+					if d, ok := next.(json.Delim); ok && d == '{' {
+						depth++
+						inRead = true
+					}
+				}
+			} else if inRead && depth == 3 {
+				order = append(order, v)
+				// skip the value
+				if _, err := dec.Token(); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+	}
+	wantOrder := []string{"*", "*.env", "*.env.*", "*.env.example", "*.key", "*.pem", "*.tfvars"}
+	if len(order) != len(wantOrder) {
+		t.Fatalf("read key order = %v, want %v", order, wantOrder)
+	}
+	for i := range wantOrder {
+		if order[i] != wantOrder[i] {
+			t.Fatalf("read key order = %v, want %v", order, wantOrder)
+		}
+	}
+}
+
+// goldenCIConfig is the exact output of GenerateOpenCodeConfig(20, 0,
+// "test prompt", repo) for a repo with an AGENTS.md, captured before
+// GenerateOpenCodeConfigWith was introduced. %s is the AGENTS.md path.
+const goldenCIConfig = `{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "anthropic/claude-sonnet-4",
+  "default_agent": "pergent",
+  "instructions": [
+    "%s"
+  ],
+  "provider": {
+    "anthropic": {
+      "options": {
+        "apiKey": "{env:OPENCODE_API_KEY}"
+      },
+      "models": {
+        "claude-sonnet-4": {}
+      }
+    }
+  },
+  "agent": {
+    "pergent": {
+      "description": "pergent review agent",
+      "mode": "primary",
+      "model": "anthropic/claude-sonnet-4",
+      "steps": 20,
+      "prompt": "test prompt"
+    }
+  },
+  "permission": {
+    "bash": "deny",
+    "edit": "deny",
+    "glob": "allow",
+    "grep": "allow",
+    "list": "allow",
+    "read": {
+      "*": "allow",
+      "*.env": "deny",
+      "*.env.*": "deny",
+      "*.env.example": "allow"
+    },
+    "skill": "deny",
+    "task": "deny",
+    "webfetch": "deny",
+    "websearch": "deny"
+  },
+  "compaction": {
+    "auto": false
+  }
+}`
+
+func TestGenerate_Unchanged(t *testing.T) {
+	t.Setenv("OPENCODE_PROVIDER", "anthropic")
+	t.Setenv("OPENCODE_MODEL", "claude-sonnet-4")
+
+	repo := t.TempDir()
+	agentsPath := filepath.Join(repo, "AGENTS.md")
+	if err := os.WriteFile(agentsPath, []byte("be nice"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	configPath, cleanup, err := GenerateOpenCodeConfig(20, 0, "test prompt", repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+
+	got, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := fmt.Sprintf(goldenCIConfig, agentsPath)
+	if string(got) != want {
+		t.Errorf("CI config changed.\ngot:\n%s\nwant:\n%s", got, want)
 	}
 }

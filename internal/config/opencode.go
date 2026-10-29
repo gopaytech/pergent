@@ -57,10 +57,44 @@ type openCodeAgent struct {
 	Prompt      string `json:"prompt,omitempty"`
 }
 
+// OpenCodeOptions configures GenerateOpenCodeConfigWith.
+type OpenCodeOptions struct {
+	// MaxTurns is the agent's step limit.
+	MaxTurns int
+	// ContextLimit overrides the model's context window when > 0; otherwise
+	// opencode uses the limits from its model registry.
+	ContextLimit int
+	// Prompt is the agent's system prompt.
+	Prompt string
+	// RepoPath is where AGENTS.md/CLAUDE.md are looked up when
+	// ExplicitInstructions is false.
+	RepoPath string
+	// ExplicitInstructions makes Instructions the only instruction files:
+	// nothing is auto-discovered in RepoPath. It is for runs where the repo
+	// contents are not trusted.
+	ExplicitInstructions bool
+	// Instructions are absolute paths of instruction files, used only when
+	// ExplicitInstructions is set.
+	Instructions []string
+	// DenySecretFiles additionally denies reading *.pem, *.key and *.tfvars.
+	DenySecretFiles bool
+}
+
 // GenerateOpenCodeConfig writes a temporary opencode.json for one skill run.
 // contextLimit overrides the model's context window when > 0; otherwise
 // opencode uses the limits from its model registry.
 func GenerateOpenCodeConfig(maxTurns int, contextLimit int, skillPrompt string, repoPath string) (string, func(), error) {
+	return GenerateOpenCodeConfigWith(OpenCodeOptions{
+		MaxTurns:     maxTurns,
+		ContextLimit: contextLimit,
+		Prompt:       skillPrompt,
+		RepoPath:     repoPath,
+	})
+}
+
+// GenerateOpenCodeConfigWith writes a temporary opencode.json as configured by o.
+func GenerateOpenCodeConfigWith(o OpenCodeOptions) (string, func(), error) {
+	maxTurns, contextLimit, skillPrompt := o.MaxTurns, o.ContextLimit, o.Prompt
 	provider := os.Getenv("OPENCODE_PROVIDER")
 	model := os.Getenv("OPENCODE_MODEL")
 
@@ -91,11 +125,30 @@ func GenerateOpenCodeConfig(maxTurns int, contextLimit int, skillPrompt string, 
 		modelEntry.Limit = &openCodeLimit{Context: contextLimit}
 	}
 
+	instructions := o.Instructions
+	if !o.ExplicitInstructions {
+		instructions = projectInstructions(o.RepoPath)
+	}
+
+	readRules := map[string]string{
+		"*":             "allow",
+		"*.env":         "deny",
+		"*.env.*":       "deny",
+		"*.env.example": "allow",
+	}
+	if o.DenySecretFiles {
+		// The patterns don't overlap with the earlier ones, so the order only
+		// matters relative to "*".
+		readRules["*.key"] = "deny"
+		readRules["*.pem"] = "deny"
+		readRules["*.tfvars"] = "deny"
+	}
+
 	cfg := openCodeConfig{
 		Schema:       "https://opencode.ai/config.json",
 		Model:        fullModel,
 		DefaultAgent: AgentName,
-		Instructions: projectInstructions(repoPath),
+		Instructions: instructions,
 		Provider: map[string]openCodeProvider{
 			provider: {
 				NPM: npm,
@@ -116,15 +169,11 @@ func GenerateOpenCodeConfig(maxTurns int, contextLimit int, skillPrompt string, 
 			},
 		},
 		// Rules are last-match-wins. encoding/json sorts map keys, so the read
-		// patterns are emitted as "*", "*.env", "*.env.*", "*.env.example",
-		// which is the order these rules need.
+		// patterns are emitted as "*", "*.env", "*.env.*", "*.env.example"
+		// (then "*.key", "*.pem", "*.tfvars" with DenySecretFiles), which is
+		// the order these rules need.
 		Permission: map[string]any{
-			"read": map[string]string{
-				"*":             "allow",
-				"*.env":         "deny",
-				"*.env.*":       "deny",
-				"*.env.example": "allow",
-			},
+			"read": readRules,
 			// edit also gates the write and apply_patch tools
 			"edit":      "deny",
 			"bash":      "deny",
