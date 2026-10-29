@@ -62,8 +62,6 @@ func (s *stderrWriter) Write(p []byte) (int, error) {
 		s.writeLine(string(s.partial[:i]), "\n")
 		s.partial = s.partial[i+1:]
 	}
-	// Copy the rest so the buffer behind it can be reused.
-	s.partial = append([]byte(nil), s.partial...)
 	return len(p), nil
 }
 

@@ -491,15 +491,10 @@ func gitVersionError(version string, major, minor int, err error) *result.Error 
 // plugins whatever OPENCODE_DISABLE_PROJECT_CONFIG says.
 func trustedInputsOutside(root string, in *agentInputs) *result.Error {
 	if p := in.Target.Path; p != "" && p != "-" {
-		resolved, err := resolvePath(p)
-		if err != nil || within(root, resolved) {
+		if e := resultPathError(root, p); e != nil {
 			// The error result must not be written there either.
 			in.Target.Path = ""
-			if err != nil {
-				return &result.Error{Code: result.CodeUsage, Message: fmt.Sprintf("--result %s: %v", p, err)}
-			}
-			return &result.Error{Code: result.CodeUsage, Message: fmt.Sprintf(
-				"--result %s is inside --repo-path: agent mode never writes the result into the checkout", p)}
+			return e
 		}
 	}
 
@@ -533,6 +528,33 @@ func trustedInputsOutside(root string, in *agentInputs) *result.Error {
 		if within(root, resolved) || (i.flag == "--skills-dir" && within(resolved, root)) {
 			return &result.Error{Code: result.CodeUsage, Message: fmt.Sprintf(
 				"%s %s is inside --repo-path: agent mode never reads trusted inputs from the checkout", i.flag, i.path)}
+		}
+	}
+	return nil
+}
+
+// resultPathError refuses a --result file that is in the checkout, or whose
+// name or <name>.tmp is a symlink: writing the file follows <name>.tmp, and
+// the change could have committed both as links out of the checkout. Only the
+// directory is resolved, so the final component is never followed.
+func resultPathError(root, p string) *result.Error {
+	usage := func(format string, a ...any) *result.Error {
+		return &result.Error{Code: result.CodeUsage, Message: fmt.Sprintf(format, a...)}
+	}
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return usage("--result %s: %v", p, err)
+	}
+	dir, err := resolvePath(filepath.Dir(abs))
+	if err != nil {
+		return usage("--result %s: %v", p, err)
+	}
+	if within(root, filepath.Join(dir, filepath.Base(abs))) {
+		return usage("--result %s is inside --repo-path: agent mode never writes the result into the checkout", p)
+	}
+	for _, name := range []string{abs, abs + ".tmp"} {
+		if info, err := os.Lstat(name); err == nil && info.Mode()&os.ModeSymlink != 0 {
+			return usage("--result %s: %s is a symlink, which writing the result would follow", p, name)
 		}
 	}
 	return nil
