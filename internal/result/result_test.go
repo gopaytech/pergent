@@ -289,3 +289,122 @@ func TestEncode_Redacts(t *testing.T) {
 		t.Errorf("token leaked: %s", b)
 	}
 }
+
+func TestAssignIDs_WidensUntilUnique(t *testing.T) {
+	// These share their first 10 characters.
+	a, b := "abcdef1234aaaa", "abcdef1234bbbb"
+	got := AssignIDs([]string{a, b, "zzzzzz000000"})
+	if got[a] == got[b] {
+		t.Fatalf("IDs not unique: %q", got[a])
+	}
+	if got[a] != "abcdef1234a" || got[b] != "abcdef1234b" {
+		t.Errorf("IDs = %q, %q", got[a], got[b])
+	}
+	if got["zzzzzz000000"] != "zzzzzz" {
+		t.Errorf("unrelated ID = %q", got["zzzzzz000000"])
+	}
+}
+
+func TestAssignIDs_IdenticalShareID(t *testing.T) {
+	got := AssignIDs([]string{"abcdef111111", "abcdef222222", "abcdef111111"})
+	if got["abcdef111111"] != "abcdef11" || got["abcdef222222"] != "abcdef22" {
+		t.Errorf("IDs = %v", got)
+	}
+}
+
+func TestBuild_IDsUniqueAcrossSkills(t *testing.T) {
+	mk := func(name, fp string) review.SkillResult {
+		return review.SkillResult{Skill: name, Verdict: review.HasBlockingIssues,
+			Findings: []finding.Finding{{File: "x.go", Severity: finding.Blocking, Title: name, Fingerprint: fp}}}
+	}
+	r := Build(testMeta(), []review.SkillResult{mk("one", "abcdef111111"), mk("two", "abcdef222222")})
+	if id := r.Skills[0].Findings[0].ID; id != "abcdef11" {
+		t.Errorf("first ID = %q", id)
+	}
+	if id := r.Skills[1].Findings[0].ID; id != "abcdef22" {
+		t.Errorf("second ID = %q", id)
+	}
+}
+
+func TestBuild_FailureFieldsArePlainOneLine(t *testing.T) {
+	sr := review.SkillResult{
+		Skill: "s", Verdict: review.Failed,
+		Failures: []review.BatchFailure{{
+			Files:   []string{"a.go", "b.go"},
+			Message: "Batch 1\nof 2 failed.",
+			Cause: &runner.Cause{
+				Kind: runner.CauseExitError, ExitCode: 1,
+				StderrLines: []string{"panic: boom", "goroutine 1"},
+			},
+		}},
+	}
+	b, err := Encode(Build(testMeta(), []review.SkillResult{sr}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sk := decode(t, b)["skills"].([]any)[0].(map[string]any)
+	fail := sk["failures"].([]any)[0].(map[string]any)
+	causeMsg := runner.Cause{Kind: runner.CauseExitError, ExitCode: 1}.Message()
+	texts := []string{fail["message"].(string)}
+	for _, nr := range sk["files"].(map[string]any)["not_reviewed"].([]any) {
+		texts = append(texts, nr.(map[string]any)["cause"].(string))
+	}
+	if len(texts) != 3 {
+		t.Fatalf("texts = %v", texts)
+	}
+	for _, s := range texts {
+		if strings.Contains(s, "**") || strings.Contains(s, "\n") || strings.Contains(strings.ToLower(s), "stderr") || strings.Contains(s, "panic: boom") {
+			t.Errorf("not plain one-line text: %q", s)
+		}
+		if !strings.Contains(s, "Batch 1 of 2 failed.") || !strings.Contains(s, causeMsg) {
+			t.Errorf("missing lead or cause text: %q (cause %q)", s, causeMsg)
+		}
+	}
+}
+
+func TestBuild_FailureWithoutMessageOrCause(t *testing.T) {
+	sr := review.SkillResult{Skill: "s", Verdict: review.Failed,
+		Failures: []review.BatchFailure{{Files: []string{"a.go"}}}}
+	r := Build(testMeta(), []review.SkillResult{sr})
+	want := "The run ended without a review and without a reported cause."
+	if r.Skills[0].Failures[0].Message != want || r.Skills[0].Files.NotReviewed[0].Cause != want {
+		t.Errorf("got %q", r.Skills[0].Failures[0].Message)
+	}
+}
+
+func TestEncode_RedactsEveryField(t *testing.T) {
+	const secret = "glpat-secretvalue"
+	t.Setenv("GITLAB_TOKEN", secret)
+	sr := review.SkillResult{
+		Skill: "s", Verdict: review.Failed,
+		Failures: []review.BatchFailure{{
+			Files:   []string{"a.go"},
+			Message: "failed with " + secret,
+			Cause:   &runner.Cause{Kind: runner.CauseOpencodeError, ErrorName: "E", ErrorMessage: "bad " + secret},
+		}},
+		Summaries: []review.BatchSummary{{Batch: 1, Text: "summary " + secret}},
+		Checks: []review.BatchChecks{{Batch: 1, Checks: []finding.Check{
+			{Section: "s", Name: "n", Status: "pass", Detail: "detail " + secret}}}},
+	}
+	r := Build(testMeta(), []review.SkillResult{sr})
+	// Build output must be clean in the failure fields already, and Encode
+	// must clean the rest.
+	b, err := Encode(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(b, []byte(secret)) {
+		t.Errorf("token leaked: %s", b)
+	}
+	sk := decode(t, b)["skills"].([]any)[0].(map[string]any)
+	if sk["failures"].([]any)[0].(map[string]any)["message"] == "" {
+		t.Errorf("failure message empty")
+	}
+	// Encode redacts fields set after Build too.
+	r.Skills[0].Failures[0].Cause.Message = "cause " + secret
+	r.Skills[0].Files.NotReviewed[0].Cause = "nr " + secret
+	b, _ = Encode(r)
+	if bytes.Contains(b, []byte(secret)) {
+		t.Errorf("token leaked after edit: %s", b)
+	}
+}

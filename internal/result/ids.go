@@ -1,30 +1,57 @@
 package result
 
-const (
-	shortID = 6
-	longID  = 8
-)
+const minID = 6
 
-// AssignIDs maps each distinct fingerprint to its short ID: the first 6
-// characters. When two different fingerprints share those 6 characters,
-// both get their first 8. IDs are only unique within the one result the
-// fingerprints came from.
+// AssignIDs maps each distinct fingerprint to its short ID. IDs start at
+// the first 6 characters; while two distinct fingerprints share an ID, both
+// are widened (8 first, then 9, 10, ... up to the full fingerprint). The
+// same fingerprint twice is one entry and gets one ID. IDs are only unique
+// within the one result the fingerprints came from.
 func AssignIDs(fps []string) map[string]string {
-	distinct := make(map[string]struct{}, len(fps))
+	distinct := make([]string, 0, len(fps))
+	seen := make(map[string]struct{}, len(fps))
 	for _, fp := range fps {
-		distinct[fp] = struct{}{}
-	}
-	owners := make(map[string]int, len(distinct))
-	for fp := range distinct {
-		owners[prefix(fp, shortID)]++
-	}
-	ids := make(map[string]string, len(distinct))
-	for fp := range distinct {
-		n := shortID
-		if owners[prefix(fp, shortID)] > 1 {
-			n = longID
+		if _, ok := seen[fp]; !ok {
+			seen[fp] = struct{}{}
+			distinct = append(distinct, fp)
 		}
-		ids[fp] = prefix(fp, n)
+	}
+
+	width := make(map[string]int, len(distinct))
+	for _, fp := range distinct {
+		width[fp] = minID
+	}
+	for {
+		owners := make(map[string][]string, len(distinct))
+		for _, fp := range distinct {
+			id := prefix(fp, width[fp])
+			owners[id] = append(owners[id], fp)
+		}
+		widened := false
+		for _, group := range owners {
+			if len(group) < 2 {
+				continue
+			}
+			for _, fp := range group {
+				if width[fp] >= len(fp) {
+					continue // already whole; cannot widen
+				}
+				if width[fp] == minID {
+					width[fp] = 8
+				} else {
+					width[fp]++
+				}
+				widened = true
+			}
+		}
+		if !widened {
+			break
+		}
+	}
+
+	ids := make(map[string]string, len(distinct))
+	for _, fp := range distinct {
+		ids[fp] = prefix(fp, width[fp])
 	}
 	return ids
 }

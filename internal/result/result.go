@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/gopaytech/pergent/internal/finding"
-	"github.com/gopaytech/pergent/internal/output"
 	"github.com/gopaytech/pergent/internal/redact"
 	"github.com/gopaytech/pergent/internal/review"
 )
@@ -226,10 +225,10 @@ func buildSkill(s review.SkillResult, ids map[string]string) Skill {
 		out.Files.Skipped = append(out.Files.Skipped, Skipped{Path: sk.Path, Rule: sk.Rule})
 	}
 	for _, f := range s.Failures {
-		text := output.BatchFailureText(f)
+		text := failureText(f)
 		fail := Failure{Files: nonNil(f.Files), Message: text}
 		if f.Cause != nil {
-			fail.Cause = &Cause{Kind: string(f.Cause.Kind), Message: f.Cause.Message()}
+			fail.Cause = &Cause{Kind: string(f.Cause.Kind), Message: oneLine(f.Cause.Message())}
 		}
 		out.Failures = append(out.Failures, fail)
 		for _, path := range f.Files {
@@ -237,6 +236,26 @@ func buildSkill(s review.SkillResult, ids map[string]string) Skill {
 		}
 	}
 	return out
+}
+
+// failureText is a failure as one plain line for machines: the failure's own
+// message and the cause's message, joined by a space. It has no markdown
+// prefix and no stderr.
+func failureText(f review.BatchFailure) string {
+	return redact.String(plainFailure(f))
+}
+
+func plainFailure(f review.BatchFailure) string {
+	lead := oneLine(f.Message)
+	switch {
+	case f.Cause != nil && lead != "":
+		return lead + " " + oneLine(f.Cause.Message())
+	case f.Cause != nil:
+		return oneLine(f.Cause.Message())
+	case lead != "":
+		return lead
+	}
+	return "The run ended without a review and without a reported cause."
 }
 
 func buildFinding(f finding.Finding, ids map[string]string) Finding {
