@@ -300,3 +300,59 @@ func TestCheckUnique(t *testing.T) {
 		t.Errorf("CheckUnique(distinct) = %v, want nil", err)
 	}
 }
+
+func TestLoadDir_GlobMetacharactersInDir(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "ci[1]")
+	writeFile(t, filepath.Join(dir, "x", "SKILL.md"), "---\nname: x-skill\n---\n\nBody.")
+
+	skills, err := LoadDir(dir)
+	if err != nil {
+		t.Fatalf("LoadDir() error: %v", err)
+	}
+	if len(skills) != 1 || skills[0].Name != "x-skill" {
+		t.Fatalf("skills = %+v, want one named x-skill", skills)
+	}
+}
+
+func TestLoadDir_TopLevelSkillMdFallsBackToSKILL(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "my-skills")
+	writeFile(t, filepath.Join(dir, "SKILL.md"), "Just a body.")
+
+	skills, err := LoadDir(dir)
+	if err != nil {
+		t.Fatalf("LoadDir() error: %v", err)
+	}
+	if len(skills) != 1 || skills[0].Name != "SKILL" {
+		t.Fatalf("skills = %+v, want one named SKILL", skills)
+	}
+}
+
+func TestLoadDir_SkipsHiddenEntries(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "real.md"), "Real.")
+	writeFile(t, filepath.Join(dir, ".md"), "Hidden.")
+	writeFile(t, filepath.Join(dir, "._foo.md"), "AppleDouble.")
+	writeFile(t, filepath.Join(dir, ".hidden", "SKILL.md"), "Hidden folder.")
+
+	skills, err := LoadDir(dir)
+	if err != nil {
+		t.Fatalf("LoadDir() error: %v", err)
+	}
+	if len(skills) != 1 || skills[0].Name != "real" {
+		t.Fatalf("skills = %+v, want only real", skills)
+	}
+}
+
+func TestLoadDir_SortedByPath(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "b.md"), "B.")
+	writeFile(t, filepath.Join(dir, "a", "SKILL.md"), "A.")
+
+	skills, err := LoadDir(dir)
+	if err != nil {
+		t.Fatalf("LoadDir() error: %v", err)
+	}
+	if len(skills) != 2 || skills[0].Name != "a" || skills[1].Name != "b" {
+		t.Fatalf("skills = %+v, want [a, b]", skills)
+	}
+}

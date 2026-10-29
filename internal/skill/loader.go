@@ -76,42 +76,53 @@ func Load(path string) (Skill, error) {
 
 // LoadDir loads skills from a directory. Two layouts are accepted: top-level
 // "*.md" files and "<name>/SKILL.md" folders. Anything else is ignored. The
-// result is sorted by path. A SKILL.md without a frontmatter name takes its
-// folder name.
+// result is sorted by path. Entries starting with "." are skipped. A
+// "<name>/SKILL.md" without a frontmatter name takes the folder name; a flat
+// "*.md" file (including a top-level SKILL.md) takes its file name.
 func LoadDir(dir string) ([]Skill, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, fmt.Errorf("reading skills directory: %w", err)
 	}
 
-	var paths []string
+	type candidate struct {
+		path     string
+		fallback string
+	}
+
+	var candidates []candidate
 	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
+		name := entry.Name()
+		if strings.HasPrefix(name, ".") {
 			continue
 		}
-		paths = append(paths, filepath.Join(dir, entry.Name()))
-	}
 
-	folders, err := filepath.Glob(filepath.Join(dir, "*", "SKILL.md"))
-	if err != nil {
-		return nil, fmt.Errorf("listing skill folders: %w", err)
-	}
-	paths = append(paths, folders...)
-	sort.Strings(paths)
+		if entry.IsDir() {
+			path := filepath.Join(dir, name, "SKILL.md")
+			if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
+				candidates = append(candidates, candidate{path: path, fallback: name})
+			}
+			continue
+		}
 
-	skills := make([]Skill, 0, len(paths))
-	for _, path := range paths {
+		if filepath.Ext(name) == ".md" {
+			candidates = append(candidates, candidate{
+				path:     filepath.Join(dir, name),
+				fallback: strings.TrimSuffix(name, ".md"),
+			})
+		}
+	}
+	sort.Slice(candidates, func(i, j int) bool { return candidates[i].path < candidates[j].path })
+
+	skills := make([]Skill, 0, len(candidates))
+	for _, c := range candidates {
+		path := c.path
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return nil, fmt.Errorf("reading skill file: %w", err)
 		}
 
-		fallbackName := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
-		if filepath.Base(path) == "SKILL.md" {
-			fallbackName = filepath.Base(filepath.Dir(path))
-		}
-
-		s, err := parse(data, fallbackName)
+		s, err := parse(data, c.fallback)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", path, err)
 		}
