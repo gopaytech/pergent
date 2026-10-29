@@ -52,7 +52,12 @@ func commitAll(t *testing.T, dir, msg string) string {
 // a.go; addToHead may add more files to the head commit. HEAD is head.
 func agentRepo(t *testing.T, addToHead func(dir string)) (dir, base, head string) {
 	t.Helper()
-	dir = t.TempDir()
+	return agentRepoAt(t, t.TempDir(), addToHead)
+}
+
+// agentRepoAt is agentRepo in a given, existing directory.
+func agentRepoAt(t *testing.T, dir string, addToHead func(dir string)) (_, base, head string) {
+	t.Helper()
 	gitIn(t, dir, "init", "-q")
 	writeFile(t, dir, "a.go", "package a\n")
 	base = commitAll(t, dir, "base")
@@ -593,4 +598,114 @@ func TestGitVersionError(t *testing.T) {
 	if e := gitVersionError("nonsense"); e == nil || e.Code != result.CodeInternal {
 		t.Errorf("gitVersionError(nonsense) = %+v, want %s", e, result.CodeInternal)
 	}
+}
+
+// outsideLinks adds to dir the symlinks whose targets are outside the
+// checkout, and two whose targets are inside it, and returns the outside ones
+// (link name to link text).
+func outsideLinks(t *testing.T, dir, outsideFile string) map[string]string {
+	t.Helper()
+	out := map[string]string{"up": "..", "abs": outsideFile, "gone": "../../nope"}
+	for name, target := range out {
+		if err := os.Symlink(target, filepath.Join(dir, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, target := range map[string]string{"inlink": "a.go", "dangle": "missing.go"} {
+		if err := os.Symlink(target, filepath.Join(dir, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return out
+}
+
+func TestPrepareAgent_OutsideSymlinks(t *testing.T) {
+	outsideFile := filepath.Join(t.TempDir(), "secret.txt")
+	writeFile(t, filepath.Dir(outsideFile), "secret.txt", "secret\n")
+
+	t.Run("scrub deletes them", func(t *testing.T) {
+		var links map[string]string
+		repo, base, head := agentRepo(t, func(dir string) { links = outsideLinks(t, dir, outsideFile) })
+		logs := captureLog(t)
+
+		in := mustParse(t, agentArgs(repo, base, head, oneSkill(t), "--scrub-instructions"))
+		if e := prepareAgent(&in); e != nil {
+			t.Fatalf("prepareAgent() error: %+v, want the review to proceed", e)
+		}
+		for name, target := range links {
+			if _, err := os.Lstat(filepath.Join(repo, name)); !os.IsNotExist(err) {
+				t.Errorf("symlink %s still exists (err %v), want it deleted", name, err)
+			}
+			want := "--scrub-instructions: deleted symlink " + strconv.Quote(name) + " -> " + strconv.Quote(target)
+			if !strings.Contains(logs.String(), want) {
+				t.Errorf("log lacks %q:\n%s", want, logs)
+			}
+		}
+		for _, name := range []string{"inlink", "dangle"} {
+			if _, err := os.Lstat(filepath.Join(repo, name)); err != nil {
+				t.Errorf("symlink %s inside the checkout was removed: %v", name, err)
+			}
+		}
+		if _, err := os.Stat(outsideFile); err != nil {
+			t.Errorf("the link's target was removed: %v", err)
+		}
+	})
+
+	t.Run("without scrub each refuses", func(t *testing.T) {
+		for name, target := range map[string]string{"up": "..", "abs": outsideFile, "gone": "../../nope"} {
+			t.Run(name, func(t *testing.T) {
+				repo, base, head := agentRepo(t, func(dir string) {
+					if err := os.Symlink(target, filepath.Join(dir, name)); err != nil {
+						t.Fatal(err)
+					}
+				})
+				in := mustParse(t, agentArgs(repo, base, head, oneSkill(t)))
+				e := prepareAgent(&in)
+				want := strconv.Quote(name) + " -> " + strconv.Quote(target)
+				if e == nil || e.Code != result.CodeUntrustedInstructions || !strings.Contains(e.Message, want) {
+					t.Fatalf("prepareAgent() error = %+v, want %s naming %s", e, result.CodeUntrustedInstructions, want)
+				}
+			})
+		}
+	})
+
+	t.Run("inside links are fine without scrub", func(t *testing.T) {
+		repo, base, head := agentRepo(t, func(dir string) {
+			for name, target := range map[string]string{"inlink": "a.go", "dangle": "missing.go"} {
+				if err := os.Symlink(target, filepath.Join(dir, name)); err != nil {
+					t.Fatal(err)
+				}
+			}
+		})
+		in := mustParse(t, agentArgs(repo, base, head, oneSkill(t)))
+		if e := prepareAgent(&in); e != nil {
+			t.Fatalf("prepareAgent() error = %+v, want none", e)
+		}
+	})
+
+	t.Run("a sibling with the root as name prefix is outside", func(t *testing.T) {
+		parent := t.TempDir()
+		root := filepath.Join(parent, "repo")
+		writeFile(t, parent, "repo2/f.txt", "sibling\n")
+		if err := os.Mkdir(root, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for _, target := range []string{"../repo2/f.txt", filepath.Join(parent, "repo2")} {
+			t.Run(target, func(t *testing.T) {
+				os.RemoveAll(root)
+				if err := os.Mkdir(root, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				repo, base, head := agentRepoAt(t, root, func(dir string) {
+					if err := os.Symlink(target, filepath.Join(dir, "sib")); err != nil {
+						t.Fatal(err)
+					}
+				})
+				in := mustParse(t, agentArgs(repo, base, head, oneSkill(t)))
+				if e := prepareAgent(&in); e == nil || e.Code != result.CodeUntrustedInstructions || !strings.Contains(e.Message, `"sib"`) {
+					t.Fatalf("prepareAgent() error = %+v, want %s naming \"sib\"", e, result.CodeUntrustedInstructions)
+				}
+			})
+		}
+	})
 }

@@ -426,40 +426,66 @@ func checkoutRoot(repoPath string) (string, *result.Error) {
 }
 
 // handleInstructionFiles keeps opencode from loading instructions from the
-// checkout. With scrub, every instruction file is deleted, the root's
-// included. Without it, any instruction file below the root is refused, and
-// so is any symlink to the root or above it: through "sub -> ." opencode
-// would find the root's AGENTS.md as sub/AGENTS.md.
+// checkout, or reading beyond it through symlinks.
+//
+// With scrub, every instruction file is deleted, the root's included, and so
+// is every symlink whose target is outside the checkout. Without it, pergent
+// refuses any instruction file below the root, any symlink to the root itself
+// (through "sub -> ." opencode would find the root's AGENTS.md as
+// sub/AGENTS.md), and any symlink whose target is outside the checkout
+// ("x -> /proc/self/environ", "up -> ..").
 func handleInstructionFiles(root string, scrub bool) *result.Error {
-	found, rootLinks, err := scanCheckout(root)
+	scan, err := scanCheckout(root)
 	if err != nil {
 		return &result.Error{Code: result.CodeInternal, Message: fmt.Sprintf("looking for instruction files in the checkout: %v", err)}
 	}
 	if scrub {
-		for _, rel := range found {
+		deleted := map[string]bool{}
+		for _, rel := range scan.instructions {
 			if err := os.Remove(filepath.Join(root, filepath.FromSlash(rel))); err != nil {
 				return &result.Error{Code: result.CodeInternal, Message: fmt.Sprintf("--scrub-instructions: deleting %q: %v", rel, err)}
 			}
+			deleted[rel] = true
 			log.Printf("--scrub-instructions: deleted %q", rel)
+		}
+		for _, l := range scan.outside {
+			if deleted[l.path] {
+				continue // a symlink named like an instruction file, already gone
+			}
+			// os.Remove unlinks the symlink itself, never its target.
+			if err := os.Remove(filepath.Join(root, filepath.FromSlash(l.path))); err != nil {
+				return &result.Error{Code: result.CodeInternal, Message: fmt.Sprintf("--scrub-instructions: deleting symlink %q: %v", l.path, err)}
+			}
+			log.Printf("--scrub-instructions: deleted symlink %q -> %q", l.path, l.target)
 		}
 		return nil
 	}
+
+	var problems []string
 	var nested []string
-	for _, rel := range found {
+	for _, rel := range scan.instructions {
 		if strings.Contains(rel, "/") {
 			nested = append(nested, rel)
 		}
 	}
-	var problems []string
 	if len(nested) > 0 {
 		problems = append(problems, fmt.Sprintf(
 			"the checkout has instruction files below its root, which the agent would load: %s (pass --scrub-instructions to delete them)",
 			quoteAll(nested)))
 	}
-	if len(rootLinks) > 0 {
+	if len(scan.toRoot) > 0 {
 		problems = append(problems, fmt.Sprintf(
-			"the checkout has symlinks to its root or above it, through which the agent would load instruction files: %s",
-			quoteAll(rootLinks)))
+			"the checkout has symlinks to its root, through which the agent would load the root's instruction files: %s",
+			quoteAll(scan.toRoot)))
+	}
+	if len(scan.outside) > 0 {
+		links := make([]string, len(scan.outside))
+		for i, l := range scan.outside {
+			links[i] = fmt.Sprintf("%q -> %q", l.path, l.target)
+		}
+		problems = append(problems, fmt.Sprintf(
+			"the checkout has symlinks to outside it, through which the agent could read beyond the checkout: %s (pass --scrub-instructions to delete them)",
+			strings.Join(links, ", ")))
 	}
 	if len(problems) > 0 {
 		return &result.Error{Code: result.CodeUntrustedInstructions, Message: strings.Join(problems, "; ")}
@@ -467,13 +493,26 @@ func handleInstructionFiles(root string, scrub bool) *result.Error {
 	return nil
 }
 
-// scanCheckout walks root, skipping .git directories and not following
-// symlinked directories. It returns, as sorted slash-separated paths relative
-// to root, every non-directory entry named like an instruction file (a
-// symlink so named included), and every symlink that resolves to root or an
-// ancestor of it.
-func scanCheckout(root string) (found, rootLinks []string, err error) {
-	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+// checkoutScan is what scanCheckout finds. Paths are slash-separated,
+// relative to the root, and sorted.
+type checkoutScan struct {
+	// instructions are the non-directory entries named like an instruction
+	// file, symlinks so named included.
+	instructions []string
+	// toRoot are the symlinks that resolve to the root itself.
+	toRoot []string
+	// outside are the symlinks whose target is neither the root nor below it.
+	outside []outsideLink
+}
+
+// outsideLink is a symlink out of the checkout. target is the link's text.
+type outsideLink struct{ path, target string }
+
+// scanCheckout walks root (symlinks resolved), skipping .git directories and
+// not following symlinked directories, and classifies what it finds.
+func scanCheckout(root string) (checkoutScan, error) {
+	var scan checkoutScan
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -487,20 +526,38 @@ func scanCheckout(root string) (found, rootLinks []string, err error) {
 		if err != nil {
 			return err
 		}
+		rel = filepath.ToSlash(rel)
 		if isInstructionName(d.Name()) {
-			found = append(found, filepath.ToSlash(rel))
+			scan.instructions = append(scan.instructions, rel)
 		}
-		if d.Type()&fs.ModeSymlink != 0 {
-			// A dangling or looping link reaches nothing and is ignored.
-			if target, err := filepath.EvalSymlinks(path); err == nil && within(target, root) {
-				rootLinks = append(rootLinks, filepath.ToSlash(rel))
+		if d.Type()&fs.ModeSymlink == 0 {
+			return nil
+		}
+		text, err := os.Readlink(path)
+		if err != nil {
+			return err
+		}
+		target, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			// Dangling (or looping): judge where the link text points.
+			target = text
+			if !filepath.IsAbs(target) {
+				target = filepath.Join(filepath.Dir(path), target)
 			}
+			target = filepath.Clean(target)
+		}
+		switch {
+		case target == root:
+			scan.toRoot = append(scan.toRoot, rel)
+		case !within(root, target):
+			scan.outside = append(scan.outside, outsideLink{path: rel, target: text})
 		}
 		return nil
 	})
-	sort.Strings(found)
-	sort.Strings(rootLinks)
-	return found, rootLinks, err
+	sort.Strings(scan.instructions)
+	sort.Strings(scan.toRoot)
+	sort.Slice(scan.outside, func(i, j int) bool { return scan.outside[i].path < scan.outside[j].path })
+	return scan, err
 }
 
 // quoteAll formats names taken from the checkout with %q, comma-separated.
