@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gopaytech/pergent/internal/finding"
+	"github.com/gopaytech/pergent/internal/output"
 	"github.com/gopaytech/pergent/internal/redact"
 	"github.com/gopaytech/pergent/internal/review"
 )
@@ -228,7 +229,7 @@ func buildSkill(s review.SkillResult, ids map[string]string) Skill {
 		text := failureText(f)
 		fail := Failure{Files: nonNil(f.Files), Message: text}
 		if f.Cause != nil {
-			fail.Cause = &Cause{Kind: string(f.Cause.Kind), Message: oneLine(f.Cause.Message())}
+			fail.Cause = &Cause{Kind: string(f.Cause.Kind), Message: plainText(f.Cause.Message())}
 		}
 		out.Failures = append(out.Failures, fail)
 		for _, path := range f.Files {
@@ -239,10 +240,19 @@ func buildSkill(s review.SkillResult, ids map[string]string) Skill {
 }
 
 // failureText is a failure as one plain line for machines: the failure's own
-// message and the cause's message, joined by a space. It has no markdown
-// prefix and no stderr.
+// message and the cause's message, joined by a space. It has no markdown and
+// no stderr.
 func failureText(f review.BatchFailure) string {
-	return redact.String(plainFailure(f))
+	return redact.String(plainText(plainFailure(f)))
+}
+
+// markdownMarks are the markdown the failure texts carry for the CI comment:
+// code spans around paths and tool names, and bold.
+var markdownMarks = strings.NewReplacer("`", "", "**", "")
+
+// plainText is s on one line without code-span backticks or bold markers.
+func plainText(s string) string {
+	return oneLine(markdownMarks.Replace(s))
 }
 
 func plainFailure(f review.BatchFailure) string {
@@ -272,15 +282,34 @@ func buildFinding(f finding.Finding, ids map[string]string) Finding {
 }
 
 // ErrorResult is the result of a run that produced no review. Its comment
-// is ready to post.
+// is ready to post: the pergent marker line, then the message with markdown
+// escaped, since it can name files from the checkout.
 func ErrorResult(meta Meta, code ErrorCode, message string) Result {
 	message = oneLine(redact.String(message))
 	r := baseResult(meta, StatusError)
 	// An error result has no timing or budget: nothing ran to completion.
 	r.StartedAt, r.FinishedAt, r.BudgetSeconds = "", "", 0
 	r.Error = &Error{Code: code, Message: message}
-	r.Comment = Comment{Markdown: "⚠️ **pergent couldn't review this MR:** " + message}
+	r.Comment = Comment{Markdown: output.Marker + "\n⚠️ **pergent couldn't review this MR:** " + escapeMarkdown(message)}
 	return r
+}
+
+// asciiPunctuation is CommonMark's ASCII punctuation: each of these can be
+// backslash-escaped.
+const asciiPunctuation = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
+
+// escapeMarkdown puts a backslash before every ASCII punctuation character,
+// which CommonMark renders as the character itself, so s can't open a link,
+// an HTML tag, an entity or any other markup.
+func escapeMarkdown(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if strings.ContainsRune(asciiPunctuation, r) {
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 func oneLine(s string) string {

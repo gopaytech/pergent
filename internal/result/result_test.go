@@ -166,7 +166,7 @@ func TestErrorResult(t *testing.T) {
 		t.Errorf("error.code = %v", e["code"])
 	}
 	c := m["comment"].(map[string]any)
-	want := "⚠️ **pergent couldn't review this MR:** commit abc is not in the checkout"
+	want := "<!-- pergent -->\n⚠️ **pergent couldn't review this MR:** commit abc is not in the checkout"
 	if c["markdown"] != want {
 		t.Errorf("comment.markdown = %q, want %q", c["markdown"], want)
 	}
@@ -175,10 +175,30 @@ func TestErrorResult(t *testing.T) {
 	}
 }
 
+// A message can name files from the checkout, so the comment escapes it:
+// it must not render links or HTML. error.message stays plain text.
+func TestErrorResult_CommentEscapesMessage(t *testing.T) {
+	msg := `symlink "[x](https://evil.example)" -> "<img src=x onerror=alert(1)>" & *bold* ` + "`code`"
+	r := ErrorResult(Meta{}, CodeUntrustedInstructions, msg)
+	if r.Error.Message != msg {
+		t.Errorf("error.message = %q, want the plain message %q", r.Error.Message, msg)
+	}
+	md := r.Comment.Markdown
+	const lead = "<!-- pergent -->\n⚠️ **pergent couldn't review this MR:** "
+	if !strings.HasPrefix(md, lead) {
+		t.Fatalf("comment = %q, want it to start with %q", md, lead)
+	}
+	body := strings.TrimPrefix(md, lead)
+	want := `symlink \"\[x\]\(https\:\/\/evil\.example\)\" \-\> \"\<img src\=x onerror\=alert\(1\)\>\" \& \*bold\* \` + "`" + `code\` + "`"
+	if body != want {
+		t.Errorf("escaped message = %q, want %q", body, want)
+	}
+}
+
 func TestErrorResult_OneLineRedacted(t *testing.T) {
 	t.Setenv("GITLAB_TOKEN", "glpat-secretvalue")
 	r := ErrorResult(Meta{}, CodeInternal, "failed\n  with glpat-secretvalue\ttoken")
-	if strings.ContainsAny(r.Comment.Markdown, "\n\t") {
+	if strings.ContainsAny(strings.TrimPrefix(r.Comment.Markdown, "<!-- pergent -->\n"), "\n\t") {
 		t.Errorf("comment is not one line: %q", r.Comment.Markdown)
 	}
 	b, _ := Encode(r)
@@ -406,5 +426,35 @@ func TestEncode_RedactsEveryField(t *testing.T) {
 	b, _ = Encode(r)
 	if bytes.Contains(b, []byte(secret)) {
 		t.Errorf("token leaked after edit: %s", b)
+	}
+}
+
+// The leads review writes for the CI comment carry markdown; the result's
+// failure texts are plain.
+func TestBuild_FailureTextsHaveNoMarkdown(t *testing.T) {
+	sr := review.SkillResult{
+		Skill: "s", Verdict: review.Failed,
+		Failures: []review.BatchFailure{
+			{Files: []string{"big.go"}, Message: "Not reviewed: `big.go` \u2014 its diff is about 90,000 tokens, larger than the per-batch limit of 50,000."},
+			{Files: []string{"a.go"}, Message: "**Batch 1** failed:", Cause: &runner.Cause{
+				Kind: runner.CauseTimeout, Timeout: time.Minute, Steps: 2, LastTool: "read", LastToolTarget: "a.go"}},
+		},
+	}
+	r := Build(testMeta(), []review.SkillResult{sr})
+	f := r.Skills[0].Failures
+	if want := "Not reviewed: big.go \u2014 its diff is about 90,000 tokens, larger than the per-batch limit of 50,000."; f[0].Message != want {
+		t.Errorf("message = %q, want %q", f[0].Message, want)
+	}
+	texts := []string{f[0].Message, f[1].Message, f[1].Cause.Message}
+	for _, nr := range r.Skills[0].Files.NotReviewed {
+		texts = append(texts, nr.Cause)
+	}
+	for _, s := range texts {
+		if strings.Contains(s, "`") || strings.Contains(s, "**") {
+			t.Errorf("text has markdown: %q", s)
+		}
+	}
+	if !strings.Contains(f[1].Message, "Batch 1 failed:") || !strings.Contains(f[1].Cause.Message, "read on a.go") {
+		t.Errorf("failure = %q / cause %q, want the text kept without markdown", f[1].Message, f[1].Cause.Message)
 	}
 }

@@ -14,6 +14,10 @@ import (
 	"github.com/gopaytech/pergent/internal/runner"
 )
 
+// Marker is the first line of every pergent comment; it finds the comment
+// to update.
+const Marker = "<!-- pergent -->"
+
 // failedPrefix starts the report of a failed batch.
 const failedPrefix = "**Review failed:**"
 
@@ -238,7 +242,7 @@ func cutBytes(s string, n int) string {
 func render(results []review.SkillResult, changedFiles []string, l layout) string {
 	var b strings.Builder
 
-	b.WriteString("<!-- pergent -->\n")
+	b.WriteString(Marker + "\n")
 	b.WriteString("## pergent review\n\n")
 
 	if len(changedFiles) > 0 {

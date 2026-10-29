@@ -139,12 +139,12 @@ The `markdown` and `findings_block` values are shortened here. `comment.markdown
     "message": "commit 4f1c2a9e8b7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b is not in the checkout"
   },
   "comment": {
-    "markdown": "⚠️ **pergent couldn't review this MR:** commit 4f1c2a9e8b7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b is not in the checkout"
+    "markdown": "<!-- pergent -->\n⚠️ **pergent couldn't review this MR:** commit 4f1c2a9e8b7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b is not in the checkout"
   }
 }
 ```
 
-The comment is exactly `⚠️ **pergent couldn't review this MR:** ` followed by `error.message`. pergent adds no trailing period, so the message is not changed by it. `error.message` is one line of plain text with credentials redacted. `base` and `head` are the flag values, and are omitted when pergent could not parse them (for example a missing flag).
+The comment is exactly a `<!-- pergent -->` line (the marker a completed comment starts with too, so the caller can update the one pergent comment), then `⚠️ **pergent couldn't review this MR:** ` followed by `error.message` with a backslash before every ASCII punctuation character. The message can name files from the checkout, and the escaping keeps it from rendering as a link, HTML or other markup; it renders as the message itself. pergent adds no trailing period. `error.message` is one line of plain text, unescaped, with credentials redacted. `base` and `head` are the flag values, and are omitted when pergent could not parse them (for example a missing flag).
 
 ## Fields
 
