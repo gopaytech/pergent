@@ -144,7 +144,7 @@ The `markdown` and `findings_block` values are shortened here. `comment.markdown
 }
 ```
 
-The comment is exactly a `<!-- pergent -->` line (the marker a completed comment starts with too, so the caller can update the one pergent comment), then `⚠️ **pergent couldn't review this MR:** ` followed by `error.message` with a backslash before every ASCII punctuation character. The message can name files from the checkout, and the escaping keeps it from rendering as a link, HTML or other markup; it renders as the message itself. pergent adds no trailing period. `error.message` is one line of plain text, unescaped, with credentials redacted. `base` and `head` are the flag values, and are omitted when pergent could not parse them (for example a missing flag).
+The comment is exactly a `<!-- pergent -->` line (the marker a completed comment starts with too, so the caller can update the one pergent comment), then `⚠️ **pergent couldn't review this MR:** ` followed by `error.message` with a backslash before every ASCII punctuation character. The message can name files from the checkout, and the escaping keeps it from rendering as a link, HTML or other markup; it renders as the message itself. pergent adds no trailing period. `error.message` is one line of plain text, unescaped, with credentials redacted. `base` and `head` are the raw flag values, omitted only when the flag was not given (or came after the flag that stopped parsing). On a `usage` error they may hold the malformed value that caused it.
 
 ## Fields
 
@@ -155,7 +155,7 @@ Top level:
 | `schema_version` | number | Always `1` in this version. |
 | `status` | string | `completed` or `error`. |
 | `pergent_version` | string | The pergent version that produced the result. |
-| `base`, `head` | string | The commits that were reviewed, as passed to `--base` and `--head`. |
+| `base`, `head` | string | The raw `--base` and `--head` values: the commits that were reviewed. Omitted when the flag was not given; on a `usage` error they may be malformed. |
 | `started_at`, `finished_at` | string | RFC 3339, UTC. Completed results only. |
 | `budget_seconds` | number | The review's `--timeout` in seconds. Completed results only. |
 | `skills` | array | One entry per skill, in the order loaded. Completed results only. A completed result with no skills has no `skills` key. |
@@ -178,8 +178,8 @@ Each entry of `skills`:
 | `findings` | array | The skill's findings, from the batches that finished. |
 | `summaries` | array | `{batch, text}`: the model's summary of each batch. Omitted when empty. |
 | `checks` | array | One entry per batch that reported a checklist: `batch`, `dropped` (valid checks beyond the per-answer limit), `findings` (the number of findings in that batch) and `checks`, a list of `{section, name, status, detail}` where `status` is `pass`, `fail` or `n/a`. Omitted when no batch reported checks. |
-| `files.reviewed` | array | Paths the skill reviewed. |
-| `files.skipped` | array | `{path, rule}`: files left out. `rule` is `lockfile`, `vendored`, `generated`, `binary`, `deleted`, `no content changes`, `out of scope` or `excluded by skill`. |
+| `files.reviewed` | array | Paths the skill reviewed. The verdict covers these files and nothing else. |
+| `files.skipped` | array | `{path, rule}`: files left out, the machine-readable record of what was not reviewed. `rule` is one of the values in [What a verdict covers](#what-a-verdict-covers). |
 | `files.not_reviewed` | array | `{path, cause}`: in-scope files whose batch failed. `cause` is plain one-line text. |
 | `failures` | array | One entry per batch that did not finish: `files`, `message` (plain one-line text: the failure's own message, if any, followed by the cause's message) and, when known, `cause` with `kind` and `message`. `kind` is `context_overflow`, `timeout`, `opencode_error`, `step_limit`, `exit_error` or `no_answer`. |
 | `notes` | array | Plain-text notes, such as "Checks omitted to fit the 10 MB result limit." |
@@ -202,6 +202,25 @@ Each entry of `findings`:
 
 `failures[].message` and `files.not_reviewed[].cause` are one line of plain text with no markdown and no opencode stderr, made for machines. The markdown version is in `comment.markdown`.
 
+### What a verdict covers
+
+A skill's `verdict` covers only its `files.reviewed`. A file in `files.skipped` was never shown to the model, and its `rule` says why:
+
+| `rule` | Applies when |
+|---|---|
+| `deleted` | The change deletes the file. |
+| `binary` | git shows the file as binary (its own NUL-byte check, with `.gitattributes` read from the base commit). |
+| `no content changes` | The diff has no content hunks, for example a rename or mode change only. |
+| `lockfile` | The file name is a known lockfile (`go.sum`, `package-lock.json`, `yarn.lock` and the like). A skill's `paths` can opt it back in. |
+| `vendored` | A path segment is `vendor`, `node_modules` or `third_party`. A skill's `paths` can opt it back in. |
+| `generated` | The base commit's `.gitattributes` marks it `linguist-generated`, or the change shows a generated-file header ("Code generated ... DO NOT EDIT" and the like) that the base version of the file already had. A skill's `paths` can opt it back in. |
+| `out of scope` | The skill has `paths` and none matches. |
+| `excluded by skill` | One of the skill's `exclude` patterns matches. |
+
+Only `.gitattributes` and the generated header come from the base commit. `lockfile` and `vendored` are fixed path rules, and `binary`, `deleted` and `no content changes` follow the change itself, so a change decides on its own whether those apply to it. A change whose files are all skipped gets `files.reviewed: []` and `no_blocking_issues`.
+
+A caller deciding on approval must therefore not treat `no_blocking_issues` as approval when `files.reviewed` is empty, or when `files.skipped` holds `deleted`, `binary`, `vendored`, `lockfile` or `generated` entries, unless its own policy accepts those changes unreviewed.
+
 ### Finding IDs
 
 An ID is the first 6 characters of the fingerprint. If two different fingerprints in the same result share those 6 characters, both are grown to 8 characters, then 9, 10 and so on until every ID is unique. Findings with the same fingerprint (the same finding in two places of one result) share one ID.
@@ -218,12 +237,12 @@ Credentials are redacted from every string of the result before it leaves pergen
 
 | Code | Exit | Meaning |
 |---|---|---|
-| `usage` | 2 | A bad flag, a missing input, or two skills with the same name. Also a trusted input that resolves inside `--repo-path`. |
+| `usage` | 2 | A bad flag, a missing input, or two skills with the same name. Also a trusted input, a `--result` file, `$HOME` or `$XDG_CONFIG_HOME` that resolves inside `--repo-path`. |
 | `checkout_missing` | 3 | `--repo-path` is not a git work tree, or is not the top of one. |
 | `commit_missing` | 3 | `--base` or `--head` is not in the checkout. |
 | `head_mismatch` | 3 | The checkout's `HEAD` is not `--head`. |
 | `diff_failed` | 3 | `git diff` between the two commits failed. |
-| `skills_invalid` | 3 | A skill file or `--skills-dir` could not be loaded. |
+| `skills_invalid` | 3 | A skill file or `--skills-dir` could not be loaded, including a folder in `--skills-dir` without a `SKILL.md`. |
 | `untrusted_instructions` | 3 | The checkout has instruction files below its root, a symlink to its root, or a symlink to outside it, and `--scrub-instructions` was not passed. |
 | `internal` | 3 | Anything else: git older than 2.40, a failure while scrubbing, or a result over 10 MB that checks and summaries could not shrink enough. |
 
@@ -250,7 +269,7 @@ A crash, an out-of-memory kill, a deadline kill or an image pull failure deliver
 | `--result -` | Writes the JSON to stdout. stdout carries nothing else in agent mode; all logs go to stderr. |
 | `--result-url <url>` | `POST` with `Content-Type: application/json` and `Authorization: Bearer $PERGENT_RESULT_TOKEN`. |
 
-HTTP replies:
+Each HTTP request times out after 30 seconds; a timeout is a connection error and is retried. HTTP replies:
 
 | Reply | Meaning | pergent does |
 |---|---|---|
@@ -262,7 +281,7 @@ HTTP replies:
 | 429, 5xx, connection error | Transient | Retried 3 times, after 2s, 4s and 8s. Then delivery failed. |
 | Redirect (3xx) | | Never followed. The endpoint must answer the POST itself, so a redirecting endpoint fails. |
 
-After a `SIGTERM` the whole HTTP delivery gets 20 seconds, with a single retry after 1s, so it fits Kubernetes' 30-second grace period.
+After a `SIGTERM` the whole HTTP delivery gets 20 seconds, with a single retry after 1s, so it fits Kubernetes' 30-second grace period. A delivery already under way when the signal arrives is stopped 20 seconds after it.
 
 ## Compatibility
 

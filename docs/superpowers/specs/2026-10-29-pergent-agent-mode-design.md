@@ -256,6 +256,7 @@ Recorded here so both sides agree.
 
 **Posting, approving and status:**
 - **On a `completed` result:** pergent.sh posts `comment.markdown`, updating the one pergent comment, sets the commit status, and approves when every skill is `no_blocking_issues`.
+- **Default-skipped changes:** a verdict covers only `files.reviewed`. pergent.sh's approval policy must decide how default-skipped changes affect approval, using `files.skipped[].rule`: an MR whose changes are all skipped is `no_blocking_issues` with nothing reviewed, and `deleted`, `binary`, `vendored`, `lockfile` and `generated` follow content and paths the MR controls.
 - **Head re-check before approving:** pergent.sh approves only if the MR's current head still equals the result's `head`. If it has moved, it doesn't approve; the review of the newer head decides.
 - **On an `error` result:** it posts the error `comment.markdown` as is.
 - **On no result** (crash, `OOMKilled`, `DeadlineExceeded`, image pull failure): it posts its own error comment naming the Job's failure reason, e.g. "⚠️ pergent couldn't review this MR: the review job ran out of memory (OOMKilled)."
