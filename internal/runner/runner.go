@@ -196,11 +196,15 @@ func runAttempt(ctx context.Context, opts Options) attempt {
 			}
 		}
 	}
+	// opencode's stderr reaches pergent's redacted and prefixed per line; the
+	// tail kept for a failure is raw and is redacted where it is rendered.
+	passthrough := &stderrWriter{w: os.Stderr, prefix: opts.LogPrefix}
 	stderr := &tailBuffer{max: 64 * 1024}
 	cmd.Stdout = pw
-	cmd.Stderr = io.MultiWriter(os.Stderr, stderr)
+	cmd.Stderr = io.MultiWriter(passthrough, stderr)
 
 	err := cmd.Run()
+	passthrough.Flush()
 
 	if debugFile := os.Getenv("PERGENT_DEBUG_OUTPUT"); debugFile != "" {
 		if writeErr := os.WriteFile(debugFile, pw.buf.Bytes(), 0644); writeErr != nil {

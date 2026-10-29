@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -458,5 +459,74 @@ func TestRun_ExcludeEnv(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "PERGENT_KEEP_ME=y") {
 		t.Errorf("opencode's environment lost an unrelated variable")
+	}
+}
+
+// captureStderr sends os.Stderr to a file for the test and returns a func
+// that reads what was written.
+func captureStderr(t *testing.T) func() string {
+	t.Helper()
+	f, err := os.CreateTemp(t.TempDir(), "stderr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	os.Stderr = f
+	t.Cleanup(func() { os.Stderr = old; f.Close() })
+	return func() string {
+		data, err := os.ReadFile(f.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+}
+
+func TestRun_StderrPassthroughRedacted(t *testing.T) {
+	t.Setenv("OPENCODE_API_KEY", "sk-secret-value-123")
+	fakeOpencode(t, fakeAttempt{fixture: "completed.ndjson", stderr: "auth with sk-secret-value-123 failed\nlast line, no newline"})
+	read := captureStderr(t)
+
+	opts := testOptions(time.Minute)
+	opts.LogPrefix = "[review 1/1]"
+	if got := Run(context.Background(), opts); got.Status != StatusCompleted {
+		t.Fatalf("Run() = %+v, want completed", got)
+	}
+	out := read()
+	if strings.Contains(out, "sk-secret-value-123") {
+		t.Errorf("opencode's stderr reached pergent's stderr unredacted:\n%s", out)
+	}
+	for _, want := range []string{"[review 1/1] auth with [REDACTED] failed\n", "[review 1/1] last line, no newline\n"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("stderr = %q, want it to contain %q", out, want)
+		}
+	}
+}
+
+func TestStderrWriter(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "ghp-secret-value-456")
+	for _, tt := range []struct {
+		name, prefix string
+		writes       []string
+		want         string
+	}{
+		{"prefix per line", "[s 1/2]", []string{"a\nb", "c\n\nd\n"}, "[s 1/2] a\n[s 1/2] bc\n[s 1/2] \n[s 1/2] d\n"},
+		{"partial last line flushed", "[s 1/2]", []string{"a\nta", "il"}, "[s 1/2] a\n[s 1/2] tail\n"},
+		{"no prefix keeps the bytes", "", []string{"a\r\nb", "c"}, "a\r\nbc"},
+		{"secret split across writes", "", []string{"x ghp-secret-", "value-456 y\n"}, "x [REDACTED] y\n"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			w := &stderrWriter{w: &buf, prefix: tt.prefix}
+			for _, s := range tt.writes {
+				if n, err := w.Write([]byte(s)); n != len(s) || err != nil {
+					t.Fatalf("Write(%q) = %d, %v", s, n, err)
+				}
+			}
+			w.Flush()
+			if got := buf.String(); got != tt.want {
+				t.Errorf("output = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
