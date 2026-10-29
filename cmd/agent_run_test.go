@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -115,8 +116,8 @@ func TestRunAgent_StdoutIsOnlyJSON(t *testing.T) {
 	if r.Base != base || r.Head != head || r.StartedAt == "" || r.FinishedAt == "" || r.BudgetSeconds != 600 {
 		t.Errorf("result meta = base %q head %q started %q finished %q budget %d", r.Base, r.Head, r.StartedAt, r.FinishedAt, r.BudgetSeconds)
 	}
-	if stderr.Len() == 0 {
-		t.Error("stderr is empty, want the progress lines")
+	if !strings.HasPrefix(stderr.String(), "Reviewing 1 changed file(s) with 1 skill(s)") {
+		t.Errorf("stderr = %q, want the progress lines without timestamps, as in CI mode", stderr.String())
 	}
 }
 
@@ -290,6 +291,11 @@ func TestRunAgent_AllSkillsFailedIsExit0(t *testing.T) {
 	}
 }
 
+// cancelledMessage is the failure of a skill whose one batch never started
+// because a signal cancelled the review. review falls back to "the review was
+// cancelled (<cause>)" for a cause without StopReason.
+const cancelledMessage = "Not reviewed: the review was cancelled; 0 of 1 batches finished."
+
 func TestRunAgent_CancelReason(t *testing.T) {
 	sandboxEnv(t)
 	dir, base, head := agentRepo(t, nil)
@@ -307,8 +313,8 @@ func TestRunAgent_CancelReason(t *testing.T) {
 	if len(r.Skills) != 1 || len(r.Skills[0].Failures) != 1 {
 		t.Fatalf("skills = %+v, want one with one failure", r.Skills)
 	}
-	if msg := r.Skills[0].Failures[0].Message; !strings.Contains(msg, "the review was cancelled") {
-		t.Errorf("failure message = %q, want it to say the review was cancelled", msg)
+	if msg := r.Skills[0].Failures[0].Message; msg != cancelledMessage {
+		t.Errorf("failure message = %q, want %q", msg, cancelledMessage)
 	}
 }
 
@@ -353,8 +359,8 @@ func TestRunAgent_SIGTERM(t *testing.T) {
 			messages = append(messages, f.Message)
 		}
 	}
-	if !slices.ContainsFunc(messages, func(m string) bool { return strings.Contains(m, "the review was cancelled") }) {
-		t.Errorf("failure messages = %q, want one saying the review was cancelled", messages)
+	if !slices.Contains(messages, cancelledMessage) {
+		t.Errorf("failure messages = %q, want %q", messages, cancelledMessage)
 	}
 }
 
@@ -370,6 +376,99 @@ func TestSignalCause(t *testing.T) {
 		if got := signalCause(tt.elapsed, 10*time.Minute).StopReason(); got != tt.want {
 			t.Errorf("signalCause(%s, 10m).StopReason() = %q, want %q", tt.elapsed, got, tt.want)
 		}
+	}
+}
+
+func TestReviewClock(t *testing.T) {
+	var c reviewClock
+	if got := c.stopCause().StopReason(); got != cancelledReason {
+		t.Errorf("before the review started: %q, want %q", got, cancelledReason)
+	}
+	c.begin(0)
+	if got := c.stopCause().StopReason(); got != deadlineReason {
+		t.Errorf("after a zero budget: %q, want %q", got, deadlineReason)
+	}
+	c.begin(10 * time.Minute)
+	if got := c.stopCause().StopReason(); got != cancelledReason {
+		t.Errorf("within the budget: %q, want %q", got, cancelledReason)
+	}
+}
+
+// A result over 10 MB even without checks and summaries becomes an internal
+// error result.
+func TestRunAgent_OversizeResult(t *testing.T) {
+	sandboxEnv(t)
+	dir, base, head := agentRepo(t, nil)
+	// JSON writes each "<" as \u003c, six bytes, so the finding alone is over
+	// the limit while the test handles a sixth of the data (it is slow under
+	// -race otherwise).
+	f := finding.Finding{File: "a.go", Line: 3, Severity: finding.Suggestion, Title: "Huge",
+		Explanation: strings.Repeat("<", result.MaxSize/6+1)}
+	var stdout, stderr bytes.Buffer
+
+	code := runAgent(context.Background(), agentArgs(dir, base, head, oneSkill(t)), agentEnv(nil), &stdout, &stderr, answerRun(t, f))
+	if code != 3 {
+		t.Fatalf("exit code = %d, want 3; stderr:\n%.2000s", code, stderr.String())
+	}
+	r := decodeOnly(t, stdout.Bytes())
+	if r.Status != result.StatusError || r.Error == nil || r.Error.Code != result.CodeInternal || r.Error.Message != oversizeMessage {
+		t.Errorf("result = status %q error %+v, want %s %q", r.Status, r.Error, result.CodeInternal, oversizeMessage)
+	}
+}
+
+// A signal that arrives while a normal-mode HTTP delivery hangs still ends
+// the run within the short deadline, as a failed delivery.
+func TestRunAgent_SignalDuringHungDelivery(t *testing.T) {
+	sandboxEnv(t)
+	dir, base, head := agentRepo(t, nil)
+	old := result.ShortDeadline
+	result.ShortDeadline = 500 * time.Millisecond
+	t.Cleanup(func() { result.ShortDeadline = old })
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := syscall.Kill(syscall.Getpid(), syscall.SIGTERM); err != nil {
+			t.Errorf("sending SIGTERM: %v", err)
+		}
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(srv.Close)
+	t.Cleanup(func() { close(release) })
+	args := []string{"--repo-path", dir, "--base", base, "--head", head, "--skills-dir", oneSkill(t), "--result-url", srv.URL}
+	var stdout, stderr bytes.Buffer
+
+	start := time.Now()
+	code := runAgent(context.Background(), args, tokenEnv, &stdout, &stderr, answerRun(t))
+	if code != 4 {
+		t.Fatalf("exit code = %d, want 4; stderr:\n%s", code, stderr.String())
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Errorf("runAgent took %s, want it to stop delivering at the short deadline", elapsed)
+	}
+}
+
+// prepareAgent's log lines go to runAgent's stderr, not the global logger.
+func TestRunAgent_PrepareLogsToStderr(t *testing.T) {
+	sandboxEnv(t)
+	dir, base, head := agentRepo(t, func(dir string) {
+		writeFile(t, dir, "sub/AGENTS.md", "Planted.\n")
+	})
+	global := captureLog(t)
+	args := agentArgs(dir, base, head, oneSkill(t), "--scrub-instructions", "--previous", filepath.Join(t.TempDir(), "missing.json"))
+	var stdout, stderr bytes.Buffer
+
+	if code := runAgent(context.Background(), args, agentEnv(nil), &stdout, &stderr, answerRun(t)); code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr:\n%s", code, stderr.String())
+	}
+	for _, want := range []string{`--scrub-instructions: deleted "sub/AGENTS.md"`, "warning: ignoring --previous"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Errorf("stderr = %q, want %q", stderr.String(), want)
+		}
+	}
+	if global.Len() != 0 {
+		t.Errorf("the global logger got %q, want nothing", global.String())
 	}
 }
 

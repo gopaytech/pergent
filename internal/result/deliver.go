@@ -19,8 +19,9 @@ var (
 	retryDelays = []time.Duration{2 * time.Second, 4 * time.Second, 8 * time.Second}
 	// shortRetryDelay is the single retry wait in short mode (after SIGTERM).
 	shortRetryDelay = time.Second
-	// shortDeadline bounds the whole HTTP delivery in short mode.
-	shortDeadline = 20 * time.Second
+	// ShortDeadline bounds the whole HTTP delivery in short mode, and is how
+	// long the agent lets any delivery run once a signal arrives.
+	ShortDeadline = 20 * time.Second
 	// requestTimeout bounds one HTTP request so a hung server cannot block.
 	requestTimeout = 30 * time.Second
 )
@@ -92,7 +93,7 @@ func postResult(ctx context.Context, data []byte, t Target, short bool) error {
 	if short {
 		delays = []time.Duration{shortRetryDelay}
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, shortDeadline)
+		ctx, cancel = context.WithTimeout(ctx, ShortDeadline)
 		defer cancel()
 	}
 

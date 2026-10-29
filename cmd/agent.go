@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -80,10 +81,6 @@ const (
 	deadlineReason  = "stopped at the Job deadline after the review budget ran out"
 )
 
-// afterSignalLimit bounds delivery once a signal arrives, so it ends within
-// the Job's 30-second grace period.
-const afterSignalLimit = 20 * time.Second
-
 // oversizeMessage is the error result sent when even the trimmed result is
 // over the 10 MB limit.
 const oversizeMessage = "the result exceeded the 10 MB limit even after omitting checks and summaries"
@@ -103,6 +100,32 @@ func signalCause(elapsed, budget time.Duration) stopSignal {
 	return stopSignal{deadlineReason}
 }
 
+// reviewClock is when the review started and its budget, read by the signal
+// handler. A signal before the review starts is a cancellation.
+type reviewClock struct {
+	mu     sync.Mutex
+	start  time.Time
+	budget time.Duration
+}
+
+// begin starts the clock and returns the start time.
+func (c *reviewClock) begin(budget time.Duration) time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.start, c.budget = time.Now(), budget
+	return c.start
+}
+
+// stopCause is the cause for a signal that arrives now.
+func (c *reviewClock) stopCause() stopSignal {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.start.IsZero() {
+		return stopSignal{cancelledReason}
+	}
+	return signalCause(time.Since(c.start), c.budget)
+}
+
 // agentMain runs `pergent agent` and exits with its exit code.
 func agentMain(args []string) {
 	os.Exit(runAgent(context.Background(), args, os.Getenv, os.Stdout, os.Stderr, nil))
@@ -114,7 +137,8 @@ func agentMain(args []string) {
 // else goes to stderr. run nil means runner.Run. It returns the exit code:
 // 0 delivered, 2 usage error, 3 no review possible, 4 a delivery failed.
 func runAgent(ctx context.Context, args []string, getenv func(string) string, stdout, stderr io.Writer, run review.RunFunc) int {
-	logger := log.New(stderr, "", log.LstdFlags)
+	// No timestamps, like the progress lines opencode's runs write.
+	logger := log.New(stderr, "", 0)
 	in, parseErr := parseAgent(args, getenv)
 
 	// A signal cancels the review with a cause that says why, and bounds the
@@ -127,9 +151,7 @@ func runAgent(ctx context.Context, args []string, getenv func(string) string, st
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT)
 	defer signal.Stop(sigs)
-	// The budget counts from here, a little before the review's own clock
-	// starts: the gap is prepareAgent's git commands.
-	start, budget := time.Now(), in.Review.Timeout
+	var clock reviewClock
 	go func() {
 		select {
 		case <-sigs:
@@ -137,9 +159,11 @@ func runAgent(ctx context.Context, args []string, getenv func(string) string, st
 			return
 		}
 		logger.Printf("received a stop signal: cancelling the review and delivering the result")
-		cancel(signalCause(time.Since(start), budget))
+		cancel(clock.stopCause())
+		// Any delivery, one already under way included, ends within the
+		// Job's 30-second grace period.
 		select {
-		case <-time.After(afterSignalLimit):
+		case <-time.After(result.ShortDeadline):
 			stopDelivery()
 		case <-deliverCtx.Done():
 		}
@@ -184,13 +208,13 @@ func runAgent(ctx context.Context, args []string, getenv func(string) string, st
 	for _, w := range in.Review.Warnings {
 		logger.Printf("warning: %s", w)
 	}
-	if e := prepareAgent(&in); e != nil {
+	if e := prepareAgent(&in, logger); e != nil {
 		return failWith(e)
 	}
 
 	logger.Printf("Reviewing %d changed file(s) with %d skill(s), up to %d opencode runs at once, within %s",
 		len(in.Files), len(in.Skills), in.Review.Concurrency, in.Review.Timeout)
-	meta.Started = time.Now()
+	meta.Started = clock.begin(in.Review.Timeout)
 	results := review.Run(ctx, review.Request{
 		Skills:       in.Skills,
 		Diff:         in.Diff,
@@ -372,8 +396,8 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 // review needs from it: the skills, the diff between the commits, the default
 // skip rules from the base commit and the previous findings. It runs the
 // --scrub-instructions deletion, or refuses a checkout with nested
-// instruction files.
-func prepareAgent(in *agentInputs) *result.Error {
+// instruction files. Its log lines go to logger.
+func prepareAgent(in *agentInputs, logger *log.Logger) *result.Error {
 	fail := func(code result.ErrorCode, format string, a ...any) *result.Error {
 		return &result.Error{Code: code, Message: fmt.Sprintf(format, a...)}
 	}
@@ -429,7 +453,7 @@ func prepareAgent(in *agentInputs) *result.Error {
 		return fail(result.CodeHeadMismatch, "the checkout's HEAD is %s, not --head %s", got, in.Head)
 	}
 
-	if e := handleInstructionFiles(root, in.scrub); e != nil {
+	if e := handleInstructionFiles(root, in.scrub, logger); e != nil {
 		return e
 	}
 
@@ -442,7 +466,7 @@ func prepareAgent(in *agentInputs) *result.Error {
 	in.Classifier = baseClassifier(root, in.Base)
 
 	if in.previousPath != "" {
-		in.Previous = readPrevious(in.previousPath)
+		in.Previous = readPrevious(in.previousPath, logger)
 	}
 	return nil
 }
@@ -617,7 +641,7 @@ func checkoutRoot(repoPath string) (string, *result.Error) {
 // (through "sub -> ." opencode would find the root's AGENTS.md as
 // sub/AGENTS.md), and any symlink whose target is outside the checkout
 // ("x -> /proc/self/environ", "up -> ..").
-func handleInstructionFiles(root string, scrub bool) *result.Error {
+func handleInstructionFiles(root string, scrub bool, logger *log.Logger) *result.Error {
 	scan, err := scanCheckout(root)
 	if err != nil {
 		return &result.Error{Code: result.CodeInternal, Message: fmt.Sprintf("looking for instruction files in the checkout: %v", err)}
@@ -629,7 +653,7 @@ func handleInstructionFiles(root string, scrub bool) *result.Error {
 				return &result.Error{Code: result.CodeInternal, Message: fmt.Sprintf("--scrub-instructions: deleting %q: %v", rel, err)}
 			}
 			deleted[rel] = true
-			log.Printf("--scrub-instructions: deleted %q", rel)
+			logger.Printf("--scrub-instructions: deleted %q", rel)
 		}
 		for _, l := range scan.outside {
 			if deleted[l.path] {
@@ -639,7 +663,7 @@ func handleInstructionFiles(root string, scrub bool) *result.Error {
 			if err := os.Remove(filepath.Join(root, filepath.FromSlash(l.path))); err != nil {
 				return &result.Error{Code: result.CodeInternal, Message: fmt.Sprintf("--scrub-instructions: deleting symlink %q: %v", l.path, err)}
 			}
-			log.Printf("--scrub-instructions: deleted symlink %q -> %q", l.path, l.target)
+			logger.Printf("--scrub-instructions: deleted symlink %q -> %q", l.path, l.target)
 		}
 		return nil
 	}
@@ -780,19 +804,19 @@ func baseClassifier(root, base string) diff.Classifier {
 
 // readPrevious reads a previous agent result's findings per skill. An
 // unreadable file or one from another schema version is a first review.
-func readPrevious(path string) map[string][]finding.Finding {
+func readPrevious(path string, logger *log.Logger) map[string][]finding.Finding {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		log.Printf("warning: ignoring --previous: %v", err)
+		logger.Printf("warning: ignoring --previous: %v", err)
 		return nil
 	}
 	var r result.Result
 	if err := json.Unmarshal(data, &r); err != nil {
-		log.Printf("warning: ignoring --previous %s: %v", path, err)
+		logger.Printf("warning: ignoring --previous %s: %v", path, err)
 		return nil
 	}
 	if r.SchemaVersion != result.SchemaVersion {
-		log.Printf("warning: ignoring --previous %s: schema_version %d, want %d", path, r.SchemaVersion, result.SchemaVersion)
+		logger.Printf("warning: ignoring --previous %s: schema_version %d, want %d", path, r.SchemaVersion, result.SchemaVersion)
 		return nil
 	}
 	previous := make(map[string][]finding.Finding)

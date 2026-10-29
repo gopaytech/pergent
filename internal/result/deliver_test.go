@@ -16,13 +16,13 @@ import (
 
 func shrinkDelays(t *testing.T) {
 	t.Helper()
-	oldRetry, oldShort, oldDeadline, oldReq := retryDelays, shortRetryDelay, shortDeadline, requestTimeout
+	oldRetry, oldShort, oldDeadline, oldReq := retryDelays, shortRetryDelay, ShortDeadline, requestTimeout
 	retryDelays = []time.Duration{time.Millisecond, 2 * time.Millisecond, 3 * time.Millisecond}
 	shortRetryDelay = time.Millisecond
-	shortDeadline = 2 * time.Second
+	ShortDeadline = 2 * time.Second
 	requestTimeout = 2 * time.Second
 	t.Cleanup(func() {
-		retryDelays, shortRetryDelay, shortDeadline, requestTimeout = oldRetry, oldShort, oldDeadline, oldReq
+		retryDelays, shortRetryDelay, ShortDeadline, requestTimeout = oldRetry, oldShort, oldDeadline, oldReq
 	})
 }
 
@@ -133,7 +133,7 @@ func TestDeliver_Short(t *testing.T) {
 	if got := atomic.LoadInt32(n); got != 2 {
 		t.Errorf("requests = %d, want 2", got)
 	}
-	if time.Since(start) > shortDeadline {
+	if time.Since(start) > ShortDeadline {
 		t.Errorf("took %s, over the overall limit", time.Since(start))
 	}
 }
@@ -141,7 +141,7 @@ func TestDeliver_Short(t *testing.T) {
 func TestDeliver_ShortOverallLimit(t *testing.T) {
 	shrinkDelays(t)
 	shortRetryDelay = 5 * time.Second
-	shortDeadline = 100 * time.Millisecond
+	ShortDeadline = 100 * time.Millisecond
 	srv, n := statusServer(t, 503)
 	start := time.Now()
 	err := Deliver(context.Background(), []byte("{}"), Target{URL: srv.URL, Token: "tok"}, io.Discard, true)
@@ -273,7 +273,7 @@ func TestDeliver_HTTPStillRunsWhenFileFails(t *testing.T) {
 var (
 	initRetryDelays     = append([]time.Duration(nil), retryDelays...)
 	initShortRetryDelay = shortRetryDelay
-	initShortDeadline   = shortDeadline
+	initShortDeadline   = ShortDeadline
 )
 
 func TestDeliver_DefaultTimings(t *testing.T) {
@@ -290,7 +290,7 @@ func TestDeliver_DefaultTimings(t *testing.T) {
 		t.Errorf("shortRetryDelay = %s, want 1s", initShortRetryDelay)
 	}
 	if initShortDeadline != 20*time.Second {
-		t.Errorf("shortDeadline = %s, want 20s", initShortDeadline)
+		t.Errorf("ShortDeadline = %s, want 20s", initShortDeadline)
 	}
 }
 
