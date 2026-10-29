@@ -165,8 +165,10 @@ func TestRunAgent_HTTPCompleted(t *testing.T) {
 		t.Errorf("findings_block %q is not the comment's last line", r.Comment.FindingsBlock)
 	}
 	for _, o := range opts {
-		if !slices.Contains(o.ExcludeEnv, "PERGENT_RESULT_TOKEN") {
-			t.Errorf("run ExcludeEnv = %v, want PERGENT_RESULT_TOKEN kept from opencode", o.ExcludeEnv)
+		for _, name := range []string{"PERGENT_RESULT_TOKEN", "GITHUB_TOKEN", "GITLAB_TOKEN"} {
+			if !slices.Contains(o.ExcludeEnv, name) {
+				t.Errorf("run ExcludeEnv = %v, want %s kept from opencode", o.ExcludeEnv, name)
+			}
 		}
 		if o.LogPrefix == "" {
 			t.Error("run has no log prefix: the review is not hardened")

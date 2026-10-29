@@ -53,6 +53,8 @@ type agentInputs struct {
 	skillValues  []string
 	previousPath string
 	scrub        bool
+	// $HOME and $XDG_CONFIG_HOME, where opencode finds its global config.
+	home, configHome string
 }
 
 // ciOnlyFlags are CI-mode flags that agent mode refuses.
@@ -203,7 +205,9 @@ func runAgent(ctx context.Context, args []string, getenv func(string) string, st
 		Sandbox: review.Sandbox{
 			Hardened:     true,
 			Instructions: in.Instructions,
-			ExcludeEnv:   []string{"PERGENT_RESULT_TOKEN"},
+			// Agent mode uses no platform token, so one left in the
+			// environment is kept from opencode too.
+			ExcludeEnv: []string{"PERGENT_RESULT_TOKEN", "GITHUB_TOKEN", "GITLAB_TOKEN"},
 		},
 	})
 	meta.Finished = time.Now()
@@ -334,6 +338,7 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 		return usage("no skills: pass --skills-dir or --skill")
 	}
 	in.skillValues = skills
+	in.home, in.configHome = getenv("HOME"), getenv("XDG_CONFIG_HOME")
 	if in.MaxCommentSize < 0 {
 		return usage("--max-comment-size must be 0 or more, got %d", in.MaxCommentSize)
 	}
@@ -461,8 +466,24 @@ func gitVersionError(out string) *result.Error {
 // a path --skill, --previous) that resolves to somewhere inside the checkout:
 // the change under review could have written it. A --skills-dir above the
 // checkout is refused too, since LoadDir would read the checkout's top-level
-// files as skills.
+// files as skills. So are a --result file in the checkout, where the change
+// could have planted a symlink at its .tmp file, and a $HOME or
+// $XDG_CONFIG_HOME in it, from which opencode loads its global config and
+// plugins whatever OPENCODE_DISABLE_PROJECT_CONFIG says.
 func trustedInputsOutside(root string, in *agentInputs) *result.Error {
+	if p := in.Target.Path; p != "" && p != "-" {
+		resolved, err := resolvePath(p)
+		if err != nil || within(root, resolved) {
+			// The error result must not be written there either.
+			in.Target.Path = ""
+			if err != nil {
+				return &result.Error{Code: result.CodeUsage, Message: fmt.Sprintf("--result %s: %v", p, err)}
+			}
+			return &result.Error{Code: result.CodeUsage, Message: fmt.Sprintf(
+				"--result %s is inside --repo-path: agent mode never writes the result into the checkout", p)}
+		}
+	}
+
 	type input struct{ flag, path string }
 	var inputs []input
 	for _, p := range in.Instructions {
@@ -478,6 +499,12 @@ func trustedInputsOutside(root string, in *agentInputs) *result.Error {
 	}
 	if in.previousPath != "" {
 		inputs = append(inputs, input{"--previous", in.previousPath})
+	}
+	if in.home != "" {
+		inputs = append(inputs, input{"$HOME", in.home})
+	}
+	if in.configHome != "" {
+		inputs = append(inputs, input{"$XDG_CONFIG_HOME", in.configHome})
 	}
 	for _, i := range inputs {
 		resolved, err := resolvePath(i.path)

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"log"
 	"os"
@@ -377,6 +378,72 @@ func TestPrepareAgent_Codes(t *testing.T) {
 			t.Errorf("prepareAgent() error = %+v, want %s", e, result.CodeUsage)
 		}
 	})
+}
+
+// opencode loads its global config and plugins from $HOME and
+// $XDG_CONFIG_HOME whatever OPENCODE_DISABLE_PROJECT_CONFIG says, so neither
+// may be in the checkout.
+func TestPrepareAgent_ConfigHomeInsideCheckout(t *testing.T) {
+	repo, base, head := agentRepo(t, nil)
+	skills := oneSkill(t)
+	if err := os.Mkdir(filepath.Join(repo, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "home")
+	if err := os.Symlink(filepath.Join(repo, "sub"), link); err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct{ name, env, value string }{
+		{"HOME at the root", "HOME", repo},
+		{"HOME below the root", "HOME", filepath.Join(repo, "sub")},
+		{"XDG_CONFIG_HOME below the root", "XDG_CONFIG_HOME", filepath.Join(repo, "sub", ".config")},
+		{"XDG_CONFIG_HOME symlinked into the root", "XDG_CONFIG_HOME", link},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			in, e := parseAgent(agentArgs(repo, base, head, skills), agentEnv(map[string]string{tt.env: tt.value}))
+			if e != nil {
+				t.Fatalf("parseAgent() error: %+v", e)
+			}
+			e = prepareAgent(&in)
+			if e == nil || e.Code != result.CodeUsage || !strings.Contains(e.Message, "$"+tt.env) {
+				t.Errorf("prepareAgent() error = %+v, want %s naming $%s", e, result.CodeUsage, tt.env)
+			}
+		})
+	}
+	t.Run("outside the checkout", func(t *testing.T) {
+		env := agentEnv(map[string]string{"HOME": t.TempDir(), "XDG_CONFIG_HOME": filepath.Join(t.TempDir(), "config")})
+		in, e := parseAgent(agentArgs(repo, base, head, skills), env)
+		if e != nil {
+			t.Fatalf("parseAgent() error: %+v", e)
+		}
+		if e := prepareAgent(&in); e != nil {
+			t.Errorf("prepareAgent() error = %+v, want none", e)
+		}
+	})
+}
+
+// A --result file inside the checkout is refused, and the error result is
+// not written there: the change could have planted a symlink at <path>.tmp.
+func TestRunAgent_ResultInsideCheckout(t *testing.T) {
+	repo, base, head := agentRepo(t, nil)
+	outside := filepath.Join(t.TempDir(), "victim")
+	if err := os.Symlink(outside, filepath.Join(repo, "result.json.tmp")); err != nil {
+		t.Fatal(err)
+	}
+	args := []string{"--repo-path", repo, "--base", base, "--head", head, "--skills-dir", oneSkill(t), "--result", filepath.Join(repo, "result.json")}
+	var stdout, stderr bytes.Buffer
+
+	if code := runAgent(context.Background(), args, agentEnv(nil), &stdout, &stderr, nil); code != 2 {
+		t.Fatalf("exit code = %d, want 2; stderr:\n%s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "--result") || !strings.Contains(stderr.String(), "inside --repo-path") {
+		t.Errorf("stderr = %q, want the usage error naming --result", stderr.String())
+	}
+	for _, p := range []string{outside, filepath.Join(repo, "result.json")} {
+		if _, err := os.Lstat(p); !os.IsNotExist(err) {
+			t.Errorf("%s exists (err %v), want nothing written", p, err)
+		}
+	}
 }
 
 func TestPrepareAgent_BaseClassifier(t *testing.T) {
