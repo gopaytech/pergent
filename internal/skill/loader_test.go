@@ -228,3 +228,75 @@ func TestIsFilePath(t *testing.T) {
 		})
 	}
 }
+
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLoadDir_BothLayouts(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "a.md"), "---\nname: alpha\n---\n\nAlpha body.")
+	writeFile(t, filepath.Join(dir, "b", "SKILL.md"), "---\nname: beta\n---\n\nBeta body.")
+	writeFile(t, filepath.Join(dir, "b", "README.md"), "Not a skill.")
+	writeFile(t, filepath.Join(dir, "c", "deeper", "SKILL.md"), "Too deep.")
+	writeFile(t, filepath.Join(dir, "notes.txt"), "Not markdown.")
+
+	skills, err := LoadDir(dir)
+	if err != nil {
+		t.Fatalf("LoadDir() error: %v", err)
+	}
+	if len(skills) != 2 {
+		t.Fatalf("len(skills) = %d, want 2: %+v", len(skills), skills)
+	}
+	if skills[0].Name != "alpha" || skills[1].Name != "beta" {
+		t.Errorf("names = %q, %q; want alpha, beta", skills[0].Name, skills[1].Name)
+	}
+	if skills[1].Body != "Beta body." {
+		t.Errorf("Body = %q, want %q", skills[1].Body, "Beta body.")
+	}
+}
+
+func TestLoadDir_SkillMdFallbackName(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "my-skill", "SKILL.md"), "Just a body.")
+
+	skills, err := LoadDir(dir)
+	if err != nil {
+		t.Fatalf("LoadDir() error: %v", err)
+	}
+	if len(skills) != 1 || skills[0].Name != "my-skill" {
+		t.Fatalf("skills = %+v, want one named my-skill", skills)
+	}
+}
+
+func TestLoadDir_Missing(t *testing.T) {
+	if _, err := LoadDir(filepath.Join(t.TempDir(), "nope")); err == nil {
+		t.Fatal("LoadDir() error = nil, want error for missing dir")
+	}
+}
+
+func TestLoadDir_InvalidFrontmatter(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "bad.md"), "---\nname: [unclosed\n---\n\nBody.")
+
+	if _, err := LoadDir(dir); err == nil {
+		t.Fatal("LoadDir() error = nil, want error for bad frontmatter")
+	}
+}
+
+func TestCheckUnique(t *testing.T) {
+	dup := []Skill{{Name: "s"}, {Name: "t"}, {Name: "s"}}
+	err := CheckUnique(dup)
+	if err == nil || !strings.Contains(err.Error(), `"s"`) {
+		t.Errorf("CheckUnique(dup) = %v, want error naming %q", err, "s")
+	}
+	if err := CheckUnique([]Skill{{Name: "s"}, {Name: "t"}}); err != nil {
+		t.Errorf("CheckUnique(distinct) = %v, want nil", err)
+	}
+}
