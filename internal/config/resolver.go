@@ -69,32 +69,13 @@ func Resolve(opts Options) (Config, error) {
 		return Config{}, fmt.Errorf("--local and --platform are mutually exclusive")
 	}
 
-	cfg := Config{
-		Skills:       opts.Skills,
-		MaxTurns:     resolveInt(opts.MaxTurns, "PERGENT_MAX_TURNS", 20),
-		ContextLimit: resolveInt(opts.ContextLimit, "PERGENT_CONTEXT_LIMIT", 0),
-		Concurrency:  resolveInt(opts.Concurrency, "PERGENT_CONCURRENCY", 4),
-		Timeout:      resolveDuration(opts.Timeout, "PERGENT_TIMEOUT", 10*time.Minute),
-		RepoPath:     resolveString(opts.RepoPath, "", "."),
-		Local:        opts.Local,
+	cfg, err := resolveReview(opts)
+	if err != nil {
+		return Config{}, err
 	}
-
-	if cfg.ContextLimit < 0 {
-		return Config{}, fmt.Errorf("--context-limit must be a positive number of tokens, got %d", cfg.ContextLimit)
-	}
-	if opts.ConcurrencySet {
-		// An explicit flag is used as given, so 0 is an error rather than "unset".
-		cfg.Concurrency = opts.Concurrency
-	}
-	if cfg.Timeout < 0 {
-		return Config{}, fmt.Errorf("--timeout must be positive, got %s", cfg.Timeout)
-	}
-	if cfg.Concurrency < 1 {
-		return Config{}, fmt.Errorf("--concurrency must be at least 1, got %d", cfg.Concurrency)
-	}
-	if opts.MaxTokens != 0 || os.Getenv("PERGENT_MAX_TOKENS") != "" {
-		cfg.Warnings = append(cfg.Warnings, maxTokensDeprecation)
-	}
+	cfg.Skills = opts.Skills
+	cfg.RepoPath = resolveString(opts.RepoPath, "", ".")
+	cfg.Local = opts.Local
 
 	cfg.PreviousReview = resolveBool(opts.PreviousReview, opts.PreviousReviewSet, "PERGENT_PREVIOUS_REVIEW", false)
 
@@ -139,6 +120,43 @@ func Resolve(opts Options) (Config, error) {
 		return Config{}, fmt.Errorf("could not detect platform: set --platform or PERGENT_PLATFORM, or run in GitHub Actions / GitLab CI")
 	}
 
+	return cfg, nil
+}
+
+// ResolveAgent resolves the review settings agent mode uses: Timeout,
+// Concurrency, MaxTurns and ContextLimit (flags > PERGENT_* env > defaults,
+// validated as Resolve does). It never detects a platform, and leaves every
+// other field empty.
+func ResolveAgent(opts Options) (Config, error) {
+	return resolveReview(opts)
+}
+
+// resolveReview resolves and validates the settings shared by every mode:
+// the review's limits, plus the --max-tokens deprecation warning.
+func resolveReview(opts Options) (Config, error) {
+	cfg := Config{
+		MaxTurns:     resolveInt(opts.MaxTurns, "PERGENT_MAX_TURNS", 20),
+		ContextLimit: resolveInt(opts.ContextLimit, "PERGENT_CONTEXT_LIMIT", 0),
+		Concurrency:  resolveInt(opts.Concurrency, "PERGENT_CONCURRENCY", 4),
+		Timeout:      resolveDuration(opts.Timeout, "PERGENT_TIMEOUT", 10*time.Minute),
+	}
+
+	if cfg.ContextLimit < 0 {
+		return Config{}, fmt.Errorf("--context-limit must be a positive number of tokens, got %d", cfg.ContextLimit)
+	}
+	if opts.ConcurrencySet {
+		// An explicit flag is used as given, so 0 is an error rather than "unset".
+		cfg.Concurrency = opts.Concurrency
+	}
+	if cfg.Timeout < 0 {
+		return Config{}, fmt.Errorf("--timeout must be positive, got %s", cfg.Timeout)
+	}
+	if cfg.Concurrency < 1 {
+		return Config{}, fmt.Errorf("--concurrency must be at least 1, got %d", cfg.Concurrency)
+	}
+	if opts.MaxTokens != 0 || os.Getenv("PERGENT_MAX_TOKENS") != "" {
+		cfg.Warnings = append(cfg.Warnings, maxTokensDeprecation)
+	}
 	return cfg, nil
 }
 
