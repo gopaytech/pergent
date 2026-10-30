@@ -1,8 +1,40 @@
-# pergent
+<div align="center">
+  <img src="docs/assets/logo.png" alt="pergent" width="110">
+
+  <h1>pergent</h1>
+
+  <p><strong>Agentic merge request reviews in your CI pipeline, powered by opencode.</strong></p>
+
+  <p>
+    <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
+    <a href="go.mod"><img alt="Go" src="https://img.shields.io/github/go-mod/go-version/gopaytech/pergent"></a>
+    <a href="https://github.com/gopaytech/pergent/pkgs/container/pergent"><img alt="Image" src="https://img.shields.io/badge/ghcr.io-pergent-informational"></a>
+  </p>
+
+  <p>
+    <a href="#-usage">Quick start</a> ·
+    <a href="#-skills">Skills</a> ·
+    <a href="#-agent-mode">Agent mode</a> ·
+    <a href="docs/agent-result-schema.md">Result schema</a>
+  </p>
+</div>
+
+---
 
 Agentic PR/MR review tool for CI/CD pipelines. Unlike single-shot review tools, pergent spawns [opencode](https://github.com/anomalyco/opencode) as a subprocess that autonomously loops through the repository -- reading files, following references, grepping for patterns -- to build deep context before writing its review.
 
-## How It Works
+## ✨ Features
+
+- **Agentic review**: opencode reads files, greps and follows references in the repository before it writes a finding, instead of judging the diff alone.
+- **Skills**: review behaviour lives in Markdown skill files, each with its own scope (`paths`, `exclude`) and its own idea of what is blocking.
+- **Any size of change**: changed files are split into batches that fit the model's context, and every skill and batch runs in parallel under one time budget.
+- **Structured findings and verdicts**: each skill ends `no_blocking_issues`, `has_blocking_issues` or `failed`; blocking findings are re-checked by a separate run before they count.
+- **Honest failures**: a timeout, context overflow or provider error is reported with its cause, never as a pass, and the CI job stays green.
+- **Read-only sandbox**: the agent can only read, grep, glob and list; edits, shell, web access and `.env` reads are denied, and secrets are redacted from everything pergent prints.
+- **One comment, updated**: GitHub and GitLab get a single review comment that is edited on every push instead of piling up; `--previous-review` gives the model the last review's findings as context.
+- **Agent mode**: `pergent agent` reviews a prepared checkout with trusted inputs only and delivers a versioned JSON result, for running pergent as a service.
+
+## 🔁 How it works
 
 1. You define review behavior via **skill files** (`.md` files with review instructions)
 2. For each skill, pergent picks the changed files in its scope, groups them into batches that fit the model's context, and spawns one `opencode run` per batch, attaching that batch's diff
@@ -25,7 +57,7 @@ When `OPENCODE_PROVIDER` is set, pergent writes a temporary `opencode.json` for 
 
 pergent also sets `OPENCODE_DISABLE_PROJECT_CONFIG=true`, so an `opencode.json` or `.opencode/` directory (agents, plugins, commands) in the reviewed branch can't change these permissions or run plugin code while your platform token and LLM key are in the environment. Because that setting also stops opencode from finding `AGENTS.md` / `CLAUDE.md` by itself, pergent passes the root file to opencode explicitly.
 
-## When a review fails
+## 🩺 When a review fails
 
 Each opencode run (one per batch) ends in one of two ways: the model's own final answer, in the required format, is parsed into findings, or the batch is reported as **Review failed:** with the cause and the files it covered. pergent never posts opencode's internal messages or the model's in-progress text ("Let me check...") as a review. A skill with any failed batch has the verdict **failed**, never "no blocking issues", even if the other batches found nothing.
 
@@ -44,7 +76,7 @@ Each opencode run (one per batch) ends in one of two ways: the model's own final
 - **An answer in the wrong format** (no JSON block, or a block that does not parse) gets one repair run that rewrites it; if that fails too, the batch is reported as failed with an excerpt of the answer.
 - **Secrets are redacted** from the comment and the log: the values of `OPENCODE_API_KEY`, `GITHUB_TOKEN` and `GITLAB_TOKEN`, bearer tokens, and API keys in URLs.
 
-## Installation
+## 📦 Installation
 
 ### Docker (recommended for CI)
 
@@ -63,7 +95,7 @@ make build
 
 Requires [opencode](https://github.com/anomalyco/opencode) installed on the system.
 
-## Usage
+## 🚀 Usage
 
 ### Local Mode
 
@@ -164,7 +196,7 @@ export OPENCODE_BASE_URL=https://your-proxy.example.com/v1
 pergent --local --skill code-review
 ```
 
-## Skills
+## 🧩 Skills
 
 Skills are markdown files that define review behavior. The `--skill` flag accepts either a **preset name** or a **file path**.
 
@@ -255,7 +287,7 @@ If a skill contains a checklist (section headings with items under them, as bull
 
 pergent appends its own output-format instructions to every skill: the model must end its answer with one JSON block holding a short `summary` of what it checked and concluded, its `checks` (the skill's checklist, if it has one), and its findings. A missing summary is not an error; the review still counts. Don't tell a skill how to format its answer (no "use bullet points", "start with a summary", or JSON schemas of your own). Instructions like that conflict with the required format and make runs fail. Write what to look for and what counts as blocking; pergent handles the rest.
 
-## The review comment
+## 💬 The review comment
 
 pergent posts one comment per PR/MR, updated in place on each run. It starts with a collapsed list of the changed files, then has one section per skill:
 
@@ -295,7 +327,7 @@ The last line of the comment is a hidden HTML comment holding the findings for t
 
 A comment that would exceed the platform's size limit (65,536 characters on GitHub, 1,000,000 on GitLab) is shrunk to fit rather than failing to post: first the hidden findings block is dropped (the next `--previous-review` run is then a first review), then the suggestions' explanations and fixes, then the suggestions, then the passed and n/a checks, then the check tables (the count line stays), then the summaries, then the file lists are cut to a count. Blocking findings and failures are kept; each step leaves a note in the comment.
 
-## Previous Review as Context
+## 🔄 Previous review as context
 
 By default each run reviews from scratch. With `--previous-review` (or `PERGENT_PREVIOUS_REVIEW=true`), pergent fetches the review comment it posted on the previous run, reads the findings from its hidden findings block, and attaches each skill's findings to that skill's runs alongside the diff. The agent is instructed to stay consistent with them, focus on what changed since, drop findings the new commits resolve, and reuse a finding's fingerprint when it still applies. A skill with no previous findings gets nothing attached.
 
@@ -319,7 +351,7 @@ mr-review:
     OPENCODE_MODEL: claude-sonnet-4
 ```
 
-## Agent mode
+## 🤖 Agent mode
 
 `pergent agent` is for a service that runs reviews on code it does not trust, such as a merge request from a fork. It reviews a checkout that someone else prepared, between two commits, and **produces a result** (versioned JSON). It posts nothing.
 
@@ -496,7 +528,7 @@ Notes:
 
 The result's fields, error codes and examples are in [docs/agent-result-schema.md](docs/agent-result-schema.md).
 
-## CLI Flags
+## ⚙️ CLI flags
 
 | Flag | Description | Default |
 |---|---|---|
@@ -513,7 +545,7 @@ The result's fields, error codes and examples are in [docs/agent-result-schema.m
 | `--concurrency` | Max opencode runs in flight at once, across all skills and batches. Must be at least 1 | `4` |
 | `--repo-path` | Path to repo root | `.` |
 
-## Environment Variables
+## 🌱 Environment variables
 
 ### LLM (passed through to opencode)
 
@@ -545,7 +577,7 @@ The result's fields, error codes and examples are in [docs/agent-result-schema.m
 
 Config resolution priority: CLI flags > `PERGENT_*` env vars > auto-detect from CI > defaults.
 
-## Troubleshooting
+## 🔍 Troubleshooting
 
 ### opencode seems slow or stuck
 
@@ -573,7 +605,7 @@ If that also hangs, the issue is your LLM connection, not pergent.
 
 ### `Review failed: ...`
 
-The message is the cause (see [When a review fails](#when-a-review-fails)). To see everything opencode reported, dump its raw output:
+The message is the cause (see [When a review fails](#-when-a-review-fails)). To see everything opencode reported, dump its raw output:
 ```bash
 PERGENT_DEBUG_OUTPUT=/tmp/pergent-raw.json pergent --local --skill code-review
 cat /tmp/pergent-raw.json
@@ -621,7 +653,7 @@ pergent --local --skill code-review
 
 Pressing `Ctrl+C` cleanly stops both pergent and the opencode subprocess.
 
-## How It Differs from pr-agent
+## ⚖️ How it differs from pr-agent
 
 | | pergent | pr-agent |
 |---|---|---|
@@ -631,6 +663,6 @@ Pressing `Ctrl+C` cleanly stops both pergent and the opencode subprocess.
 | Customization | Skill files (`.md`) | Configuration flags |
 | Small context models | Works with 128k models (reads on-demand) | Needs large context for big diffs |
 
-## License
+## 📄 License
 
-MIT
+MIT. See [LICENSE](LICENSE).
