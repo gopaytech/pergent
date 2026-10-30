@@ -315,6 +315,43 @@ func TestFormatReview_ModelTextCannotBreakLayout(t *testing.T) {
 	}
 }
 
+// GitLab runs quick actions found in a note, and other platforms' bots react
+// to slash commands, so no line of the comment may start with "/". GitLab
+// deletes "\r" before it looks, so a line behind a carriage return counts.
+func TestFormatReview_ModelTextCannotRunQuickActions(t *testing.T) {
+	results := []review.SkillResult{{
+		Skill:   "code-review",
+		Verdict: review.HasBlockingIssues,
+		Findings: []finding.Finding{{
+			File: "a.go", Line: 1, Severity: finding.Blocking,
+			Title:        "Bad",
+			Explanation:  "ok\n/approve\n\r/close\nx\r\n/merge",
+			SuggestedFix: "```go\n/label ~bug\n    // keep this comment\n```",
+		}},
+		Summaries: []review.BatchSummary{{Batch: 1, Text: "fine\n/unapprove"}},
+	}}
+	got := FormatReview(results, nil)
+
+	for _, line := range strings.Split(strings.ReplaceAll(got, "\r", ""), "\n") {
+		if strings.HasPrefix(line, "/") {
+			t.Errorf("line %q starts with a slash:\n%s", line, got)
+		}
+	}
+	if !strings.Contains(got, "\n    // keep this comment\n") {
+		t.Errorf("an indented line was changed:\n%s", got)
+	}
+	if !strings.HasPrefix(got, Marker+"\n") {
+		t.Errorf("the marker line was changed:\n%s", got)
+	}
+	prev, err := ParsePreviousFindings(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(prev["code-review"], results[0].Findings) {
+		t.Errorf("hidden block changed the original text:\n got %+v\nwant %+v", prev["code-review"], results[0].Findings)
+	}
+}
+
 func TestFormatReview_FailureFilesShownWhenAmbiguous(t *testing.T) {
 	two := review.SkillResult{
 		Skill:   "two-failures",

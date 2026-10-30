@@ -20,7 +20,7 @@ import (
 	"github.com/gopaytech/pergent/internal/skill"
 )
 
-const version = "0.1.0"
+const version = "0.1.1"
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "agent" {

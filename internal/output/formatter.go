@@ -67,6 +67,21 @@ func neutralizeComments(s string) string {
 	return layoutTagRe.ReplaceAllString(s, "&lt;$1")
 }
 
+// neutralizeQuickActions keeps model text from running commands as the bot
+// that posts the comment: GitLab runs a quick action on any line that starts
+// with "/" (after deleting every "\r"), and other platforms' bots react to
+// slash commands the same way. Carriage returns are removed and a zero-width
+// space goes before a "/" that starts a line; indented lines are left as is.
+func neutralizeQuickActions(s string) string {
+	lines := strings.Split(strings.ReplaceAll(s, "\r", ""), "\n")
+	for i, line := range lines {
+		if strings.HasPrefix(line, "/") {
+			lines[i] = "​" + line
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
 // fenceLine parses a line as a code fence: its marker character, the length
 // of the marker run and whether anything but whitespace follows it.
 func fenceLine(line string) (ch byte, n int, bare bool) {
@@ -259,7 +274,7 @@ func render(results []review.SkillResult, changedFiles []string, l layout) strin
 		writeSkill(&b, r, redactFindings(r.Findings), l)
 	}
 
-	out := redact.String(b.String())
+	out := neutralizeQuickActions(redact.String(b.String()))
 	if l.noHidden {
 		return out + hiddenDroppedNote + "\n"
 	}
