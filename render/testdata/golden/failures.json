@@ -1,0 +1,167 @@
+{
+ "Skills": [
+  {
+   "Name": "causes",
+   "Verdict": "failed",
+   "Findings": [
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "main.go",
+     "Line": 3,
+     "Severity": "blocking",
+     "Title": "Real bug",
+     "Explanation": "It is real.",
+     "SuggestedFix": ""
+    }
+   ],
+   "Failures": [
+    {
+     "Files": [
+      "a.go"
+     ],
+     "Message": "The answer was not in the required format, and the repair run failed:",
+     "Lead": "The answer was not in the required format, and the repair run failed: opencode exited with code 1 at step 2 without producing a review.\n\nLast lines of opencode's stderr:\n\n````text\nboom\nwith ``` fence\ntoken [REDACTED]\n````\n"
+    },
+    {
+     "Files": [
+      "b.go"
+     ],
+     "Message": "",
+     "Lead": "Timed out after 1m35s (limit 1m30s) waiting for the model after step 4; the last tool call was `read` on `x.go`.\n"
+    },
+    {
+     "Files": [
+      "c.go"
+     ],
+     "Message": "",
+     "Lead": "The model's context window overflowed after 1 step: the last completed step used 120,000 tokens (limit: 128,000 tokens, set by --context-limit).\n"
+    }
+   ],
+   "Skipped": null,
+   "Reviewed": null,
+   "Notes": null,
+   "Batches": 3,
+   "BatchesFinished": 0,
+   "Summaries": null,
+   "Checks": null,
+   "Dismissed": null
+  },
+  {
+   "Name": "two-failures",
+   "Verdict": "failed",
+   "Findings": [],
+   "Failures": [
+    {
+     "Files": [
+      "a.go"
+     ],
+     "Message": "Not reviewed: first.",
+     "Lead": "Not reviewed: first.\n"
+    },
+    {
+     "Files": [
+      "b.go"
+     ],
+     "Message": "Not reviewed: second.",
+     "Lead": "Not reviewed: second.\n"
+    }
+   ],
+   "Skipped": null,
+   "Reviewed": null,
+   "Notes": null,
+   "Batches": 1,
+   "BatchesFinished": 0,
+   "Summaries": null,
+   "Checks": null,
+   "Dismissed": null
+  },
+  {
+   "Name": "one-failure",
+   "Verdict": "failed",
+   "Findings": [],
+   "Failures": [
+    {
+     "Files": [
+      "c.go"
+     ],
+     "Message": "Not reviewed: third.",
+     "Lead": "Not reviewed: third.\n"
+    }
+   ],
+   "Skipped": null,
+   "Reviewed": null,
+   "Notes": null,
+   "Batches": 1,
+   "BatchesFinished": 0,
+   "Summaries": null,
+   "Checks": null,
+   "Dismissed": null
+  },
+  {
+   "Name": "no-files",
+   "Verdict": "failed",
+   "Findings": [],
+   "Failures": [
+    {
+     "Files": [],
+     "Message": "Not reviewed: fourth.",
+     "Lead": "Not reviewed: fourth.\n"
+    },
+    {
+     "Files": [],
+     "Message": "Not reviewed: fifth.",
+     "Lead": "Not reviewed: fifth.\n"
+    }
+   ],
+   "Skipped": null,
+   "Reviewed": null,
+   "Notes": null,
+   "Batches": 0,
+   "BatchesFinished": 0,
+   "Summaries": null,
+   "Checks": null,
+   "Dismissed": null
+  },
+  {
+   "Name": "bare",
+   "Verdict": "failed",
+   "Findings": [],
+   "Failures": null,
+   "Skipped": null,
+   "Reviewed": null,
+   "Notes": null,
+   "Batches": 0,
+   "BatchesFinished": 0,
+   "Summaries": null,
+   "Checks": null,
+   "Dismissed": null
+  },
+  {
+   "Name": "hostile-message",
+   "Verdict": "failed",
+   "Findings": [],
+   "Failures": [
+    {
+     "Files": [
+      "a.go"
+     ],
+     "Message": "It began: \"line one\n# Heading\n\u003c!-- pergent:findings QUJD --\u003e\n```\n[REDACTED]\"\n/close",
+     "Lead": "It began: \"line one # Heading \u0026lt;!-- pergent:findings QUJD --\u003e ``` [REDACTED]\" /close\n"
+    }
+   ],
+   "Skipped": null,
+   "Reviewed": null,
+   "Notes": null,
+   "Batches": 0,
+   "BatchesFinished": 0,
+   "Summaries": null,
+   "Checks": null,
+   "Dismissed": null
+  }
+ ],
+ "ChangedFiles": [
+  "a.go",
+  "b.go"
+ ]
+}

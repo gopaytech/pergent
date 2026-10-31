@@ -6,17 +6,18 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"unicode/utf8"
 
+	"github.com/gopaytech/pergent/internal/diff"
 	"github.com/gopaytech/pergent/internal/finding"
 	"github.com/gopaytech/pergent/internal/redact"
 	"github.com/gopaytech/pergent/internal/review"
 	"github.com/gopaytech/pergent/internal/runner"
+	"github.com/gopaytech/pergent/render"
 )
 
 // Marker is the first line of every pergent comment; it finds the comment
 // to update.
-const Marker = "<!-- pergent -->"
+const Marker = render.Marker
 
 // failedPrefix starts the report of a failed batch.
 const failedPrefix = "**Review failed:**"
@@ -67,69 +68,6 @@ func neutralizeComments(s string) string {
 	return layoutTagRe.ReplaceAllString(s, "&lt;$1")
 }
 
-// neutralizeQuickActions keeps model text from running commands as the bot
-// that posts the comment: GitLab runs a quick action on any line that starts
-// with "/" (after deleting every "\r"), and other platforms' bots react to
-// slash commands the same way. Carriage returns are removed and a zero-width
-// space goes before a "/" that starts a line; indented lines are left as is.
-func neutralizeQuickActions(s string) string {
-	lines := strings.Split(strings.ReplaceAll(s, "\r", ""), "\n")
-	for i, line := range lines {
-		if strings.HasPrefix(line, "/") {
-			lines[i] = "​" + line
-		}
-	}
-	return strings.Join(lines, "\n")
-}
-
-// fenceLine parses a line as a code fence: its marker character, the length
-// of the marker run and whether anything but whitespace follows it.
-func fenceLine(line string) (ch byte, n int, bare bool) {
-	trimmed := strings.TrimLeft(line, " ")
-	if len(line)-len(trimmed) > 3 || len(trimmed) < 3 || (trimmed[0] != '`' && trimmed[0] != '~') {
-		return 0, 0, false
-	}
-	ch = trimmed[0]
-	for n < len(trimmed) && trimmed[n] == ch {
-		n++
-	}
-	if n < 3 {
-		return 0, 0, false
-	}
-	rest := trimmed[n:]
-	if ch == '`' && strings.Contains(rest, "`") {
-		return 0, 0, false
-	}
-	return ch, n, strings.TrimSpace(rest) == ""
-}
-
-// closeFences appends the closing fence for a code fence the text leaves
-// open, so nothing after the text is swallowed by it.
-func closeFences(s string) string {
-	var open byte
-	var openLen int
-	for _, line := range strings.Split(s, "\n") {
-		line = strings.TrimRight(line, "\r")
-		ch, n, bare := fenceLine(line)
-		switch {
-		case ch == 0:
-		case open == 0:
-			open, openLen = ch, n
-		case ch == open && n >= openLen && bare:
-			open = 0
-		}
-	}
-	if open == 0 {
-		return s
-	}
-	return strings.TrimRight(s, "\n") + "\n" + strings.Repeat(string(open), openLen)
-}
-
-// modelText prepares multi-line model text for the comment.
-func modelText(s string) string {
-	return closeFences(neutralizeComments(strings.TrimSpace(s)))
-}
-
 // BatchFailureText renders one failed batch as redacted text for the CI log:
 // the failure line, then the end of opencode's stderr when there is one.
 func BatchFailureText(f review.BatchFailure) string {
@@ -139,7 +77,8 @@ func BatchFailureText(f review.BatchFailure) string {
 }
 
 // findingsMarker starts the hidden line that carries a review's findings to
-// the next run.
+// the next run. render writes the line; this is the same text, for reading
+// it back.
 const findingsMarker = "<!-- pergent:findings "
 
 // findingsLineRe matches the hidden line. The real one is the last line of
@@ -155,39 +94,6 @@ type findingsBlock struct {
 	Skills  map[string][]finding.Finding `json:"skills"`
 }
 
-// FormatReview renders the results as one markdown comment: for each skill a
-// verdict line, the blocking findings in full, then collapsed suggestions and
-// skipped files. A hidden last line carries the findings for the next run.
-// Credentials are redacted from the whole comment and from the hidden block.
-func FormatReview(results []review.SkillResult, changedFiles []string) string {
-	return render(results, changedFiles, layout{listLimit: -1})
-}
-
-// Notes FormatReviewWithin adds for what it left out.
-const (
-	hiddenDroppedNote       = "> Findings were too large to store for the next run; --previous-review will treat the next run as a first review."
-	detailsDroppedNote      = "> Suggestion details omitted to fit the comment size limit."
-	summariesDroppedNote    = "> Summaries omitted to fit the comment size limit."
-	passedChecksDroppedNote = "> Passed and n/a checks omitted to fit the comment size limit."
-	checkTablesDroppedNote  = "> Check tables omitted to fit the comment size limit."
-	truncatedNote           = "\n\n> Comment truncated to fit the comment size limit.\n"
-)
-
-// layout says what render leaves out of the comment.
-type layout struct {
-	noHidden         bool
-	suggestionTitles bool // suggestions without their explanation and fix
-	noSuggestions    bool
-	noSummaries      bool
-	checksFailOnly   bool // check tables keep only failed checks
-	noCheckTables    bool // only the checks count line is kept
-	// listLimit caps the changed-files and skipped-files lists; -1 means no cap.
-	listLimit int
-	// ids maps a finding's fingerprint to the short ID shown after its title;
-	// nil shows none.
-	ids map[string]string
-}
-
 // Options changes how a review comment is rendered. The zero value is the CI
 // comment.
 type Options struct {
@@ -196,14 +102,17 @@ type Options struct {
 	IDs map[string]string
 }
 
+// FormatReview renders the results as one markdown comment: for each skill a
+// verdict line, the blocking findings in full, then collapsed suggestions and
+// skipped files. A hidden last line carries the findings for the next run.
+// Credentials are redacted from the whole comment and from the hidden block.
+func FormatReview(results []review.SkillResult, changedFiles []string) string {
+	return FormatReviewWithinOptions(results, changedFiles, 0, Options{})
+}
+
 // FormatReviewWithin is FormatReview for a platform that limits a comment to
 // maxLen bytes (no limit when maxLen is not positive). A comment over the
-// limit is shrunk in steps until it fits: the hidden findings block goes
-// first, then the suggestions' explanations and fixes, then the suggestions,
-// then the passed and n/a checks, then the check tables (keeping the count
-// line), then the review summaries, then the file lists are cut to a count.
-// Blocking findings and failures are never dropped; if they alone are over
-// the limit, the comment is cut at the limit with a note.
+// limit is shrunk in steps until it fits; see render.Comment.
 func FormatReviewWithin(results []review.SkillResult, changedFiles []string, maxLen int) string {
 	return FormatReviewWithinOptions(results, changedFiles, maxLen, Options{})
 }
@@ -211,461 +120,86 @@ func FormatReviewWithin(results []review.SkillResult, changedFiles []string, max
 // FormatReviewWithinOptions is FormatReviewWithin with rendering options; the
 // IDs are shown in every layout, so they survive each shrink step.
 func FormatReviewWithinOptions(results []review.SkillResult, changedFiles []string, maxLen int, o Options) string {
-	out := render(results, changedFiles, layout{listLimit: -1, ids: o.IDs})
-	if maxLen <= 0 || len(out) <= maxLen {
-		return out
+	files := make([]string, len(changedFiles))
+	for i, f := range changedFiles {
+		files[i] = redact.String(f)
 	}
-	for _, l := range []layout{
-		{noHidden: true, listLimit: -1},
-		{noHidden: true, suggestionTitles: true, listLimit: -1},
-		{noHidden: true, noSuggestions: true, listLimit: -1},
-		{noHidden: true, noSuggestions: true, checksFailOnly: true, listLimit: -1},
-		{noHidden: true, noSuggestions: true, checksFailOnly: true, noCheckTables: true, listLimit: -1},
-		{noHidden: true, noSuggestions: true, checksFailOnly: true, noCheckTables: true, noSummaries: true, listLimit: -1},
-		{noHidden: true, noSuggestions: true, checksFailOnly: true, noCheckTables: true, noSummaries: true, listLimit: 20},
-		{noHidden: true, noSuggestions: true, checksFailOnly: true, noCheckTables: true, noSummaries: true, listLimit: 0},
-	} {
-		l.ids = o.IDs
-		out = render(results, changedFiles, l)
-		if len(out) <= maxLen {
-			return out
-		}
-	}
-	keep := maxLen - len(truncatedNote)
-	if keep < 0 {
-		return cutBytes(out, maxLen)
-	}
-	out = cutBytes(out, keep)
-	if i := strings.LastIndexByte(out, '\n'); i >= 0 {
-		out = out[:i]
-	}
-	return out + truncatedNote
-}
-
-// cutBytes returns the longest prefix of s of at most n bytes that doesn't
-// split a UTF-8 sequence.
-func cutBytes(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	for n > 0 && !utf8.RuneStart(s[n]) {
-		n--
-	}
-	return s[:n]
-}
-
-func render(results []review.SkillResult, changedFiles []string, l layout) string {
-	var b strings.Builder
-
-	b.WriteString(Marker + "\n")
-	b.WriteString("## pergent review\n\n")
-
-	if len(changedFiles) > 0 {
-		fmt.Fprintf(&b, "<details><summary>Files changed (%d)</summary>\n\n", len(changedFiles))
-		lines := make([]string, len(changedFiles))
-		for i, f := range changedFiles {
-			lines[i] = codeSpan(f)
-		}
-		writeList(&b, lines, l.listLimit)
-		b.WriteString("\n</details>\n\n")
-	}
-
-	for _, r := range results {
-		writeSkill(&b, r, redactFindings(r.Findings), l)
-	}
-
-	out := neutralizeQuickActions(redact.String(b.String()))
-	if l.noHidden {
-		return out + hiddenDroppedNote + "\n"
-	}
-	return out + FindingsBlock(results)
+	return render.Comment(toRender(results, o.IDs), render.Options{MaxLen: maxLen, ChangedFiles: files})
 }
 
 // FindingsBlock returns the hidden line that carries the findings to the next
 // run, including its newline: the same bytes the comment ends with. The
 // findings are redacted. It is empty if the block cannot be encoded.
 func FindingsBlock(results []review.SkillResult) string {
-	block := findingsBlock{Version: findingsBlockVersion, Skills: make(map[string][]finding.Finding, len(results))}
-	for _, r := range results {
-		block.Skills[r.Skill] = redactFindings(r.Findings)
-	}
-	data, err := json.Marshal(block)
-	if err != nil {
-		return ""
-	}
-	return findingsMarker + base64.StdEncoding.EncodeToString(data) + " -->\n"
+	return render.FindingsBlock(toRender(results, nil))
 }
 
-// writeList writes lines as a markdown list, at most limit of them (all when
-// limit is negative) and then a count of the rest.
-func writeList(b *strings.Builder, lines []string, limit int) {
-	for i, line := range lines {
-		if limit >= 0 && i == limit {
-			fmt.Fprintf(b, "- and %d more not listed to fit the comment size limit\n", len(lines)-limit)
-			return
+// toRender converts the results to what render takes. render redacts
+// nothing, so every text field is redacted here; ids maps a finding's
+// fingerprint to the short ID shown after its title.
+func toRender(results []review.SkillResult, ids map[string]string) []render.Skill {
+	skills := make([]render.Skill, len(results))
+	for i, r := range results {
+		s := render.Skill{
+			Name:            redact.String(r.Skill),
+			Verdict:         string(r.Verdict),
+			Batches:         r.Batches,
+			BatchesFinished: r.BatchesFinished,
 		}
-		fmt.Fprintf(b, "- %s\n", line)
-	}
-}
-
-func writeSkill(b *strings.Builder, r review.SkillResult, fs []finding.Finding, l layout) {
-	fmt.Fprintf(b, "<!-- pergent:%s -->\n", r.Skill)
-	fmt.Fprintf(b, "### %s\n\n", r.Skill)
-
-	var blocking, suggestions []finding.Finding
-	for _, f := range fs {
-		if f.Severity == finding.Suggestion {
-			suggestions = append(suggestions, f)
-		} else {
-			blocking = append(blocking, f)
+		for _, f := range redactFindings(r.Findings) {
+			s.Findings = append(s.Findings, render.Finding{
+				ID: ids[f.Fingerprint], Fingerprint: f.Fingerprint, File: f.File, Line: f.Line,
+				Severity: render.Severity(f.Severity), Title: f.Title, Explanation: f.Explanation, SuggestedFix: f.SuggestedFix,
+			})
 		}
-	}
-
-	switch {
-	case len(r.Failures) > 0:
+		if s.Findings == nil {
+			s.Findings = []render.Finding{}
+		}
 		for _, f := range r.Failures {
-			b.WriteString("\u26a0\ufe0f ")
-			// Name the files when the reader can't tell which ones failed: the
-			// skill had several batches or there are several failures.
-			if len(f.Files) > 0 && (r.Batches > 1 || len(r.Failures) > 1) {
-				quoted := make([]string, len(f.Files))
-				for i, file := range f.Files {
-					quoted[i] = codeSpan(file)
-				}
-				fmt.Fprintf(b, "Files %s: ", strings.Join(quoted, ", "))
-			}
-			writeFailureLead(b, f.Message, f.Cause, true)
-			b.WriteString("\n")
+			s.Failures = append(s.Failures, failure(f))
 		}
-	case r.Verdict == review.Failed:
-		b.WriteString("\u26a0\ufe0f ")
-		writeFailureLead(b, "", nil, true)
-		b.WriteString("\n")
-	}
-
-	switch {
-	case len(blocking) == 1:
-		b.WriteString("\u274c **1 blocking issue**\n\n")
-	case len(blocking) > 1:
-		fmt.Fprintf(b, "\u274c **%d blocking issues**\n\n", len(blocking))
-	case r.Verdict == review.NoBlockingIssues:
-		b.WriteString("\u2705 **No blocking issues**\n\n")
-	}
-
-	writeSummaries(b, r, l)
-	writeChecks(b, r, l)
-	for _, f := range blocking {
-		writeFinding(b, f, false, l.ids)
-	}
-	switch {
-	case len(suggestions) == 0:
-	case l.noSuggestions:
-		fmt.Fprintf(b, "> %s omitted to fit the comment size limit.\n\n", plural(len(suggestions), "suggestion"))
-	default:
-		fmt.Fprintf(b, "<details><summary>Suggestions (%d)</summary>\n\n", len(suggestions))
-		if l.suggestionTitles {
-			b.WriteString(detailsDroppedNote + "\n\n")
+		for _, sk := range r.Skipped {
+			s.Skipped = append(s.Skipped, skipped(sk))
 		}
-		for _, f := range suggestions {
-			writeFinding(b, f, l.suggestionTitles, l.ids)
+		for _, p := range r.Reviewed {
+			s.Reviewed = append(s.Reviewed, redact.String(p))
 		}
-		b.WriteString("</details>\n\n")
-	}
-	if len(r.Reviewed) > 0 {
-		fmt.Fprintf(b, "<details><summary>Reviewed files (%d)</summary>\n\n", len(r.Reviewed))
-		lines := make([]string, len(r.Reviewed))
-		for i, p := range r.Reviewed {
-			lines[i] = codeSpan(p)
+		for _, n := range r.Notes {
+			s.Notes = append(s.Notes, redact.String(n))
 		}
-		writeList(b, lines, l.listLimit)
-		b.WriteString("\n</details>\n\n")
-	}
-	if len(r.Skipped) > 0 {
-		fmt.Fprintf(b, "<details><summary>Skipped files (%d)</summary>\n\n", len(r.Skipped))
-		lines := make([]string, len(r.Skipped))
-		for i, s := range r.Skipped {
-			lines[i] = fmt.Sprintf("%s \u2014 %s", codeSpan(s.Path), neutralizeComments(oneLine(s.Rule)))
+		for _, sum := range r.Summaries {
+			s.Summaries = append(s.Summaries, render.Summary{Batch: sum.Batch, Text: redact.String(sum.Text)})
 		}
-		writeList(b, lines, l.listLimit)
-		b.WriteString("\n</details>\n\n")
-	}
-	var notes []string
-	for _, n := range r.Notes {
-		if len(r.Checks) > 0 && isVerificationDropNote(n) {
-			continue // shown next to the checks
-		}
-		notes = append(notes, n)
-	}
-	for _, n := range notes {
-		fmt.Fprintf(b, "> %s\n", neutralizeComments(oneLine(n)))
-	}
-	if len(notes) > 0 {
-		b.WriteString("\n")
-	}
-
-	fmt.Fprintf(b, "<!-- /pergent:%s -->\n\n", r.Skill)
-}
-
-// writeSummaries writes the model's summaries under the verdict: one
-// paragraph for a single-batch skill, one bullet per batch otherwise.
-func writeSummaries(b *strings.Builder, r review.SkillResult, l layout) {
-	if len(r.Summaries) == 0 {
-		return
-	}
-	if l.noSummaries {
-		b.WriteString(summariesDroppedNote + "\n\n")
-		return
-	}
-	if r.Batches <= 1 && len(r.Summaries) == 1 {
-		fmt.Fprintf(b, "**Summary:** %s\n\n", summaryText(r.Summaries[0].Text))
-		return
-	}
-	for _, sum := range r.Summaries {
-		fmt.Fprintf(b, "- **Batch %d of %d:** %s\n", sum.Batch, r.Batches, summaryText(sum.Text))
-	}
-	b.WriteString("\n")
-}
-
-// verificationDropPrefix starts the note the verification pass leaves when it
-// drops findings; with checks, it is shown next to them, since a dropped
-// finding can leave a failed check behind.
-const verificationDropPrefix = "Verification dropped "
-
-func isVerificationDropNote(n string) bool {
-	return strings.HasPrefix(n, verificationDropPrefix)
-}
-
-var checkIcons = map[finding.CheckStatus]string{
-	finding.CheckPass: "\u2705",
-	finding.CheckFail: "\u274c",
-	finding.CheckNA:   "\u2796",
-}
-
-// checkCounts counts checks by status.
-type checkCounts struct{ pass, fail, na int }
-
-func countChecks(cs []finding.Check) checkCounts {
-	var c checkCounts
-	for _, ch := range cs {
-		switch ch.Status {
-		case finding.CheckPass:
-			c.pass++
-		case finding.CheckFail:
-			c.fail++
-		case finding.CheckNA:
-			c.na++
-		}
-	}
-	return c
-}
-
-func (c checkCounts) add(o checkCounts) checkCounts {
-	return checkCounts{c.pass + o.pass, c.fail + o.fail, c.na + o.na}
-}
-
-// text lists the non-zero counts, e.g. "14 passed, 1 failed".
-func (c checkCounts) text(sep string) string {
-	var parts []string
-	if c.pass > 0 {
-		parts = append(parts, fmt.Sprintf("%d passed", c.pass))
-	}
-	if c.fail > 0 {
-		parts = append(parts, fmt.Sprintf("%d failed", c.fail))
-	}
-	if c.na > 0 {
-		parts = append(parts, fmt.Sprintf("%d n/a", c.na))
-	}
-	return strings.Join(parts, sep)
-}
-
-// writeChecks writes the skill's checklist results: a count line, then the
-// checks as one table per section. A single-batch skill shows the tables
-// inline; otherwise each batch's tables go in a collapsed block that starts
-// open when the batch has a failed check. Notes about failed checks without
-// findings, checks over the limit, and findings verification dropped follow.
-func writeChecks(b *strings.Builder, r review.SkillResult, l layout) {
-	if len(r.Checks) == 0 {
-		return
-	}
-	var total checkCounts
-	unmatched, dropped := 0, 0
-	for _, bc := range r.Checks {
-		c := countChecks(bc.Checks)
-		total = total.add(c)
-		if bc.Findings == 0 {
-			unmatched += c.fail
-		}
-		dropped += bc.Dropped
-	}
-	if counts := total.text(" \u00b7 "); counts != "" {
-		fmt.Fprintf(b, "**Checks:** %s\n\n", counts)
-	}
-
-	switch {
-	case l.noCheckTables:
-		b.WriteString(checkTablesDroppedNote + "\n\n")
-	case r.Batches <= 1 && len(r.Checks) == 1:
-		writeCheckTables(b, shownChecks(r.Checks[0].Checks, l))
-	default:
 		for _, bc := range r.Checks {
-			c := countChecks(bc.Checks)
-			shown := shownChecks(bc.Checks, l)
-			if len(shown) == 0 {
-				continue
+			rc := render.BatchChecks{Batch: bc.Batch, Dropped: bc.Dropped, Findings: bc.Findings}
+			for _, c := range bc.Checks {
+				rc.Checks = append(rc.Checks, render.Check{
+					Section: redact.String(c.Section), Name: redact.String(c.Name),
+					Status: string(c.Status), Detail: redact.String(c.Detail),
+				})
 			}
-			open := ""
-			if c.fail > 0 {
-				open = " open"
-			}
-			fmt.Fprintf(b, "<details%s><summary>Checks \u2014 batch %d of %d (%s)</summary>\n\n", open, bc.Batch, r.Batches, c.text(", "))
-			writeCheckTables(b, shown)
-			b.WriteString("</details>\n\n")
+			s.Checks = append(s.Checks, rc)
 		}
+		skills[i] = s
 	}
-	if l.checksFailOnly && !l.noCheckTables && total.pass+total.na > 0 {
-		b.WriteString(passedChecksDroppedNote + "\n\n")
-	}
-
-	var notes []string
-	if unmatched == 1 {
-		notes = append(notes, "1 failed check has no matching finding; the verdict is based on findings.")
-	} else if unmatched > 1 {
-		notes = append(notes, fmt.Sprintf("%d failed checks have no matching finding; the verdict is based on findings.", unmatched))
-	}
-	if dropped == 1 {
-		notes = append(notes, "1 check beyond the first 60 per answer was not shown.")
-	} else if dropped > 1 {
-		notes = append(notes, fmt.Sprintf("%d checks beyond the first 60 per answer were not shown.", dropped))
-	}
-	for _, n := range r.Notes {
-		if isVerificationDropNote(n) {
-			notes = append(notes, n)
-		}
-	}
-	for _, n := range notes {
-		fmt.Fprintf(b, "> %s\n", neutralizeComments(oneLine(n)))
-	}
-	if len(notes) > 0 {
-		b.WriteString("\n")
-	}
+	return skills
 }
 
-// shownChecks returns the checks the layout keeps: all of them, or only the
-// failed ones once the comment had to shrink.
-func shownChecks(cs []finding.Check, l layout) []finding.Check {
-	if !l.checksFailOnly {
-		return cs
-	}
-	var failed []finding.Check
-	for _, c := range cs {
-		if c.Status == finding.CheckFail {
-			failed = append(failed, c)
-		}
-	}
-	return failed
+func skipped(s diff.Skip) render.Skipped {
+	return render.Skipped{Path: redact.String(s.Path), Rule: redact.String(s.Rule)}
 }
 
-// writeCheckTables writes checks as one table per section, sections in order
-// of first appearance and checks without a section last, with no heading.
-func writeCheckTables(b *strings.Builder, cs []finding.Check) {
-	var order []string
-	groups := map[string][]finding.Check{}
-	for _, c := range cs {
-		if _, seen := groups[c.Section]; !seen && c.Section != "" {
-			order = append(order, c.Section)
-		}
-		groups[c.Section] = append(groups[c.Section], c)
+// failure converts a failed batch. The lead is the whole failure text the CLI
+// shows (the message, the cause and the tail of opencode's stderr), redacted.
+func failure(f review.BatchFailure) render.Failure {
+	files := make([]string, len(f.Files))
+	for i, file := range f.Files {
+		files[i] = redact.String(file)
 	}
-	if len(groups[""]) > 0 {
-		order = append(order, "")
-	}
-	for _, section := range order {
-		if section != "" {
-			fmt.Fprintf(b, "**%s**\n\n", checkCell(section))
-		}
-		b.WriteString("| Check | Status | Detail |\n|---|---|---|\n")
-		for _, c := range groups[section] {
-			fmt.Fprintf(b, "| %s | %s | %s |\n", checkCell(c.Name), checkIcons[c.Status], checkCell(c.Detail))
-		}
-		b.WriteString("\n")
-	}
-}
-
-// checkCell renders model text for a table cell: one line, "|" escaped so it
-// can't add a column, "<" escaped so it can't open HTML, and backticks
-// escaped when unbalanced so a code span can't run past the cell.
-func checkCell(s string) string {
-	s = oneLine(s)
-	if strings.Count(s, "`")%2 == 1 {
-		s = strings.ReplaceAll(s, "`", "\\`")
-	}
-	s = strings.ReplaceAll(s, "|", "\\|")
-	return strings.ReplaceAll(s, "<", "&lt;")
-}
-
-// summaryText renders a summary as plain text. It always follows a fixed
-// prefix, so it never starts a line and can't open a code block, heading or
-// HTML block; escaping "<" keeps any HTML in it, comments included, inert.
-func summaryText(s string) string {
-	return strings.ReplaceAll(oneLine(s), "<", "&lt;")
-}
-
-func plural(n int, word string) string {
-	if n == 1 {
-		return "1 " + word
-	}
-	return fmt.Sprintf("%d %ss", n, word)
-}
-
-// writeFinding writes a finding; titleOnly leaves out its explanation and
-// suggested fix. A finding whose fingerprint is in ids shows its ID after the
-// title.
-func writeFinding(b *strings.Builder, f finding.Finding, titleOnly bool, ids map[string]string) {
-	where := f.File
-	if f.Line > 0 {
-		where = fmt.Sprintf("%s:%d", f.File, f.Line)
-	}
-	idText := ""
-	if id := ids[f.Fingerprint]; id != "" {
-		idText = " " + codeSpan(id)
-	}
-	fmt.Fprintf(b, "**%s** \u2014 **%s**%s\n\n", codeSpan(where), neutralizeComments(oneLine(f.Title)), idText)
-	if titleOnly {
-		return
-	}
-	if f.Explanation != "" {
-		fmt.Fprintf(b, "%s\n\n", modelText(f.Explanation))
-	}
-	if f.SuggestedFix != "" {
-		fix := modelText(f.SuggestedFix)
-		sep := " "
-		if strings.Contains(fix, "\n") {
-			sep = "\n\n"
-		}
-		fmt.Fprintf(b, "_Suggested fix:_%s%s\n\n", sep, fix)
-	}
-}
-
-// codeSpan wraps s in an inline code span whose backtick fence is longer than
-// any backtick run inside s.
-func codeSpan(s string) string {
-	s = oneLine(s)
-	longest, run := 0, 0
-	for _, c := range s {
-		if c == '`' {
-			run++
-			if run > longest {
-				longest = run
-			}
-		} else {
-			run = 0
-		}
-	}
-	fence := strings.Repeat("`", longest+1)
-	if longest > 0 {
-		return fence + " " + s + " " + fence
-	}
-	return fence + s + fence
+	var b strings.Builder
+	writeFailureLead(&b, f.Message, f.Cause, true)
+	lead := strings.TrimPrefix(redact.String(b.String()), failedPrefix+" ")
+	return render.Failure{Files: files, Message: redact.String(f.Message), Lead: lead}
 }
 
 // redactFindings returns a copy of fs with credentials removed from every

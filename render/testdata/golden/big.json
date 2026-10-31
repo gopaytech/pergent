@@ -1,0 +1,1564 @@
+{
+ "Skills": [
+  {
+   "Name": "code-review",
+   "Verdict": "has_blocking_issues",
+   "Findings": [
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "main.go",
+     "Line": 1,
+     "Severity": "blocking",
+     "Title": "Blocking one",
+     "Explanation": "First blocking explanation.",
+     "SuggestedFix": ""
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "main.go",
+     "Line": 2,
+     "Severity": "blocking",
+     "Title": "Blocking two",
+     "Explanation": "Second blocking explanation.",
+     "SuggestedFix": ""
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file000.go",
+     "Line": 1,
+     "Severity": "suggestion",
+     "Title": "Suggestion 000 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file001.go",
+     "Line": 2,
+     "Severity": "suggestion",
+     "Title": "Suggestion 001 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file002.go",
+     "Line": 3,
+     "Severity": "suggestion",
+     "Title": "Suggestion 002 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file003.go",
+     "Line": 4,
+     "Severity": "suggestion",
+     "Title": "Suggestion 003 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file004.go",
+     "Line": 5,
+     "Severity": "suggestion",
+     "Title": "Suggestion 004 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file005.go",
+     "Line": 6,
+     "Severity": "suggestion",
+     "Title": "Suggestion 005 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file006.go",
+     "Line": 7,
+     "Severity": "suggestion",
+     "Title": "Suggestion 006 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file007.go",
+     "Line": 8,
+     "Severity": "suggestion",
+     "Title": "Suggestion 007 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file008.go",
+     "Line": 9,
+     "Severity": "suggestion",
+     "Title": "Suggestion 008 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file009.go",
+     "Line": 10,
+     "Severity": "suggestion",
+     "Title": "Suggestion 009 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file010.go",
+     "Line": 11,
+     "Severity": "suggestion",
+     "Title": "Suggestion 010 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file011.go",
+     "Line": 12,
+     "Severity": "suggestion",
+     "Title": "Suggestion 011 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file012.go",
+     "Line": 13,
+     "Severity": "suggestion",
+     "Title": "Suggestion 012 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file013.go",
+     "Line": 14,
+     "Severity": "suggestion",
+     "Title": "Suggestion 013 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file014.go",
+     "Line": 15,
+     "Severity": "suggestion",
+     "Title": "Suggestion 014 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file015.go",
+     "Line": 16,
+     "Severity": "suggestion",
+     "Title": "Suggestion 015 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file016.go",
+     "Line": 17,
+     "Severity": "suggestion",
+     "Title": "Suggestion 016 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file017.go",
+     "Line": 18,
+     "Severity": "suggestion",
+     "Title": "Suggestion 017 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file018.go",
+     "Line": 19,
+     "Severity": "suggestion",
+     "Title": "Suggestion 018 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file019.go",
+     "Line": 20,
+     "Severity": "suggestion",
+     "Title": "Suggestion 019 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file020.go",
+     "Line": 21,
+     "Severity": "suggestion",
+     "Title": "Suggestion 020 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file021.go",
+     "Line": 22,
+     "Severity": "suggestion",
+     "Title": "Suggestion 021 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file022.go",
+     "Line": 23,
+     "Severity": "suggestion",
+     "Title": "Suggestion 022 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file023.go",
+     "Line": 24,
+     "Severity": "suggestion",
+     "Title": "Suggestion 023 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file024.go",
+     "Line": 25,
+     "Severity": "suggestion",
+     "Title": "Suggestion 024 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file025.go",
+     "Line": 26,
+     "Severity": "suggestion",
+     "Title": "Suggestion 025 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file026.go",
+     "Line": 27,
+     "Severity": "suggestion",
+     "Title": "Suggestion 026 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file027.go",
+     "Line": 28,
+     "Severity": "suggestion",
+     "Title": "Suggestion 027 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file028.go",
+     "Line": 29,
+     "Severity": "suggestion",
+     "Title": "Suggestion 028 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file029.go",
+     "Line": 30,
+     "Severity": "suggestion",
+     "Title": "Suggestion 029 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file030.go",
+     "Line": 31,
+     "Severity": "suggestion",
+     "Title": "Suggestion 030 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file031.go",
+     "Line": 32,
+     "Severity": "suggestion",
+     "Title": "Suggestion 031 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file032.go",
+     "Line": 33,
+     "Severity": "suggestion",
+     "Title": "Suggestion 032 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file033.go",
+     "Line": 34,
+     "Severity": "suggestion",
+     "Title": "Suggestion 033 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file034.go",
+     "Line": 35,
+     "Severity": "suggestion",
+     "Title": "Suggestion 034 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file035.go",
+     "Line": 36,
+     "Severity": "suggestion",
+     "Title": "Suggestion 035 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file036.go",
+     "Line": 37,
+     "Severity": "suggestion",
+     "Title": "Suggestion 036 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file037.go",
+     "Line": 38,
+     "Severity": "suggestion",
+     "Title": "Suggestion 037 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file038.go",
+     "Line": 39,
+     "Severity": "suggestion",
+     "Title": "Suggestion 038 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file039.go",
+     "Line": 40,
+     "Severity": "suggestion",
+     "Title": "Suggestion 039 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file040.go",
+     "Line": 41,
+     "Severity": "suggestion",
+     "Title": "Suggestion 040 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file041.go",
+     "Line": 42,
+     "Severity": "suggestion",
+     "Title": "Suggestion 041 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file042.go",
+     "Line": 43,
+     "Severity": "suggestion",
+     "Title": "Suggestion 042 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file043.go",
+     "Line": 44,
+     "Severity": "suggestion",
+     "Title": "Suggestion 043 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file044.go",
+     "Line": 45,
+     "Severity": "suggestion",
+     "Title": "Suggestion 044 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file045.go",
+     "Line": 46,
+     "Severity": "suggestion",
+     "Title": "Suggestion 045 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file046.go",
+     "Line": 47,
+     "Severity": "suggestion",
+     "Title": "Suggestion 046 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file047.go",
+     "Line": 48,
+     "Severity": "suggestion",
+     "Title": "Suggestion 047 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file048.go",
+     "Line": 49,
+     "Severity": "suggestion",
+     "Title": "Suggestion 048 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file049.go",
+     "Line": 50,
+     "Severity": "suggestion",
+     "Title": "Suggestion 049 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file050.go",
+     "Line": 51,
+     "Severity": "suggestion",
+     "Title": "Suggestion 050 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file051.go",
+     "Line": 52,
+     "Severity": "suggestion",
+     "Title": "Suggestion 051 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file052.go",
+     "Line": 53,
+     "Severity": "suggestion",
+     "Title": "Suggestion 052 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file053.go",
+     "Line": 54,
+     "Severity": "suggestion",
+     "Title": "Suggestion 053 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file054.go",
+     "Line": 55,
+     "Severity": "suggestion",
+     "Title": "Suggestion 054 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file055.go",
+     "Line": 56,
+     "Severity": "suggestion",
+     "Title": "Suggestion 055 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file056.go",
+     "Line": 57,
+     "Severity": "suggestion",
+     "Title": "Suggestion 056 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file057.go",
+     "Line": 58,
+     "Severity": "suggestion",
+     "Title": "Suggestion 057 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file058.go",
+     "Line": 59,
+     "Severity": "suggestion",
+     "Title": "Suggestion 058 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file059.go",
+     "Line": 60,
+     "Severity": "suggestion",
+     "Title": "Suggestion 059 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file060.go",
+     "Line": 61,
+     "Severity": "suggestion",
+     "Title": "Suggestion 060 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file061.go",
+     "Line": 62,
+     "Severity": "suggestion",
+     "Title": "Suggestion 061 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file062.go",
+     "Line": 63,
+     "Severity": "suggestion",
+     "Title": "Suggestion 062 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file063.go",
+     "Line": 64,
+     "Severity": "suggestion",
+     "Title": "Suggestion 063 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file064.go",
+     "Line": 65,
+     "Severity": "suggestion",
+     "Title": "Suggestion 064 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file065.go",
+     "Line": 66,
+     "Severity": "suggestion",
+     "Title": "Suggestion 065 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file066.go",
+     "Line": 67,
+     "Severity": "suggestion",
+     "Title": "Suggestion 066 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file067.go",
+     "Line": 68,
+     "Severity": "suggestion",
+     "Title": "Suggestion 067 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file068.go",
+     "Line": 69,
+     "Severity": "suggestion",
+     "Title": "Suggestion 068 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file069.go",
+     "Line": 70,
+     "Severity": "suggestion",
+     "Title": "Suggestion 069 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file070.go",
+     "Line": 71,
+     "Severity": "suggestion",
+     "Title": "Suggestion 070 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file071.go",
+     "Line": 72,
+     "Severity": "suggestion",
+     "Title": "Suggestion 071 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file072.go",
+     "Line": 73,
+     "Severity": "suggestion",
+     "Title": "Suggestion 072 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file073.go",
+     "Line": 74,
+     "Severity": "suggestion",
+     "Title": "Suggestion 073 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file074.go",
+     "Line": 75,
+     "Severity": "suggestion",
+     "Title": "Suggestion 074 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file075.go",
+     "Line": 76,
+     "Severity": "suggestion",
+     "Title": "Suggestion 075 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file076.go",
+     "Line": 77,
+     "Severity": "suggestion",
+     "Title": "Suggestion 076 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file077.go",
+     "Line": 78,
+     "Severity": "suggestion",
+     "Title": "Suggestion 077 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file078.go",
+     "Line": 79,
+     "Severity": "suggestion",
+     "Title": "Suggestion 078 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file079.go",
+     "Line": 80,
+     "Severity": "suggestion",
+     "Title": "Suggestion 079 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file080.go",
+     "Line": 81,
+     "Severity": "suggestion",
+     "Title": "Suggestion 080 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file081.go",
+     "Line": 82,
+     "Severity": "suggestion",
+     "Title": "Suggestion 081 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file082.go",
+     "Line": 83,
+     "Severity": "suggestion",
+     "Title": "Suggestion 082 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file083.go",
+     "Line": 84,
+     "Severity": "suggestion",
+     "Title": "Suggestion 083 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file084.go",
+     "Line": 85,
+     "Severity": "suggestion",
+     "Title": "Suggestion 084 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file085.go",
+     "Line": 86,
+     "Severity": "suggestion",
+     "Title": "Suggestion 085 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file086.go",
+     "Line": 87,
+     "Severity": "suggestion",
+     "Title": "Suggestion 086 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file087.go",
+     "Line": 88,
+     "Severity": "suggestion",
+     "Title": "Suggestion 087 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file088.go",
+     "Line": 89,
+     "Severity": "suggestion",
+     "Title": "Suggestion 088 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file089.go",
+     "Line": 90,
+     "Severity": "suggestion",
+     "Title": "Suggestion 089 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file090.go",
+     "Line": 91,
+     "Severity": "suggestion",
+     "Title": "Suggestion 090 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file091.go",
+     "Line": 92,
+     "Severity": "suggestion",
+     "Title": "Suggestion 091 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file092.go",
+     "Line": 93,
+     "Severity": "suggestion",
+     "Title": "Suggestion 092 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file093.go",
+     "Line": 94,
+     "Severity": "suggestion",
+     "Title": "Suggestion 093 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file094.go",
+     "Line": 95,
+     "Severity": "suggestion",
+     "Title": "Suggestion 094 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file095.go",
+     "Line": 96,
+     "Severity": "suggestion",
+     "Title": "Suggestion 095 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file096.go",
+     "Line": 97,
+     "Severity": "suggestion",
+     "Title": "Suggestion 096 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file097.go",
+     "Line": 98,
+     "Severity": "suggestion",
+     "Title": "Suggestion 097 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file098.go",
+     "Line": 99,
+     "Severity": "suggestion",
+     "Title": "Suggestion 098 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "pkg/file099.go",
+     "Line": 100,
+     "Severity": "suggestion",
+     "Title": "Suggestion 099 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+     "Explanation": "Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "SuggestedFix": "Fix ffffffffffffffffffffffffffffffffffffffffffffffffff"
+    }
+   ],
+   "Failures": null,
+   "Skipped": [
+    {
+     "Path": "vendor/module/path/generated000.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated001.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated002.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated003.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated004.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated005.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated006.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated007.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated008.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated009.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated010.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated011.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated012.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated013.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated014.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated015.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated016.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated017.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated018.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated019.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated020.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated021.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated022.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated023.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated024.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated025.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated026.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated027.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated028.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated029.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated030.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated031.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated032.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated033.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated034.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated035.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated036.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated037.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated038.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated039.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated040.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated041.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated042.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated043.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated044.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated045.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated046.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated047.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated048.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated049.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated050.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated051.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated052.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated053.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated054.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated055.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated056.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated057.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated058.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated059.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated060.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated061.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated062.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated063.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated064.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated065.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated066.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated067.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated068.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated069.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated070.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated071.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated072.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated073.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated074.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated075.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated076.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated077.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated078.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated079.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated080.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated081.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated082.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated083.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated084.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated085.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated086.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated087.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated088.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated089.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated090.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated091.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated092.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated093.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated094.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated095.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated096.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated097.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated098.go",
+     "Rule": "vendored"
+    },
+    {
+     "Path": "vendor/module/path/generated099.go",
+     "Rule": "vendored"
+    }
+   ],
+   "Reviewed": null,
+   "Notes": null,
+   "Batches": 0,
+   "BatchesFinished": 0,
+   "Summaries": null,
+   "Checks": null,
+   "Dismissed": null
+  },
+  {
+   "Name": "docs-review",
+   "Verdict": "failed",
+   "Findings": [],
+   "Failures": [
+    {
+     "Files": [
+      "a.md"
+     ],
+     "Message": "Not reviewed: the failure stays.",
+     "Lead": "Not reviewed: the failure stays.\n"
+    }
+   ],
+   "Skipped": null,
+   "Reviewed": null,
+   "Notes": null,
+   "Batches": 0,
+   "BatchesFinished": 0,
+   "Summaries": null,
+   "Checks": null,
+   "Dismissed": null
+  }
+ ],
+ "ChangedFiles": [
+  "vendor/module/path/generated000.go",
+  "vendor/module/path/generated001.go",
+  "vendor/module/path/generated002.go",
+  "vendor/module/path/generated003.go",
+  "vendor/module/path/generated004.go",
+  "vendor/module/path/generated005.go",
+  "vendor/module/path/generated006.go",
+  "vendor/module/path/generated007.go",
+  "vendor/module/path/generated008.go",
+  "vendor/module/path/generated009.go",
+  "vendor/module/path/generated010.go",
+  "vendor/module/path/generated011.go",
+  "vendor/module/path/generated012.go",
+  "vendor/module/path/generated013.go",
+  "vendor/module/path/generated014.go",
+  "vendor/module/path/generated015.go",
+  "vendor/module/path/generated016.go",
+  "vendor/module/path/generated017.go",
+  "vendor/module/path/generated018.go",
+  "vendor/module/path/generated019.go",
+  "vendor/module/path/generated020.go",
+  "vendor/module/path/generated021.go",
+  "vendor/module/path/generated022.go",
+  "vendor/module/path/generated023.go",
+  "vendor/module/path/generated024.go",
+  "vendor/module/path/generated025.go",
+  "vendor/module/path/generated026.go",
+  "vendor/module/path/generated027.go",
+  "vendor/module/path/generated028.go",
+  "vendor/module/path/generated029.go",
+  "vendor/module/path/generated030.go",
+  "vendor/module/path/generated031.go",
+  "vendor/module/path/generated032.go",
+  "vendor/module/path/generated033.go",
+  "vendor/module/path/generated034.go",
+  "vendor/module/path/generated035.go",
+  "vendor/module/path/generated036.go",
+  "vendor/module/path/generated037.go",
+  "vendor/module/path/generated038.go",
+  "vendor/module/path/generated039.go",
+  "vendor/module/path/generated040.go",
+  "vendor/module/path/generated041.go",
+  "vendor/module/path/generated042.go",
+  "vendor/module/path/generated043.go",
+  "vendor/module/path/generated044.go",
+  "vendor/module/path/generated045.go",
+  "vendor/module/path/generated046.go",
+  "vendor/module/path/generated047.go",
+  "vendor/module/path/generated048.go",
+  "vendor/module/path/generated049.go",
+  "vendor/module/path/generated050.go",
+  "vendor/module/path/generated051.go",
+  "vendor/module/path/generated052.go",
+  "vendor/module/path/generated053.go",
+  "vendor/module/path/generated054.go",
+  "vendor/module/path/generated055.go",
+  "vendor/module/path/generated056.go",
+  "vendor/module/path/generated057.go",
+  "vendor/module/path/generated058.go",
+  "vendor/module/path/generated059.go",
+  "vendor/module/path/generated060.go",
+  "vendor/module/path/generated061.go",
+  "vendor/module/path/generated062.go",
+  "vendor/module/path/generated063.go",
+  "vendor/module/path/generated064.go",
+  "vendor/module/path/generated065.go",
+  "vendor/module/path/generated066.go",
+  "vendor/module/path/generated067.go",
+  "vendor/module/path/generated068.go",
+  "vendor/module/path/generated069.go",
+  "vendor/module/path/generated070.go",
+  "vendor/module/path/generated071.go",
+  "vendor/module/path/generated072.go",
+  "vendor/module/path/generated073.go",
+  "vendor/module/path/generated074.go",
+  "vendor/module/path/generated075.go",
+  "vendor/module/path/generated076.go",
+  "vendor/module/path/generated077.go",
+  "vendor/module/path/generated078.go",
+  "vendor/module/path/generated079.go",
+  "vendor/module/path/generated080.go",
+  "vendor/module/path/generated081.go",
+  "vendor/module/path/generated082.go",
+  "vendor/module/path/generated083.go",
+  "vendor/module/path/generated084.go",
+  "vendor/module/path/generated085.go",
+  "vendor/module/path/generated086.go",
+  "vendor/module/path/generated087.go",
+  "vendor/module/path/generated088.go",
+  "vendor/module/path/generated089.go",
+  "vendor/module/path/generated090.go",
+  "vendor/module/path/generated091.go",
+  "vendor/module/path/generated092.go",
+  "vendor/module/path/generated093.go",
+  "vendor/module/path/generated094.go",
+  "vendor/module/path/generated095.go",
+  "vendor/module/path/generated096.go",
+  "vendor/module/path/generated097.go",
+  "vendor/module/path/generated098.go",
+  "vendor/module/path/generated099.go"
+ ]
+}

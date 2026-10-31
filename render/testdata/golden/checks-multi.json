@@ -1,0 +1,108 @@
+{
+ "Skills": [
+  {
+   "Name": "multi",
+   "Verdict": "no_blocking_issues",
+   "Findings": [],
+   "Failures": null,
+   "Skipped": null,
+   "Reviewed": [
+    "a.go"
+   ],
+   "Notes": [
+    "Verification dropped 1 of 1 blocking finding: Not real (it is handled upstream)",
+    "another note"
+   ],
+   "Batches": 2,
+   "BatchesFinished": 2,
+   "Summaries": null,
+   "Checks": [
+    {
+     "Batch": 1,
+     "Checks": [
+      {
+       "Section": "A",
+       "Name": "a1",
+       "Status": "pass",
+       "Detail": ""
+      },
+      {
+       "Section": "A",
+       "Name": "a2",
+       "Status": "pass",
+       "Detail": "evidence"
+      },
+      {
+       "Section": "",
+       "Name": "loose",
+       "Status": "n/a",
+       "Detail": ""
+      }
+     ],
+     "Dropped": 3,
+     "Findings": 0
+    },
+    {
+     "Batch": 2,
+     "Checks": [
+      {
+       "Section": "A",
+       "Name": "b1",
+       "Status": "fail",
+       "Detail": "x"
+      },
+      {
+       "Section": "B",
+       "Name": "b2",
+       "Status": "fail",
+       "Detail": ""
+      }
+     ],
+     "Dropped": 0,
+     "Findings": 0
+    }
+   ],
+   "Dismissed": null
+  },
+  {
+   "Name": "single",
+   "Verdict": "no_blocking_issues",
+   "Findings": [],
+   "Failures": null,
+   "Skipped": null,
+   "Reviewed": null,
+   "Notes": null,
+   "Batches": 1,
+   "BatchesFinished": 1,
+   "Summaries": [
+    {
+     "Batch": 1,
+     "Text": "Sum."
+    }
+   ],
+   "Checks": [
+    {
+     "Batch": 1,
+     "Checks": [
+      {
+       "Section": "Sec|tion",
+       "Name": "a|b\nc `x",
+       "Status": "pass",
+       "Detail": "\u003c/details\u003e \u003csummary\u003ey [REDACTED]"
+      },
+      {
+       "Section": "Sec|tion",
+       "Name": "fail",
+       "Status": "fail",
+       "Detail": ""
+      }
+     ],
+     "Dropped": 0,
+     "Findings": 1
+    }
+   ],
+   "Dismissed": null
+  }
+ ],
+ "ChangedFiles": []
+}

@@ -1,0 +1,95 @@
+{
+ "Skills": [
+  {
+   "Name": "first",
+   "Verdict": "no_blocking_issues",
+   "Findings": [
+    {
+     "ID": "",
+     "Fingerprint": "fp-2",
+     "File": "b.go",
+     "Line": 2,
+     "Severity": "suggestion",
+     "Title": "Second",
+     "Explanation": "fine\n````\nstill open",
+     "SuggestedFix": ""
+    },
+    {
+     "ID": "",
+     "Fingerprint": "fp-1",
+     "File": "a.go",
+     "Line": 1,
+     "Severity": "suggestion",
+     "Title": "Bad `name`\n```\nsecond line",
+     "Explanation": "Closes early \u003c/details\u003e and \u003cDETAILS\u003e and \u003c/summary\u003e.\n```go\nfunc main() {",
+     "SuggestedFix": "~~~\nunbalanced"
+    }
+   ],
+   "Failures": null,
+   "Skipped": null,
+   "Reviewed": null,
+   "Notes": null,
+   "Batches": 0,
+   "BatchesFinished": 0,
+   "Summaries": null,
+   "Checks": null,
+   "Dismissed": null
+  },
+  {
+   "Name": "second",
+   "Verdict": "has_blocking_issues",
+   "Findings": [
+    {
+     "ID": "",
+     "Fingerprint": "fp-3",
+     "File": "a.go",
+     "Line": 1,
+     "Severity": "blocking",
+     "Title": "Bad [REDACTED]",
+     "Explanation": "ok\n/approve\n\r/close\nx\r\n/merge\n[REDACTED] and Bearer [REDACTED]",
+     "SuggestedFix": "```go\n/label ~bug\n    // keep this comment\n```\nhttps://x.example/?key=[REDACTED]\u0026token=[REDACTED]"
+    }
+   ],
+   "Failures": null,
+   "Skipped": [
+    {
+     "Path": "x`y.go",
+     "Rule": "rule \u003c/details\u003e"
+    }
+   ],
+   "Reviewed": null,
+   "Notes": [
+    "note with \u003c!-- comment --\u003e and\nnewline",
+    "token [REDACTED]"
+   ],
+   "Batches": 0,
+   "BatchesFinished": 0,
+   "Summaries": [
+    {
+     "Batch": 1,
+     "Text": "fine\n/unapprove"
+    }
+   ],
+   "Checks": null,
+   "Dismissed": null
+  },
+  {
+   "Name": "sk\u003c!--ill",
+   "Verdict": "no_blocking_issues",
+   "Findings": [],
+   "Failures": null,
+   "Skipped": null,
+   "Reviewed": null,
+   "Notes": null,
+   "Batches": 0,
+   "BatchesFinished": 0,
+   "Summaries": null,
+   "Checks": null,
+   "Dismissed": null
+  }
+ ],
+ "ChangedFiles": [
+  "we`ird.go",
+  "[REDACTED].txt"
+ ]
+}

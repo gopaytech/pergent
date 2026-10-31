@@ -1,0 +1,50 @@
+{
+ "Skills": [
+  {
+   "Name": "code-review",
+   "Verdict": "has_blocking_issues",
+   "Findings": [
+    {
+     "ID": "abcdef11",
+     "Fingerprint": "fp-blocking",
+     "File": "a.go",
+     "Line": 3,
+     "Severity": "blocking",
+     "Title": "Nil deref",
+     "Explanation": "boom",
+     "SuggestedFix": ""
+    },
+    {
+     "ID": "12345678",
+     "Fingerprint": "fp-suggestion",
+     "File": "b.go",
+     "Line": 9,
+     "Severity": "suggestion",
+     "Title": "Rename",
+     "Explanation": "nit",
+     "SuggestedFix": ""
+    },
+    {
+     "ID": "",
+     "Fingerprint": "fp-unknown",
+     "File": "c.go",
+     "Line": 0,
+     "Severity": "suggestion",
+     "Title": "No id",
+     "Explanation": "",
+     "SuggestedFix": ""
+    }
+   ],
+   "Failures": null,
+   "Skipped": null,
+   "Reviewed": null,
+   "Notes": null,
+   "Batches": 0,
+   "BatchesFinished": 0,
+   "Summaries": null,
+   "Checks": null,
+   "Dismissed": null
+  }
+ ],
+ "ChangedFiles": []
+}

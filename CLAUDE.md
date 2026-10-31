@@ -12,8 +12,9 @@ CLI tool that runs agentic PR/MR reviews in CI/CD pipelines by spawning `opencod
 - `internal/review/` — Runs a whole review: per skill selects files, batches them, runs one opencode run per batch (plus a repair run, an optional cross-batch run and a verification run), and decides each skill's verdict; one shared concurrency limit and time budget
 - `internal/config/` — Resolves config (flags > env > auto-detect), generates temporary `opencode.json`
 - `internal/runner/` — Spawns `opencode run` subprocess, parses NDJSON output, classifies the run (completed or failed with a cause), retries transient provider errors, enforces timeout and step limit; passes opencode's stderr through redacted line by line
-- `internal/output/` — Formats per-skill review results (verdict, findings, failures) into a single markdown comment with HTML dedup markers and a hidden findings block; parses that block back for `--previous-review`
-- `internal/result/` — Agent-mode result: schema v1 types, error codes, finding IDs, 10 MB size cap (`Encode`), delivery to file/stdout/HTTP (`Deliver`)
+- `render/` — Public package (`github.com/gopaytech/pergent/render`, imports no pergent `internal/` package, redacts nothing): builds the review comment from `render.Skill` values, including the shrink steps for a size limit and the hidden findings block; also `AssignIDs` (finding IDs) and `ApplyDismissals` (moves dismissed findings into a Dismissed section and recomputes verdicts). `testdata/golden` pins the comment byte for byte
+- `internal/output/` — Converts per-skill review results to `render` types (redacting every text field first) and calls `render`; parses the hidden findings block back for `--previous-review`
+- `internal/result/` — Agent-mode result: schema v1 types, error codes, finding IDs (`render.AssignIDs`), 10 MB size cap (`Encode`), delivery to file/stdout/HTTP (`Deliver`)
 - `internal/redact/` — Removes credentials (token env values, bearer tokens, URL keys) from the comment and logs
 - `internal/platform/` — GitHub/GitLab API clients for fetching diffs and posting/updating comments
 

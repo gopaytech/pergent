@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/gopaytech/pergent/internal/finding"
-	"github.com/gopaytech/pergent/internal/output"
 	"github.com/gopaytech/pergent/internal/redact"
 	"github.com/gopaytech/pergent/internal/review"
+	"github.com/gopaytech/pergent/render"
 )
 
 // SchemaVersion is the result schema version. Adding fields is compatible;
@@ -168,7 +168,7 @@ func Build(meta Meta, skills []review.SkillResult) Result {
 			fps = append(fps, f.Fingerprint)
 		}
 	}
-	ids := AssignIDs(fps)
+	ids := render.AssignIDs(fps)
 
 	r := baseResult(meta, StatusCompleted)
 	r.Skills = make([]Skill, 0, len(skills))
@@ -290,7 +290,7 @@ func ErrorResult(meta Meta, code ErrorCode, message string) Result {
 	// An error result has no timing or budget: nothing ran to completion.
 	r.StartedAt, r.FinishedAt, r.BudgetSeconds = "", "", 0
 	r.Error = &Error{Code: code, Message: message}
-	r.Comment = Comment{Markdown: output.Marker + "\n⚠️ **pergent couldn't review this MR:** " + escapeMarkdown(message)}
+	r.Comment = Comment{Markdown: render.Marker + "\n⚠️ **pergent couldn't review this MR:** " + escapeMarkdown(message)}
 	return r
 }
 

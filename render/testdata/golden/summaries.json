@@ -1,0 +1,81 @@
+{
+ "Skills": [
+  {
+   "Name": "first",
+   "Verdict": "no_blocking_issues",
+   "Findings": [],
+   "Failures": null,
+   "Skipped": null,
+   "Reviewed": null,
+   "Notes": null,
+   "Batches": 1,
+   "BatchesFinished": 1,
+   "Summaries": [
+    {
+     "Batch": 1,
+     "Text": "```go closes \u003c/details\u003e early, token [REDACTED]"
+    }
+   ],
+   "Checks": null,
+   "Dismissed": null
+  },
+  {
+   "Name": "second",
+   "Verdict": "no_blocking_issues",
+   "Findings": [],
+   "Failures": null,
+   "Skipped": null,
+   "Reviewed": null,
+   "Notes": null,
+   "Batches": 2,
+   "BatchesFinished": 2,
+   "Summaries": [
+    {
+     "Batch": 1,
+     "Text": "\u003csummary\u003ex\u003c/summary\u003e ````"
+    },
+    {
+     "Batch": 2,
+     "Text": "fine\n/unapprove"
+    }
+   ],
+   "Checks": null,
+   "Dismissed": null
+  },
+  {
+   "Name": "third",
+   "Verdict": "no_blocking_issues",
+   "Findings": [],
+   "Failures": null,
+   "Skipped": null,
+   "Reviewed": [
+    "a.go",
+    "b.go"
+   ],
+   "Notes": null,
+   "Batches": 4,
+   "BatchesFinished": 4,
+   "Summaries": [
+    {
+     "Batch": 1,
+     "Text": "Summary 0 ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss"
+    },
+    {
+     "Batch": 2,
+     "Text": "Summary 1 ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss"
+    },
+    {
+     "Batch": 3,
+     "Text": "Summary 2 ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss"
+    },
+    {
+     "Batch": 4,
+     "Text": "Summary 3 ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss"
+    }
+   ],
+   "Checks": null,
+   "Dismissed": null
+  }
+ ],
+ "ChangedFiles": []
+}

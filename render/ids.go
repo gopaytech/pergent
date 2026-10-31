@@ -1,4 +1,4 @@
-package result
+package render
 
 const minID = 6
 

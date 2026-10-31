@@ -1,0 +1,136 @@
+{
+ "Skills": [
+  {
+   "Name": "code-review",
+   "Verdict": "has_blocking_issues",
+   "Findings": [
+    {
+     "ID": "",
+     "Fingerprint": "aaaaaaaaaaaa",
+     "File": "main.go",
+     "Line": 42,
+     "Severity": "blocking",
+     "Title": "Nil dereference",
+     "Explanation": "p can be nil here.",
+     "SuggestedFix": "Check p first."
+    },
+    {
+     "ID": "",
+     "Fingerprint": "bbbbbbbbbbbb",
+     "File": "util.go",
+     "Line": 0,
+     "Severity": "blocking",
+     "Title": "Leak",
+     "Explanation": "The file is never closed.",
+     "SuggestedFix": ""
+    },
+    {
+     "ID": "",
+     "Fingerprint": "cccccccccccc",
+     "File": "util.go",
+     "Line": 7,
+     "Severity": "suggestion",
+     "Title": "Rename helper",
+     "Explanation": "The name is unclear.",
+     "SuggestedFix": "Rename it to\n```go\nfoo()\n```"
+    }
+   ],
+   "Failures": null,
+   "Skipped": [
+    {
+     "Path": "go.sum",
+     "Rule": "lockfile"
+    },
+    {
+     "Path": "gen/\u003c!--x.go",
+     "Rule": "generated\nfile"
+    }
+   ],
+   "Reviewed": [
+    "main.go",
+    "util.go"
+   ],
+   "Notes": [
+    "batch 2 was small"
+   ],
+   "Batches": 0,
+   "BatchesFinished": 0,
+   "Summaries": null,
+   "Checks": null,
+   "Dismissed": null
+  },
+  {
+   "Name": "security-review",
+   "Verdict": "no_blocking_issues",
+   "Findings": [],
+   "Failures": null,
+   "Skipped": null,
+   "Reviewed": null,
+   "Notes": null,
+   "Batches": 0,
+   "BatchesFinished": 0,
+   "Summaries": null,
+   "Checks": null,
+   "Dismissed": null
+  },
+  {
+   "Name": "docs-review",
+   "Verdict": "failed",
+   "Findings": [],
+   "Failures": [
+    {
+     "Files": [
+      "a.md"
+     ],
+     "Message": "",
+     "Lead": "opencode exited normally after 3 steps, but the model did not produce a final answer.\n"
+    },
+    {
+     "Files": [
+      "b.md",
+      "c.md"
+     ],
+     "Message": "The model's answer was not in the required format.",
+     "Lead": "The model's answer was not in the required format.\n"
+    }
+   ],
+   "Skipped": null,
+   "Reviewed": null,
+   "Notes": null,
+   "Batches": 2,
+   "BatchesFinished": 0,
+   "Summaries": null,
+   "Checks": null,
+   "Dismissed": null
+  },
+  {
+   "Name": "one-issue",
+   "Verdict": "has_blocking_issues",
+   "Findings": [
+    {
+     "ID": "",
+     "Fingerprint": "",
+     "File": "x.go",
+     "Line": 1,
+     "Severity": "blocking",
+     "Title": "Bad",
+     "Explanation": "Really bad.",
+     "SuggestedFix": ""
+    }
+   ],
+   "Failures": null,
+   "Skipped": null,
+   "Reviewed": null,
+   "Notes": null,
+   "Batches": 0,
+   "BatchesFinished": 0,
+   "Summaries": null,
+   "Checks": null,
+   "Dismissed": null
+  }
+ ],
+ "ChangedFiles": [
+  "main.go",
+  "util.go"
+ ]
+}

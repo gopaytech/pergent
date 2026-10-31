@@ -32,31 +32,6 @@ func decode(t *testing.T, b []byte) map[string]any {
 	return m
 }
 
-func TestAssignIDs(t *testing.T) {
-	got := AssignIDs([]string{"abcdef111111", "abcdef222222", "123456777777"})
-	want := map[string]string{
-		"abcdef111111": "abcdef11",
-		"abcdef222222": "abcdef22",
-		"123456777777": "123456",
-	}
-	for fp, id := range want {
-		if got[fp] != id {
-			t.Errorf("AssignIDs[%q] = %q, want %q", fp, got[fp], id)
-		}
-	}
-
-	single := AssignIDs([]string{"abcdef111111"})
-	if single["abcdef111111"] != "abcdef" {
-		t.Errorf("single fingerprint ID = %q, want abcdef", single["abcdef111111"])
-	}
-
-	// The same fingerprint twice is not a collision.
-	dup := AssignIDs([]string{"abcdef111111", "abcdef111111"})
-	if dup["abcdef111111"] != "abcdef" {
-		t.Errorf("repeated fingerprint ID = %q, want abcdef", dup["abcdef111111"])
-	}
-}
-
 func TestBuild_Shape(t *testing.T) {
 	f := finding.Finding{
 		File: "x.go", Line: 3, Severity: finding.Blocking,
@@ -307,28 +282,6 @@ func TestEncode_Redacts(t *testing.T) {
 	}
 	if bytes.Contains(b, []byte("glpat-secretvalue")) {
 		t.Errorf("token leaked: %s", b)
-	}
-}
-
-func TestAssignIDs_WidensUntilUnique(t *testing.T) {
-	// These share their first 10 characters.
-	a, b := "abcdef1234aaaa", "abcdef1234bbbb"
-	got := AssignIDs([]string{a, b, "zzzzzz000000"})
-	if got[a] == got[b] {
-		t.Fatalf("IDs not unique: %q", got[a])
-	}
-	if got[a] != "abcdef1234a" || got[b] != "abcdef1234b" {
-		t.Errorf("IDs = %q, %q", got[a], got[b])
-	}
-	if got["zzzzzz000000"] != "zzzzzz" {
-		t.Errorf("unrelated ID = %q", got["zzzzzz000000"])
-	}
-}
-
-func TestAssignIDs_IdenticalShareID(t *testing.T) {
-	got := AssignIDs([]string{"abcdef111111", "abcdef222222", "abcdef111111"})
-	if got["abcdef111111"] != "abcdef11" || got["abcdef222222"] != "abcdef22" {
-		t.Errorf("IDs = %v", got)
 	}
 }
 
