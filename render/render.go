@@ -441,13 +441,14 @@ func dismissedBlocking(ds []DismissedFinding) int {
 // writeDismissed writes one line of the Dismissed list: the finding's title
 // and ID, then who dismissed it and why. The reason is someone's free text,
 // so it is collapsed to one line and "<" is escaped, which keeps it from
-// opening HTML, a comment or the layout's collapsible blocks.
+// opening HTML, a comment or the layout's collapsible blocks. "@" is broken
+// up too, so re-rendering the comment doesn't mention people again.
 func writeDismissed(b *strings.Builder, d DismissedFinding) {
 	fmt.Fprintf(b, "- **%s**", neutralizeComments(oneLine(d.Finding.Title)))
 	if d.Finding.ID != "" {
 		fmt.Fprintf(b, " %s", codeSpan(d.Finding.ID))
 	}
-	by, reason := summaryText(d.By), summaryText(d.Reason)
+	by, reason := mentionSafe(d.By), mentionSafe(d.Reason)
 	switch {
 	case by != "" && reason != "":
 		fmt.Fprintf(b, " — dismissed by %s: %s\n", by, reason)
@@ -662,6 +663,12 @@ func checkCell(s string) string {
 // HTML block; escaping "<" keeps any HTML in it, comments included, inert.
 func summaryText(s string) string {
 	return strings.ReplaceAll(oneLine(s), "<", "&lt;")
+}
+
+// mentionSafe is summaryText with a zero-width joiner after each "@", which
+// keeps platforms from turning "@name" into a mention.
+func mentionSafe(s string) string {
+	return strings.ReplaceAll(summaryText(s), "@", "@\u200d")
 }
 
 func plural(n int, word string) string {

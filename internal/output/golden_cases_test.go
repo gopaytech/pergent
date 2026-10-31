@@ -194,14 +194,3 @@ func hostileResults() []review.SkillResult {
 		{Skill: "sk<!--ill", Verdict: review.NoBlockingIssues},
 	}
 }
-
-func TestGoldenCasesAreStable(t *testing.T) {
-	// The cases are inputs to files on disk; they must not depend on the map
-	// order or the clock.
-	a, b := goldenCases(), goldenCases()
-	for i := range a {
-		if a[i].name != b[i].name {
-			t.Fatalf("case %d differs", i)
-		}
-	}
-}

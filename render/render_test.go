@@ -66,10 +66,10 @@ func TestCommentMatchesOutputGoldens(t *testing.T) {
 func TestRenderImportsNoInternal(t *testing.T) {
 	out, err := exec.Command("go", "list", "-deps", "github.com/gopaytech/pergent/render").Output()
 	if err != nil {
-		t.Skipf("go list unavailable: %v", err)
+		t.Fatalf("go list: %v", err)
 	}
 	for _, dep := range strings.Fields(string(out)) {
-		if strings.Contains(dep, "/internal/") {
+		if strings.HasPrefix(dep, "github.com/gopaytech/pergent/internal/") {
 			t.Errorf("render depends on %s", dep)
 		}
 	}

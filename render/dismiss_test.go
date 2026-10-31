@@ -185,3 +185,16 @@ func decodeBase64(s string) (string, error) {
 	b, err := base64.StdEncoding.DecodeString(s)
 	return string(b), err
 }
+
+func TestDismissedMentionsAreBroken(t *testing.T) {
+	skills := ApplyDismissals(dismissSkills()[:1], []Dismissal{{
+		Fingerprint: "aaaaaa111111", Severity: "blocking", By: "@alice", Reason: "cc @bob and @team/x",
+	}})
+	got := Comment(skills, Options{})
+	if !strings.Contains(got, "dismissed by @\u200dalice: cc @\u200dbob and @\u200dteam/x\n") {
+		t.Errorf("mentions not broken up:\n%s", got)
+	}
+	if strings.Contains(got, "@alice") || strings.Contains(got, "@bob") || strings.Contains(got, "@team") {
+		t.Errorf("a mention survived:\n%s", got)
+	}
+}
