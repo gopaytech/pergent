@@ -17,11 +17,6 @@ type Skip struct {
 // hunkHeader captures the start line of a hunk's new-file range.
 var hunkHeader = regexp.MustCompile(`^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@`)
 
-// generatedHeaderLines is how many lines of the new side of a hunk starting
-// at line 1 may hold the generated-file comment (the same 10 as
-// scope.HasGeneratedHeader).
-const generatedHeaderLines = 10
-
 // Classifier decides which files every skill skips by default.
 type Classifier struct {
 	attrs scope.Attributes
@@ -78,7 +73,7 @@ type patchScan struct {
 
 // scanPatch makes one pass over a file's patch. The generated-file header
 // only counts when it is an added or context comment line within the first
-// generatedHeaderLines lines of a hunk that starts at line 1 of the new file.
+// scope.GeneratedHeaderLines lines of a hunk that starts at line 1 of the new file.
 func scanPatch(patch string) patchScan {
 	var r patchScan
 	inTopHunk := false
@@ -103,7 +98,7 @@ func scanPatch(patch string) patchScan {
 			continue // removed lines and "\ No newline" do not advance the new side
 		}
 		newLine++
-		if inTopHunk && newLine <= generatedHeaderLines && scope.IsGeneratedHeaderLine(l[1:]) {
+		if inTopHunk && newLine <= scope.GeneratedHeaderLines && scope.IsGeneratedHeaderLine(l[1:]) {
 			r.generatedHeader = true
 		}
 	}

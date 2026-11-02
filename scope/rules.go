@@ -43,9 +43,9 @@ var vendoredDirs = map[string]bool{
 // that is a comment saying the file is generated.
 var generatedHeader = regexp.MustCompile(`(?i)^\s*(?://|#|/\*|\*|--|<!--|;).*code generated .*do not edit`)
 
-// generatedHeaderLines is how many lines at the top of a file may hold the
+// GeneratedHeaderLines is how many lines at the top of a file may hold the
 // generated-file comment.
-const generatedHeaderLines = 10
+const GeneratedHeaderLines = 10
 
 // Attributes holds the patterns a .gitattributes file marks linguist-generated.
 // The zero value has none.
@@ -98,10 +98,10 @@ func (a Attributes) PathRule(p string) string {
 }
 
 // HasGeneratedHeader reports whether content has the generated-file comment
-// within its first 10 lines.
+// within its first GeneratedHeaderLines lines.
 func HasGeneratedHeader(content string) bool {
 	for i, l := range strings.Split(content, "\n") {
-		if i >= generatedHeaderLines {
+		if i >= GeneratedHeaderLines {
 			break
 		}
 		if IsGeneratedHeaderLine(strings.TrimRight(l, "\r")) {
