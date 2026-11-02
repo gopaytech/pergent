@@ -1,4 +1,4 @@
-package diff
+package scope
 
 import (
 	"path"
@@ -43,4 +43,14 @@ func matchSegments(pat, segs []string) bool {
 		pat, segs = pat[1:], segs[1:]
 	}
 	return len(segs) == 0
+}
+
+// MatchAny reports whether p matches any of patterns.
+func MatchAny(patterns []string, p string) bool {
+	for _, pattern := range patterns {
+		if Match(pattern, p) {
+			return true
+		}
+	}
+	return false
 }

@@ -3,45 +3,20 @@ package review
 import (
 	"github.com/gopaytech/pergent/internal/diff"
 	"github.com/gopaytech/pergent/internal/skill"
+	"github.com/gopaytech/pergent/scope"
 )
 
 // Select splits files into the ones skill s reviews and the ones it skips,
-// with the rule that skipped each. The rules apply in order:
-//   - a default exclusion that paths can't override (deleted, binary, ...);
-//   - "out of scope" when s has paths and none matches;
-//   - "excluded by skill" when one of s's exclude patterns matches;
-//   - a default exclusion that paths can override (lockfile, vendored,
-//     generated), unless one of s's paths matches the file.
+// with the rule that skipped each. The rules and their order are
+// scope.Decide's, applied to each file's default exclusion from c.
 func Select(s skill.Skill, files []diff.FileDiff, c diff.Classifier) (in []diff.FileDiff, skipped []diff.Skip) {
 	for _, f := range files {
 		rule, optIn := c.Exclusion(f)
-		if rule != "" && !optIn {
-			skipped = append(skipped, diff.Skip{Path: f.Path, Rule: rule})
-			continue
-		}
-		inPaths := matchAny(s.Paths, f.Path)
-		if len(s.Paths) > 0 && !inPaths {
-			skipped = append(skipped, diff.Skip{Path: f.Path, Rule: "out of scope"})
-			continue
-		}
-		if matchAny(s.Exclude, f.Path) {
-			skipped = append(skipped, diff.Skip{Path: f.Path, Rule: "excluded by skill"})
-			continue
-		}
-		if rule != "" && !inPaths {
+		if rule = scope.Decide(s.Paths, s.Exclude, f.Path, rule, optIn); rule != "" {
 			skipped = append(skipped, diff.Skip{Path: f.Path, Rule: rule})
 			continue
 		}
 		in = append(in, f)
 	}
 	return in, skipped
-}
-
-func matchAny(patterns []string, p string) bool {
-	for _, pattern := range patterns {
-		if diff.Match(pattern, p) {
-			return true
-		}
-	}
-	return false
 }

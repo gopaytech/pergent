@@ -30,6 +30,7 @@ import (
 	"github.com/gopaytech/pergent/internal/result"
 	"github.com/gopaytech/pergent/internal/review"
 	"github.com/gopaytech/pergent/internal/skill"
+	"github.com/gopaytech/pergent/scope"
 )
 
 // agentInputs is everything `pergent agent` reviews with. parseAgent fills
@@ -815,7 +816,7 @@ func baseClassifier(root, base string) diff.Classifier {
 		if err != nil {
 			return false // not at base: a new file is reviewed
 		}
-		return diff.HasGeneratedHeader(content)
+		return scope.HasGeneratedHeader(content)
 	})
 }
 
