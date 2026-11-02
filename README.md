@@ -84,6 +84,8 @@ Each opencode run (one per batch) ends in one of two ways: the model's own final
 docker pull ghcr.io/gopaytech/pergent:latest
 ```
 
+The image is built for `linux/amd64` and `linux/arm64` (from v0.1.2); Docker pulls the one that matches the host.
+
 ### Build from source
 
 ```bash

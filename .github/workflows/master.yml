@@ -16,12 +16,13 @@ jobs:
       contents: read
       packages: write
       id-token: write
-    strategy:
-      matrix:
-        platform: [linux/amd64]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
+      # Set up QEMU so the arm64 image's RUN steps work on an amd64 runner
+      # https://github.com/docker/setup-qemu-action
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
       # Set up BuildKit Docker container builder to be able to build
       # multi-platform images and export cache
       # https://github.com/docker/setup-buildx-action
@@ -56,4 +57,4 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          platforms: ${{ matrix.platform }}
+          platforms: linux/amd64,linux/arm64
