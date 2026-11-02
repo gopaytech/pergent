@@ -16,10 +16,14 @@ FROM debian:trixie-slim
 
 ARG TARGETARCH
 
+# ripgrep: opencode's glob and grep tools use rg from PATH. Without it opencode
+# downloads one at run time, which fails where the container can't chown
+# (capabilities dropped) and on clusters with no internet access.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     git \
     curl \
+    ripgrep \
     && rm -rf /var/lib/apt/lists/*
 
 # Install opencode: its release names amd64 "x64".

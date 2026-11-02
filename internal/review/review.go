@@ -413,7 +413,7 @@ func (r *reviewer) reviewBatch(ctx context.Context, s skill.Skill, batch []diff.
 	if err != nil {
 		return notReviewed("could not write the answer for repair: %v", err)
 	}
-	repaired, err := r.run(ctx, s, label, []string{bad}, fmt.Sprintf(repairMessage, parseErr))
+	repaired, err := r.run(ctx, s, label+" repair", []string{bad}, fmt.Sprintf(repairMessage, parseErr))
 	usage = usage.Add(repaired.Usage)
 	if errors.Is(err, errNotStarted) {
 		return notReviewed("%s before the repair run could start; the model's answer was not in the required format (%v).", r.stopReason(ctx), parseErr)
@@ -477,7 +477,8 @@ func (r *reviewer) release() { <-r.slots }
 // run waits for a run slot, generates the opencode config for skill s and
 // runs opencode once with the time left in the budget. It returns
 // errNotStarted when no time is left. label names the run in a hardened
-// review's log prefix: the batch ("2/3"), "verify" or "cross".
+// review's log prefix: the batch ("2/3"), its repair ("2/3 repair"),
+// "verify" or "cross".
 func (r *reviewer) run(ctx context.Context, s skill.Skill, label string, files []string, message string) (runner.RunResult, error) {
 	return r.runWithPrompt(ctx, s, label, s.Prompt(), files, message)
 }

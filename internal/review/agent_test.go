@@ -151,8 +151,8 @@ func TestRun_HardenedRepairPrompt(t *testing.T) {
 			mu.Lock()
 			repairPrompts = append(repairPrompts, cfg.prompt)
 			mu.Unlock()
-			if c.opts.LogPrefix != "[s 1/1]" {
-				t.Errorf("repair LogPrefix = %q, want %q", c.opts.LogPrefix, "[s 1/1]")
+			if c.opts.LogPrefix != "[s 1/1 repair]" {
+				t.Errorf("repair LogPrefix = %q, want %q", c.opts.LogPrefix, "[s 1/1 repair]")
 			}
 			return completed(answer(t))
 		}
