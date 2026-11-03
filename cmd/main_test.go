@@ -89,13 +89,13 @@ func TestCommentOptions(t *testing.T) {
 	if o.Commit != "h1" || o.Version != "v"+version || o.FileURL == nil {
 		t.Fatalf("github options = %+v", o)
 	}
-	if got := o.FileURL("a.go", 3, 0); got != "https://github.com/o/r/blob/h1/a.go#L3" {
+	if got := o.FileURL("a.go", 3, 0); got != "https://github.com/o/r/blob/h1/a.go?plain=1#L3" {
 		t.Errorf("github link = %q", got)
 	}
 
 	gl := config.Config{Platform: "gitlab", GitLab: config.GitLabConfig{HeadSHA: "h2", WebURL: "https://gitlab.example.com/g/p"}}
 	o = commentOptions(gl)
-	if got := o.FileURL("a.go", 3, 0); got != "https://gitlab.example.com/g/p/-/blob/h2/a.go#L3" {
+	if got := o.FileURL("a.go", 3, 0); got != "https://gitlab.example.com/g/p/-/blob/h2/a.go?plain=1#L3" {
 		t.Errorf("gitlab link = %q", got)
 	}
 

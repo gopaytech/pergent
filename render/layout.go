@@ -5,6 +5,7 @@ import (
 	"html"
 	"sort"
 	"strings"
+	"unicode"
 )
 
 // The top of the comment: the headline, the meta line, the reason for the
@@ -103,7 +104,8 @@ func writeMeta(b *strings.Builder, skills []Skill, o Options, blocking, suggesti
 	switch {
 	case len(counts) > 0:
 		parts = append(parts, strings.Join(counts, " · "))
-	case len(skills) > 0:
+	case len(skills) > failed:
+		// Not when every skill failed: nothing was reviewed to have no findings.
 		parts = append(parts, "no findings")
 	}
 	if blocking > 0 && failed > 0 {
@@ -131,7 +133,11 @@ func writeReason(b *strings.Builder, skills []Skill) {
 	case reason == "" && score.Capped == "":
 		return
 	case reason == "":
-		fmt.Fprintf(b, "> Capped: %s\n\n", score.Capped)
+		prefix := ""
+		if len(skills) > 1 {
+			prefix = skillRef(skills[at].Name) + ": "
+		}
+		fmt.Fprintf(b, "> %sCapped: %s\n\n", prefix, score.Capped)
 		return
 	}
 	b.WriteString("> ")
@@ -247,7 +253,7 @@ func writeFindings(b *strings.Builder, skills []Skill, o Options, l layout) {
 		// stays text.
 		b.WriteString(detailsDroppedNote + "\n\n<ul>\n")
 		for _, r := range suggestions {
-			fmt.Fprintf(b, "<li>💡 <b>%s</b> · %s", escapeSummary(r.Title), locationHTML(r.Finding, o))
+			fmt.Fprintf(b, "<li>💡 <b>%s</b>%s", escapeSummary(r.Title), locationPart(r.Finding, o))
 			if many {
 				fmt.Fprintf(b, " · <code>%s</code>", escapeSummary(r.skill))
 			}
@@ -272,14 +278,33 @@ func escapeSummary(s string) string { return html.EscapeString(oneLine(s)) }
 // locationHTML is the finding's location as <code>, linked to the file when
 // the caller gave o.FileURL.
 func locationHTML(f Finding, o Options) string {
+	if f.File == "" {
+		return ""
+	}
 	code := "<code>" + escapeSummary(location(f)) + "</code>"
 	if o.FileURL == nil {
 		return code
 	}
-	if u := o.FileURL(f.File, f.Line, f.EndLine); u != "" {
+	if u := o.FileURL(f.File, f.Line, f.EndLine); safeLinkURL(u) {
 		return `<a href="` + html.EscapeString(u) + `">` + code + "</a>"
 	}
 	return code
+}
+
+// safeLinkURL reports whether a URL from Options.FileURL can go into a link:
+// it is not empty and has no whitespace or control character, so a hostile
+// result can't carry a line break into the comment.
+func safeLinkURL(u string) bool {
+	return u != "" && !strings.ContainsFunc(u, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) })
+}
+
+// locationPart is " · <location>" for a summary line, or nothing for a
+// finding with no file.
+func locationPart(f Finding, o Options) string {
+	if loc := locationHTML(f, o); loc != "" {
+		return " · " + loc
+	}
+	return ""
 }
 
 // writeFindingRow writes one finding as a collapsible block. The summary line
@@ -297,7 +322,7 @@ func writeFindingRow(b *strings.Builder, r findingRow, o Options, withSkill bool
 	if f.Severity != Suggestion {
 		icon, open = "❌", " open"
 	}
-	fmt.Fprintf(b, "<details%s><summary>%s <b>%s</b> · %s", open, icon, escapeSummary(f.Title), locationHTML(f, o))
+	fmt.Fprintf(b, "<details%s><summary>%s <b>%s</b>%s", open, icon, escapeSummary(f.Title), locationPart(f, o))
 	if withSkill {
 		fmt.Fprintf(b, " · <code>%s</code>", escapeSummary(r.skill))
 	}

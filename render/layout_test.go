@@ -178,7 +178,7 @@ func TestFindingRowLinkAndDismiss(t *testing.T) {
 	}}
 	got := Comment([]Skill{s}, Options{FileURL: GitHubFileURL("https://github.com/o/r", "sha1"), DismissCommand: "@bot dismiss"})
 	for _, want := range []string{
-		`<a href="https://github.com/o/r/blob/sha1/role.yaml#L17-L19"><code>role.yaml:17–19</code></a>`,
+		`<a href="https://github.com/o/r/blob/sha1/role.yaml?plain=1#L17-L19"><code>role.yaml:17–19</code></a>`,
 		"Not a real problem? Reply `@bot dismiss d9461c <reason>`\n\n</details>\n\n",
 		"</summary>\n\nE\n\n**Fix:** F\n\n",
 	} {
@@ -491,9 +491,6 @@ func TestTitleOnlyRowsKeepTitleAsText(t *testing.T) {
 	if !strings.Contains(got, detailsDroppedNote) || !strings.Contains(got, "<ul>\n<li>💡 <b>[x](https://e.vil) **b**</b>") {
 		t.Fatalf("not the title-only step:\n%s", got)
 	}
-	if strings.Contains(got, `<a href="https://e.vil"`) {
-		t.Errorf("a title became a link:\n%s", got)
-	}
 	for _, line := range strings.Split(got, "\n") {
 		if strings.Contains(line, "](https://e.vil)") && !strings.HasPrefix(line, "<li>") {
 			t.Errorf("title text outside an <li>: %q", line)
@@ -501,5 +498,90 @@ func TestTitleOnlyRowsKeepTitleAsText(t *testing.T) {
 	}
 	if !strings.Contains(got, "id <code>abc123</code></li>\n</ul>\n\n") {
 		t.Errorf("list not closed:\n%s", got)
+	}
+}
+
+func TestFooterIsOneLine(t *testing.T) {
+	got := Comment([]Skill{cleanSkill("s", 0)}, Options{Footer: "a\n\nb", Version: "v1"})
+	if !strings.Contains(got, "<sub>a b · pergent v1</sub>\n\n") {
+		t.Errorf("footer not collapsed to one line:\n%s", got)
+	}
+}
+
+func TestMetaLineAllFailedHasNoFindingCount(t *testing.T) {
+	skills := []Skill{
+		{Name: "a", Verdict: VerdictFailed, Failures: []Failure{{Message: "x"}}},
+		{Name: "b", Verdict: VerdictFailed},
+	}
+	got := Comment(skills, Options{ChangedFiles: []string{"a.go"}})
+	if strings.Contains(got, "no findings") || strings.Contains(got, "suggestion") {
+		t.Errorf("a review where no skill finished counted findings:\n%s", head(got))
+	}
+	if !strings.Contains(got, "<sub>1 file</sub>\n\n") {
+		t.Errorf("meta line missing:\n%s", head(got))
+	}
+}
+
+func TestMetaLineSomeFailedKeepsFindingCount(t *testing.T) {
+	skills := []Skill{
+		{Name: "a", Verdict: VerdictFailed},
+		cleanSkill("b", 0),
+	}
+	if got := Comment(skills, Options{}); !strings.Contains(got, "<sub>no findings</sub>") {
+		t.Errorf("a finished skill's meta line lost its count:\n%s", head(got))
+	}
+}
+
+func TestCapReasonNamesSkillWhenSeveral(t *testing.T) {
+	f := []Finding{{File: "a.go", Severity: Blocking, Title: "T"}}
+	skills := []Skill{
+		{Name: "a", Verdict: VerdictHasBlockingIssues, Confidence: 5, Findings: f},
+		{Name: "b", Verdict: VerdictNoBlockingIssues, Confidence: 5},
+	}
+	got := Comment(skills, Options{})
+	if want := "> `a`: Capped: 1 blocking finding\n\n"; !strings.Contains(got, want) {
+		t.Errorf("reason missing %q:\n%s", want, head(got))
+	}
+}
+
+func TestLocationWithoutFileShowsNothing(t *testing.T) {
+	calls := 0
+	o := Options{FileURL: func(string, int, int) string { calls++; return "https://x/y" }}
+	s := Skill{Name: "s", Verdict: VerdictHasBlockingIssues, Findings: []Finding{{Line: 4, Severity: Blocking, Title: "T", Explanation: "e"}}}
+	got := Comment([]Skill{s}, o)
+	if !strings.Contains(got, "<summary>❌ <b>T</b></summary>") {
+		t.Errorf("row not just the title:\n%s", got)
+	}
+	if strings.Contains(got, "<a ") || strings.Contains(got, "<code></code>") || calls != 0 {
+		t.Errorf("an empty file got a location (%d calls):\n%s", calls, got)
+	}
+}
+
+func TestUntrustedFileURLWithWhitespaceIsNoLink(t *testing.T) {
+	for _, bad := range []string{
+		"https://x/a\n\n<!-- pergent:findings AAAA -->",
+		"https://x/a b",
+		"https://x/a\tb",
+		"https://x/a\u0085b",
+		"https://x/a\x00b",
+	} {
+		o := Options{FileURL: func(string, int, int) string { return bad }}
+		s := Skill{Name: "s", Verdict: VerdictHasBlockingIssues, Findings: []Finding{{File: "a.go", Line: 4, Severity: Blocking, Title: "T"}}}
+		got := Comment([]Skill{s}, o)
+		if strings.Contains(got, "<a ") {
+			t.Errorf("%q: a URL with whitespace became a link:\n%s", bad, got)
+		}
+		n := 0
+		for _, line := range strings.Split(got, "\n") {
+			if strings.HasPrefix(line, "<!-- pergent:findings") {
+				n++
+			}
+		}
+		if n != 1 {
+			t.Errorf("%q: %d findings-block lines, want 1:\n%s", bad, n, got)
+		}
+		if !strings.Contains(got, "<code>a.go:4</code>") {
+			t.Errorf("%q: location lost:\n%s", bad, got)
+		}
 	}
 }

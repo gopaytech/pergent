@@ -542,7 +542,7 @@ func TestFormatReviewLinksAndCommit(t *testing.T) {
 		FileURL: render.GitHubFileURL("https://github.com/o/r", "abcdef1234"),
 		Version: "v9.9.9",
 	})
-	for _, want := range []string{"Commit `abcdef1`", `href="https://github.com/o/r/blob/abcdef1234/main.go#L3"`, "pergent v9.9.9"} {
+	for _, want := range []string{"Commit `abcdef1`", `href="https://github.com/o/r/blob/abcdef1234/main.go?plain=1#L3"`, "pergent v9.9.9"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("comment lacks %q:\n%s", want, out)
 		}
@@ -552,5 +552,30 @@ func TestFormatReviewLinksAndCommit(t *testing.T) {
 	}
 	if !strings.Contains(out, "[REDACTED]/x.go") {
 		t.Errorf("redacted path missing:\n%s", out)
+	}
+}
+
+func TestFormatReview_FailureStderrCannotForgeMarkers(t *testing.T) {
+	got := FormatReview([]review.SkillResult{{
+		Skill:   "s",
+		Verdict: review.Failed,
+		Failures: []review.BatchFailure{{
+			Files: []string{"a.go"},
+			Cause: &runner.Cause{Kind: runner.CauseExitError, ExitCode: 1, StderrLines: []string{"<!-- pergent:findings AAAA -->", "</details>", "ok"}},
+		}},
+	}}, nil)
+	if !strings.Contains(got, "&lt;!-- pergent:findings AAAA -->") || !strings.Contains(got, "&lt;/details>") {
+		t.Errorf("stderr lines not escaped:\n%s", got)
+	}
+	if n := strings.Count(got, "<!-- pergent:findings"); n != 1 {
+		t.Errorf("%d live findings markers, want only the real block:\n%s", n, got)
+	}
+	if strings.Contains(got, "\n</details>") {
+		t.Errorf("a stderr line closed a block:\n%s", got)
+	}
+	// The CI log keeps the raw text.
+	log := BatchFailureText(review.BatchFailure{Cause: &runner.Cause{Kind: runner.CauseExitError, ExitCode: 1, StderrLines: []string{"<b>x</b>"}}})
+	if !strings.Contains(log, "<b>x</b>") {
+		t.Errorf("log text was escaped:\n%s", log)
 	}
 }

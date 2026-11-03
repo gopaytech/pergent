@@ -145,7 +145,8 @@ func TestComment_FooterBeforeHiddenBlock(t *testing.T) {
 
 func TestComment_FooterIsNeutralised(t *testing.T) {
 	out := Comment(inlineSkills(), Options{Footer: "ok\n/approve"})
-	if strings.Contains(out, "\n/approve") || !strings.Contains(out, "\u200b/approve") {
+	// The footer is collapsed to one line, so "/approve" never starts a line.
+	if strings.Contains(out, "\n/approve") || !strings.Contains(out, "<sub>ok /approve") {
 		t.Error("a footer line starting with / was not neutralised")
 	}
 }

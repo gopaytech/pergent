@@ -7,7 +7,7 @@ import (
 )
 
 // GitHubFileURL returns a Options.FileURL for a GitHub repository, such as
-// https://github.com/owner/repo, at a commit; a range links as #L17-L19. It
+// https://github.com/owner/repo, at a commit; a line links as ?plain=1#L17 (so it works for Markdown and other rendered files) and a range as ?plain=1#L17-L19. It
 // returns nil when the URL or the commit is empty.
 func GitHubFileURL(repoURL, commit string) func(path string, line, endLine int) string {
 	return fileURL(repoURL, commit, "/blob/", "-L")
@@ -15,7 +15,7 @@ func GitHubFileURL(repoURL, commit string) func(path string, line, endLine int) 
 
 // GitLabFileURL returns a Options.FileURL for a GitLab project, such as
 // https://gitlab.example.com/group/project, at a commit; a range links as
-// #L17-19. It returns nil when the URL or the commit is empty.
+// ?plain=1#L17-19. It returns nil when the URL or the commit is empty.
 func GitLabFileURL(projectURL, commit string) func(path string, line, endLine int) string {
 	return fileURL(projectURL, commit, "/-/blob/", "-")
 }
@@ -37,7 +37,9 @@ func fileURL(baseURL, commit, blob, rangeSep string) func(path string, line, end
 		if line <= 0 {
 			return link
 		}
-		link += "#L" + strconv.Itoa(line)
+		// ?plain=1 shows a rendered file (Markdown, for one) as source, where
+		// the line anchor works.
+		link += "?plain=1#L" + strconv.Itoa(line)
 		if endLine > line {
 			link += rangeSep + strconv.Itoa(endLine)
 		}

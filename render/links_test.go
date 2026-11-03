@@ -13,9 +13,10 @@ func TestGitHubFileURL(t *testing.T) {
 		line, end int
 		want      string
 	}{
-		{"dir/a b#c?.go", 17, 19, base + "dir/a%20b%23c%3F.go#L17-L19"},
-		{"dir/a b#c?.go", 17, 17, base + "dir/a%20b%23c%3F.go#L17"},
-		{"dir/a b#c?.go", 17, 0, base + "dir/a%20b%23c%3F.go#L17"},
+		{"dir/a b#c?.go", 17, 19, base + "dir/a%20b%23c%3F.go?plain=1#L17-L19"},
+		{"dir/a b#c?.go", 17, 17, base + "dir/a%20b%23c%3F.go?plain=1#L17"},
+		{"dir/a b#c?.go", 17, 0, base + "dir/a%20b%23c%3F.go?plain=1#L17"},
+		{"README.md", 17, 0, base + "README.md?plain=1#L17"},
 		{"dir/a b#c?.go", 0, 0, base + "dir/a%20b%23c%3F.go"},
 		{"ü/x%.go", 0, 0, base + "%C3%BC/x%25.go"},
 	}
@@ -37,9 +38,10 @@ func TestGitLabFileURL(t *testing.T) {
 		line, end int
 		want      string
 	}{
-		{"dir/a b#c?.go", 17, 19, base + "dir/a%20b%23c%3F.go#L17-19"},
-		{"dir/a b#c?.go", 17, 17, base + "dir/a%20b%23c%3F.go#L17"},
-		{"dir/a b#c?.go", 17, 0, base + "dir/a%20b%23c%3F.go#L17"},
+		{"dir/a b#c?.go", 17, 19, base + "dir/a%20b%23c%3F.go?plain=1#L17-19"},
+		{"dir/a b#c?.go", 17, 17, base + "dir/a%20b%23c%3F.go?plain=1#L17"},
+		{"dir/a b#c?.go", 17, 0, base + "dir/a%20b%23c%3F.go?plain=1#L17"},
+		{"docs/README.md", 3, 0, base + "docs/README.md?plain=1#L3"},
 		{"dir/a b#c?.go", 0, 0, base + "dir/a%20b%23c%3F.go"},
 		{"ü/x%.go", 0, 0, base + "%C3%BC/x%25.go"},
 	}

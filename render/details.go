@@ -321,7 +321,7 @@ func writeFiles(b *strings.Builder, skills []Skill, o Options, l layout) {
 func writeFooter(b *strings.Builder, o Options) {
 	var parts []string
 	if o.Footer != "" {
-		parts = append(parts, o.Footer)
+		parts = append(parts, oneLine(o.Footer))
 	}
 	if o.Version != "" {
 		parts = append(parts, "pergent "+escapeSummary(o.Version))

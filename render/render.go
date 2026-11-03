@@ -45,7 +45,10 @@ const (
 // Finding is one review comment about a file, and optionally a line of it.
 // Any severity other than Suggestion counts as blocking.
 type Finding struct {
-	ID           string // short ID shown after the title; empty shows none
+	// ID is the finding's short ID; empty shows none. It is shown at the end of
+	// the row's summary line as "id <code>…</code>", or inside the dismiss line
+	// when Options.DismissCommand is set.
+	ID           string
 	Fingerprint  string
 	File         string
 	Line         int
@@ -136,14 +139,15 @@ type Options struct {
 	// skills that reviewed or skipped each file.
 	ChangedFiles []string
 	// Inline holds the fingerprints of the findings the caller posted as
-	// inline comments on the diff. They are left out of each skill's finding
-	// lists and replaced by a note with their count; the verdict line, the
-	// skills table and the hidden findings block still count them.
+	// inline comments on the diff. They are left out of the one findings list
+	// and replaced by one note with their count; the headline, the meta line's
+	// counts, the skills table and the hidden findings block still count them.
 	Inline map[string]bool
 	// Footer is markdown the caller trusts, such as a hint on how to dismiss
-	// a finding. It is written after the files, before the hidden
-	// findings block, in every layout, in one line with Version; empty writes
-	// nothing.
+	// a finding. It is written after the files, before the hidden findings
+	// block, in every layout, inside <sub>…</sub> on one line with Version, so
+	// it must be one paragraph of inline Markdown: its whitespace, line breaks
+	// included, is collapsed to single spaces. Empty writes nothing.
 	Footer string
 	// Commit is the reviewed commit, shown as its first 7 characters.
 	Commit string
