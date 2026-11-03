@@ -502,3 +502,32 @@ func TestFormatReviewWithin_LastResortStaysWithinLimit(t *testing.T) {
 		t.Errorf("want the marker kept and a truncation note:\n%s", got)
 	}
 }
+
+func confidenceResults() []review.SkillResult {
+	return []review.SkillResult{{
+		Skill: "code-review", Verdict: review.HasBlockingIssues, Confidence: 4, ConfidenceReason: "R",
+		Findings: []finding.Finding{
+			{File: "main.go", Line: 42, EndLine: 43, Severity: finding.Blocking, Title: "Nil dereference", Explanation: "p can be nil.", Suggestion: "x", Fingerprint: "aaaaaaaaaaaa"},
+		},
+	}}
+}
+
+func TestFormatReview_ConfidenceAndSuggestion(t *testing.T) {
+	got := FormatReview(confidenceResults(), []string{"main.go"})
+	for _, want := range []string{"**Confidence: 3/5** (capped: 1 blocking finding)", "_Suggested change, replacing lines 42–43:_"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("comment lacks %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestParsePreviousFindings_KeepsSuggestion(t *testing.T) {
+	prev, err := ParsePreviousFindings(FormatReview(confidenceResults(), []string{"main.go"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fs := prev["code-review"]
+	if len(fs) != 1 || fs[0].EndLine != 43 || fs[0].Suggestion != "x" {
+		t.Errorf("previous findings = %+v, want EndLine 43 and Suggestion x", fs)
+	}
+}

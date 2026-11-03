@@ -77,3 +77,24 @@ func TestFormat_RedactsEveryTextField(t *testing.T) {
 		t.Errorf("a credential reached the shrunk comment:\n%s", shrunk)
 	}
 }
+
+// A confidence reason and a suggestion are model text too.
+func TestFormat_RedactsConfidenceReasonAndSuggestion(t *testing.T) {
+	const token = "ghp_confidence_and_suggestion_token"
+	t.Setenv("GITHUB_TOKEN", token)
+
+	r := review.SkillResult{
+		Skill: "skill", Verdict: review.HasBlockingIssues, Confidence: 4, ConfidenceReason: "because " + token,
+		Findings: []finding.Finding{{File: "a.go", Line: 1, EndLine: 2, Severity: finding.Blocking, Title: "t", Explanation: "e", Suggestion: "key := \"" + token + "\""}},
+	}
+	got := FormatReviewWithinOptions([]review.SkillResult{r}, nil, 0, Options{})
+	if strings.Contains(got, token) {
+		t.Errorf("a credential reached the comment:\n%s", got)
+	}
+	if !strings.Contains(got, "[REDACTED]") {
+		t.Errorf("nothing was redacted; the fields were not rendered:\n%s", got)
+	}
+	if block := FindingsBlock([]review.SkillResult{r}); strings.Contains(block, token) {
+		t.Errorf("a credential reached the findings block: %q", block)
+	}
+}

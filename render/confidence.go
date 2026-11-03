@@ -1,0 +1,149 @@
+package render
+
+import (
+	"fmt"
+	"strings"
+)
+
+// Score is a skill's confidence after the caps. Value is 1 to 5, or 0 when
+// the skill was not scored. Capped says why Value is below the model's score,
+// and is empty when it is not capped.
+type Score struct {
+	Value  int
+	Capped string
+}
+
+// The highest score a skill keeps while it has a blocking finding, and while
+// a changed file went unreviewed.
+const (
+	blockingCap = 3
+	skippedCap  = 4
+)
+
+// unreviewedRules are the skips that leave a changed file unreviewed.
+var unreviewedRules = map[string]bool{
+	"deleted": true, "binary": true, "vendored": true, "lockfile": true, "generated": true,
+}
+
+// SkillScore returns the skill's score: the model's, lowered by the first cap
+// that applies. A skill whose verdict is neither no blocking issues nor has
+// blocking issues (a failed one, say), and one the model did not score, has
+// none. Findings in s.Dismissed don't count, so ApplyDismissals first restores
+// the model's score.
+func SkillScore(s Skill) Score {
+	if (s.Verdict != VerdictNoBlockingIssues && s.Verdict != VerdictHasBlockingIssues) || s.Confidence < 1 || s.Confidence > 5 {
+		return Score{}
+	}
+	blocking, _ := countFindings(s.Findings)
+	if blocking > 0 && s.Confidence > blockingCap {
+		return Score{blockingCap, plural(blocking, "blocking finding")}
+	}
+	unreviewed := 0
+	for _, sk := range s.Skipped {
+		if unreviewedRules[sk.Rule] {
+			unreviewed++
+		}
+	}
+	if unreviewed > 0 && s.Confidence > skippedCap {
+		return Score{skippedCap, plural(unreviewed, "skipped file") + " not reviewed"}
+	}
+	return Score{s.Confidence, ""}
+}
+
+// ReviewScore returns the lowest scored skill's score and its index, the
+// first on a tie. It returns (Score{}, -1) when no skill is scored.
+func ReviewScore(skills []Skill) (Score, int) {
+	best, at := Score{}, -1
+	for i, s := range skills {
+		if sc := SkillScore(s); sc.Value > 0 && (at < 0 || sc.Value < best.Value) {
+			best, at = sc, i
+		}
+	}
+	return best, at
+}
+
+// countFindings counts findings by severity.
+func countFindings(fs []Finding) (blocking, suggestions int) {
+	for _, f := range fs {
+		if f.Severity == Suggestion {
+			suggestions++
+		} else {
+			blocking++
+		}
+	}
+	return blocking, suggestions
+}
+
+// anyModelScore reports whether any skill carries a model score; without one
+// the comment has no confidence header.
+func anyModelScore(skills []Skill) bool {
+	for _, s := range skills {
+		if hasModelScore(s) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasModelScore(s Skill) bool { return s.Confidence >= 1 && s.Confidence <= 5 }
+
+// writeConfidence writes the confidence line and the skills table.
+func writeConfidence(b *strings.Builder, skills []Skill) {
+	if !anyModelScore(skills) {
+		return
+	}
+	score, at := ReviewScore(skills)
+	if at < 0 {
+		b.WriteString("**Confidence: not scored**\n\n")
+	} else {
+		fmt.Fprintf(b, "**Confidence: %d/5**", score.Value)
+		if score.Capped != "" {
+			fmt.Fprintf(b, " (capped: %s)", score.Capped)
+		}
+		if reason := mentionSafe(skills[at].ConfidenceReason); reason != "" {
+			fmt.Fprintf(b, " — %s: %s", codeSpan(skills[at].Name), reason)
+		}
+		b.WriteString("\n\n")
+	}
+
+	b.WriteString("| Skill | Verdict | Confidence | Findings |\n|---|---|---|---|\n")
+	for _, s := range skills {
+		fmt.Fprintf(b, "| %s | %s | %s | %s |\n", checkCell(codeSpan(s.Name)), verdictCell(s.Verdict), confidenceCell(SkillScore(s)), findingsCell(s.Findings))
+	}
+	b.WriteString("\n")
+}
+
+func verdictCell(verdict string) string {
+	switch verdict {
+	case VerdictNoBlockingIssues:
+		return "✅ No blocking issues"
+	case VerdictHasBlockingIssues:
+		return "❌ Has blocking issues"
+	}
+	return "⚠️ Failed"
+}
+
+func confidenceCell(sc Score) string {
+	switch {
+	case sc.Value == 0:
+		return "not scored"
+	case sc.Capped != "":
+		return fmt.Sprintf("%d/5 (capped)", sc.Value)
+	}
+	return fmt.Sprintf("%d/5", sc.Value)
+}
+
+func findingsCell(fs []Finding) string {
+	blocking, suggestions := countFindings(fs)
+	var parts []string
+	if blocking > 0 {
+		parts = append(parts, fmt.Sprintf("%d blocking", blocking))
+	}
+	if suggestions > 0 {
+		parts = append(parts, plural(suggestions, "suggestion"))
+	}
+	if len(parts) == 0 {
+		return "none"
+	}
+	return strings.Join(parts, " · ")
+}

@@ -1,0 +1,102 @@
+{
+ "Skills": [
+  {
+   "Name": "code-review",
+   "Verdict": "has_blocking_issues",
+   "Findings": [
+    {
+     "ID": "",
+     "Fingerprint": "aaaaaaaaaaaa",
+     "File": "main.go",
+     "Line": 42,
+     "EndLine": 43,
+     "Severity": "blocking",
+     "Title": "Nil dereference",
+     "Explanation": "p can be nil here.",
+     "SuggestedFix": "",
+     "Suggestion": "if p == nil {\n\treturn\n}"
+    },
+    {
+     "ID": "",
+     "Fingerprint": "bbbbbbbbbbbb",
+     "File": "util.go",
+     "Line": 7,
+     "EndLine": 0,
+     "Severity": "suggestion",
+     "Title": "Rename helper",
+     "Explanation": "The name is unclear.",
+     "SuggestedFix": "",
+     "Suggestion": ""
+    }
+   ],
+   "Failures": null,
+   "Skipped": null,
+   "Reviewed": [
+    "main.go",
+    "util.go"
+   ],
+   "Notes": null,
+   "Confidence": 4,
+   "ConfidenceReason": "The helper in util.go is called from files outside this diff.",
+   "Batches": 1,
+   "BatchesFinished": 1,
+   "Summaries": null,
+   "Checks": null,
+   "Dismissed": null
+  },
+  {
+   "Name": "security",
+   "Verdict": "no_blocking_issues",
+   "Findings": [],
+   "Failures": null,
+   "Skipped": [
+    {
+     "Path": "gen/api.pb.go",
+     "Rule": "generated"
+    }
+   ],
+   "Reviewed": [
+    "main.go",
+    "util.go"
+   ],
+   "Notes": null,
+   "Confidence": 5,
+   "ConfidenceReason": "Nothing here touches input or secrets.",
+   "Batches": 1,
+   "BatchesFinished": 1,
+   "Summaries": null,
+   "Checks": null,
+   "Dismissed": null
+  },
+  {
+   "Name": "docs",
+   "Verdict": "failed",
+   "Findings": [],
+   "Failures": [
+    {
+     "Files": [
+      "README.md"
+     ],
+     "Message": "",
+     "Lead": "opencode exited normally after 3 steps, but the model did not produce a final answer.\n"
+    }
+   ],
+   "Skipped": null,
+   "Reviewed": null,
+   "Notes": null,
+   "Confidence": 0,
+   "ConfidenceReason": "",
+   "Batches": 1,
+   "BatchesFinished": 0,
+   "Summaries": null,
+   "Checks": null,
+   "Dismissed": null
+  }
+ ],
+ "ChangedFiles": [
+  "main.go",
+  "util.go",
+  "gen/api.pb.go",
+  "README.md"
+ ]
+}

@@ -6,12 +6,15 @@ const defaultBlockingSection = "## Blocking\n\n" +
 const outputFormatSection = "## Output format\n\n" +
 	"End your final answer with exactly one fenced code block tagged `json`, with nothing before or after it, in this shape:\n\n" +
 	"```json\n" +
-	`{"summary": "What you checked and what you concluded, in 1-3 sentences.", "checks": [{"section": "Checklist heading", "name": "What was checked", "status": "pass", "detail": "Evidence: the values you compared, with file and field"}], "findings": [{"file": "path/from/repo/root", "line": 42, "severity": "blocking", "title": "One-line summary", "explanation": "Why it matters", "suggested_fix": "Optional fix"}]}` + "\n" +
+	`{"summary": "What you checked and what you concluded, in 1-3 sentences.", "confidence": 4, "confidence_reason": "Why you chose this score, in one sentence.", "checks": [{"section": "Checklist heading", "name": "What was checked", "status": "pass", "detail": "Evidence: the values you compared, with file and field"}], "findings": [{"file": "path/from/repo/root", "line": 42, "end_line": 43, "severity": "blocking", "title": "One-line summary", "explanation": "Why it matters", "suggested_fix": "Optional fix", "suggestion": "Optional exact replacement text for the lines the finding covers"}]}` + "\n" +
 	"```\n\n" +
 	"- `summary` is 1-3 sentences on what you checked and what you concluded, including when you found nothing. Name the files or resources you looked at.\n" +
 	"- `checks`: if the instructions above include a checklist, report every item in it as a check, in the checklist's order, with its section heading in `section`. `status` is `pass`, `fail` or `n/a`. Put the concrete evidence in `detail`. Every `fail` must also appear as a finding. The Blocking section is not a checklist; don't report it as checks. With no checklist, answer `\"checks\": []`.\n" +
 	"- `severity` is `blocking` or `suggestion`. Only problems described under Blocking are `blocking`; everything else is a `suggestion`.\n" +
 	"- `line` is the line number in the new version of the file. Omit it when the finding is not about one line.\n" +
+	"- `confidence` is 1-5: how safe this change is to merge, judged only from what you reviewed. 5: nothing you found should stop a merge. 4: minor concerns only. 3: a problem that should be fixed before merging. 2: serious problems. 1: merging would very likely break something. `confidence_reason` says why, in one sentence.\n" +
+	"- `end_line` is the last line the finding covers, when it covers more than `line`. Omit it otherwise.\n" +
+	"- `suggestion` is optional: the exact text that replaces lines `line` to `end_line` (or only `line`) of the new version, with the original indentation. Give it only when the whole fix fits in those lines, changes nothing else, and covers at most 10 lines. Otherwise describe the fix in `suggested_fix` and leave `suggestion` out.\n" +
 	"- `suggested_fix` is optional.\n" +
 	"- If you find nothing, answer with your summary, your checks and `\"findings\": []`."
 

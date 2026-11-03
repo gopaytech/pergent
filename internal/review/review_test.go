@@ -67,6 +67,16 @@ func answer(t *testing.T, fs ...finding.Finding) string {
 	return "Some notes.\n\n```json\n" + string(data) + "\n```\n"
 }
 
+// scored returns a model answer with no findings and the given confidence.
+func scored(t *testing.T, score int, reason string) string {
+	t.Helper()
+	data, err := json.Marshal(map[string]any{"confidence": score, "confidence_reason": reason, "findings": []finding.Finding{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return "```json\n" + string(data) + "\n```\n"
+}
+
 func newRequest(t *testing.T, f *fake, diffText string, skills ...skill.Skill) Request {
 	t.Helper()
 	t.Setenv("OPENCODE_PROVIDER", "")
@@ -144,6 +154,45 @@ func TestRun_NoFilesInScope(t *testing.T) {
 	}
 	if len(r.Skipped) != 1 || r.Skipped[0].Rule != "out of scope" {
 		t.Errorf("Skipped = %+v, want cmd/a.go out of scope", r.Skipped)
+	}
+}
+
+func TestRun_ConfidenceIsLowestBatch(t *testing.T) {
+	f := &fake{respond: func(_ int, c call) runner.RunResult {
+		if strings.Contains(c.opts.Message, "batch 1 of 2") {
+			return completed(scored(t, 4, "Minor naming."))
+		}
+		return completed(scored(t, 2, "Retry loop never ends."))
+	}}
+	req := newRequest(t, f, twoBatchDiff())
+	req.ContextLimit = twoBatchContextLimit
+	res := Run(context.Background(), req)[0]
+	if res.Confidence != 2 || res.ConfidenceReason != "Retry loop never ends." {
+		t.Errorf("got (%d, %q), want (2, %q)", res.Confidence, res.ConfidenceReason, "Retry loop never ends.")
+	}
+}
+
+func TestRun_ConfidenceUnscoredWhenABatchHasNone(t *testing.T) {
+	f := &fake{respond: func(_ int, c call) runner.RunResult {
+		if strings.Contains(c.opts.Message, "batch 1 of 2") {
+			return completed(scored(t, 4, "Minor naming."))
+		}
+		return completed(answer(t))
+	}}
+	req := newRequest(t, f, twoBatchDiff())
+	req.ContextLimit = twoBatchContextLimit
+	res := Run(context.Background(), req)[0]
+	if res.Confidence != 0 || res.ConfidenceReason != "" {
+		t.Errorf("got (%d, %q), want (0, \"\")", res.Confidence, res.ConfidenceReason)
+	}
+}
+
+func TestRun_ConfidenceUnscoredWhenNoFilesInScope(t *testing.T) {
+	f := &fake{respond: func(int, call) runner.RunResult { return completed("") }}
+	req := newRequest(t, f, patch("cmd/a.go", "x"), skill.Skill{Name: "s", Paths: []string{"docs/**"}})
+	res := Run(context.Background(), req)[0]
+	if res.Confidence != 0 || res.ConfidenceReason != "" {
+		t.Errorf("got (%d, %q), want (0, \"\")", res.Confidence, res.ConfidenceReason)
 	}
 }
 

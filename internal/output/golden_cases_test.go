@@ -48,7 +48,32 @@ func goldenCases() []goldenCase {
 		{name: "checks-multi", results: checksMultiResults(), maxLens: []int{0, 1500, 1000}},
 		{name: "summaries", results: summariesResults(), maxLens: []int{0, 1200, 800}},
 		{name: "failures", results: failureResults(), changed: []string{"a.go", "b.go"}, maxLens: []int{0, 2500, 900}},
+		{name: "confidence", results: confidenceGoldenResults(), changed: []string{"main.go", "util.go", "gen/api.pb.go", "README.md"}, maxLens: []int{0}},
 		{name: "hostile", results: hostileResults(), changed: []string{"we`ird.go", "ghp_secretvalue123.txt"}, maxLens: []int{0, 2000, 1200}},
+	}
+}
+
+func confidenceGoldenResults() []review.SkillResult {
+	return []review.SkillResult{
+		{
+			Skill: "code-review", Verdict: review.HasBlockingIssues, Batches: 1, BatchesFinished: 1,
+			Confidence: 4, ConfidenceReason: "The helper in util.go is called from files outside this diff.",
+			Findings: []finding.Finding{
+				{File: "main.go", Line: 42, EndLine: 43, Severity: finding.Blocking, Title: "Nil dereference", Explanation: "p can be nil here.", Suggestion: "if p == nil {\n\treturn\n}", Fingerprint: "aaaaaaaaaaaa"},
+				{File: "util.go", Line: 7, Severity: finding.Suggestion, Title: "Rename helper", Explanation: "The name is unclear.", Fingerprint: "bbbbbbbbbbbb"},
+			},
+			Reviewed: []string{"main.go", "util.go"},
+		},
+		{
+			Skill: "security", Verdict: review.NoBlockingIssues, Batches: 1, BatchesFinished: 1,
+			Confidence: 5, ConfidenceReason: "Nothing here touches input or secrets.",
+			Skipped:  []diff.Skip{{Path: "gen/api.pb.go", Rule: "generated"}},
+			Reviewed: []string{"main.go", "util.go"},
+		},
+		{
+			Skill: "docs", Verdict: review.Failed, Batches: 1,
+			Failures: []review.BatchFailure{{Files: []string{"README.md"}, Cause: &runner.Cause{Kind: runner.CauseNoAnswer, Steps: 3}}},
+		},
 	}
 }
 

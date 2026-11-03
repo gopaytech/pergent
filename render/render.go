@@ -49,10 +49,12 @@ type Finding struct {
 	Fingerprint  string
 	File         string
 	Line         int
+	EndLine      int // last line of the range the finding covers; 0 means Line only
 	Severity     Severity
 	Title        string
 	Explanation  string
 	SuggestedFix string
+	Suggestion   string // exact replacement text for the lines Line to EndLine; the comment shows an escaped copy
 }
 
 // Check is one item of a skill's checklist.
@@ -111,6 +113,11 @@ type Skill struct {
 	Reviewed []string
 	Notes    []string
 
+	// Confidence is the model's score for the review, 1 to 5; 0 means none.
+	// SkillScore lowers it for the comment.
+	Confidence       int
+	ConfidenceReason string
+
 	Batches         int
 	BatchesFinished int
 	Summaries       []Summary
@@ -127,6 +134,15 @@ type Options struct {
 	MaxLen int
 	// ChangedFiles are listed at the top of the comment.
 	ChangedFiles []string
+	// Inline holds the fingerprints of the findings the caller posted as
+	// inline comments on the diff. They are left out of each skill's finding
+	// lists and replaced by a note with their count; the verdict line, the
+	// skills table and the hidden findings block still count them.
+	Inline map[string]bool
+	// Footer is markdown the caller trusts, such as a hint on how to dismiss
+	// a finding. It is written after the last skill, before the hidden
+	// findings block, in every layout; empty writes nothing.
+	Footer string
 }
 
 // failedPrefix starts the report of a failed batch.
@@ -157,10 +173,11 @@ type layout struct {
 	listLimit int
 }
 
-// Comment renders the skills as one markdown comment: for each skill a
-// verdict line, the blocking findings in full, then collapsed suggestions,
-// dismissed findings and skipped files. A hidden last line carries the
-// findings for the next run.
+// Comment renders the skills as one markdown comment. When any skill has a
+// model score it starts with a confidence line and a skills table, which every
+// shrink step below keeps. Then for each skill a verdict line, the blocking
+// findings in full, then collapsed suggestions, dismissed findings and skipped
+// files. A hidden last line carries the findings for the next run.
 //
 // A comment over o.MaxLen is shrunk in steps until it fits: the hidden
 // findings block goes first, then the suggestions' explanations and fixes,
@@ -170,7 +187,7 @@ type layout struct {
 // failures are never dropped; if they alone are over the limit, the comment
 // is cut at the limit with a note.
 func Comment(skills []Skill, o Options) string {
-	out := render(skills, o.ChangedFiles, layout{listLimit: -1})
+	out := render(skills, o, layout{listLimit: -1})
 	if o.MaxLen <= 0 || len(out) <= o.MaxLen {
 		return out
 	}
@@ -184,7 +201,7 @@ func Comment(skills []Skill, o Options) string {
 		{noHidden: true, noSuggestions: true, checksFailOnly: true, noCheckTables: true, noSummaries: true, listLimit: 20},
 		{noHidden: true, noSuggestions: true, checksFailOnly: true, noCheckTables: true, noSummaries: true, listLimit: 0},
 	} {
-		out = render(skills, o.ChangedFiles, l)
+		out = render(skills, o, l)
 		if len(out) <= o.MaxLen {
 			return out
 		}
@@ -212,11 +229,13 @@ func cutBytes(s string, n int) string {
 	return s[:n]
 }
 
-func render(skills []Skill, changedFiles []string, l layout) string {
+func render(skills []Skill, o Options, l layout) string {
+	changedFiles := o.ChangedFiles
 	var b strings.Builder
 
 	b.WriteString(Marker + "\n")
 	b.WriteString("## pergent review\n\n")
+	writeConfidence(&b, skills)
 
 	if len(changedFiles) > 0 {
 		fmt.Fprintf(&b, "<details><summary>Files changed (%d)</summary>\n\n", len(changedFiles))
@@ -229,7 +248,10 @@ func render(skills []Skill, changedFiles []string, l layout) string {
 	}
 
 	for _, s := range skills {
-		writeSkill(&b, s, l)
+		writeSkill(&b, s, o.Inline, l)
+	}
+	if o.Footer != "" {
+		b.WriteString(o.Footer + "\n\n")
 	}
 
 	out := neutralizeQuickActions(b.String())
@@ -251,16 +273,26 @@ const findingsBlockVersion = 1
 type blockFinding struct {
 	File         string   `json:"file"`
 	Line         int      `json:"line,omitempty"`
+	EndLine      int      `json:"end_line,omitempty"`
 	Severity     Severity `json:"severity"`
 	Title        string   `json:"title"`
 	Explanation  string   `json:"explanation"`
 	SuggestedFix string   `json:"suggested_fix,omitempty"`
+	Suggestion   string   `json:"suggestion,omitempty"`
 	Fingerprint  string   `json:"fingerprint,omitempty"`
 }
 
+// blockConfidence is a skill's score as the hidden block stores it: the
+// model's, before any cap.
+type blockConfidence struct {
+	Score  int    `json:"score"`
+	Reason string `json:"reason,omitempty"`
+}
+
 type findingsBlock struct {
-	Version int                       `json:"version"`
-	Skills  map[string][]blockFinding `json:"skills"`
+	Version    int                        `json:"version"`
+	Skills     map[string][]blockFinding  `json:"skills"`
+	Confidence map[string]blockConfidence `json:"confidence,omitempty"`
 }
 
 // FindingsBlock returns the hidden line that carries the findings to the next
@@ -272,11 +304,18 @@ func FindingsBlock(skills []Skill) string {
 		fs := make([]blockFinding, len(s.Findings))
 		for i, f := range s.Findings {
 			fs[i] = blockFinding{
-				File: f.File, Line: f.Line, Severity: f.Severity, Title: f.Title,
-				Explanation: f.Explanation, SuggestedFix: f.SuggestedFix, Fingerprint: f.Fingerprint,
+				File: f.File, Line: f.Line, EndLine: f.EndLine, Severity: f.Severity, Title: f.Title,
+				Explanation: f.Explanation, SuggestedFix: f.SuggestedFix, Suggestion: f.Suggestion,
+				Fingerprint: f.Fingerprint,
 			}
 		}
 		block.Skills[s.Name] = fs
+		if hasModelScore(s) {
+			if block.Confidence == nil {
+				block.Confidence = map[string]blockConfidence{}
+			}
+			block.Confidence[s.Name] = blockConfidence{Score: s.Confidence, Reason: s.ConfidenceReason}
+		}
 	}
 	data, err := json.Marshal(block)
 	if err != nil {
@@ -314,16 +353,28 @@ func writeFailure(b *strings.Builder, f Failure) {
 	fmt.Fprintf(b, "%s %s\n", failedPrefix, neutralizeComments(line))
 }
 
-func writeSkill(b *strings.Builder, r Skill, l layout) {
+func writeSkill(b *strings.Builder, r Skill, inline map[string]bool, l layout) {
 	fmt.Fprintf(b, "<!-- pergent:%s -->\n", r.Name)
 	fmt.Fprintf(b, "### %s\n\n", r.Name)
 
-	var blocking, suggestions []Finding
+	// The verdict line counts every finding; the lists leave out the inline ones.
+	var blocking, suggestions, shownBlocking, shownSuggestions []Finding
+	inlineCount := 0
 	for _, f := range r.Findings {
+		isInline := f.Fingerprint != "" && inline[f.Fingerprint]
+		if isInline {
+			inlineCount++
+		}
 		if f.Severity == Suggestion {
 			suggestions = append(suggestions, f)
+			if !isInline {
+				shownSuggestions = append(shownSuggestions, f)
+			}
 		} else {
 			blocking = append(blocking, f)
+			if !isInline {
+				shownBlocking = append(shownBlocking, f)
+			}
 		}
 	}
 
@@ -361,22 +412,25 @@ func writeSkill(b *strings.Builder, r Skill, l layout) {
 		}
 		b.WriteString("\n\n")
 	}
+	if inlineCount > 0 {
+		fmt.Fprintf(b, "> %s posted as inline comments on the diff.\n\n", plural(inlineCount, "finding"))
+	}
 
 	writeSummaries(b, r, l)
 	writeChecks(b, r, l)
-	for _, f := range blocking {
+	for _, f := range shownBlocking {
 		writeFinding(b, f, false)
 	}
 	switch {
-	case len(suggestions) == 0:
+	case len(shownSuggestions) == 0:
 	case l.noSuggestions:
-		fmt.Fprintf(b, "> %s omitted to fit the comment size limit.\n\n", plural(len(suggestions), "suggestion"))
+		fmt.Fprintf(b, "> %s omitted to fit the comment size limit.\n\n", plural(len(shownSuggestions), "suggestion"))
 	default:
-		fmt.Fprintf(b, "<details><summary>Suggestions (%d)</summary>\n\n", len(suggestions))
+		fmt.Fprintf(b, "<details><summary>Suggestions (%d)</summary>\n\n", len(shownSuggestions))
 		if l.suggestionTitles {
 			b.WriteString(detailsDroppedNote + "\n\n")
 		}
-		for _, f := range suggestions {
+		for _, f := range shownSuggestions {
 			writeFinding(b, f, l.suggestionTitles)
 		}
 		b.WriteString("</details>\n\n")
@@ -678,8 +732,11 @@ func plural(n int, word string) string {
 	return fmt.Sprintf("%d %ss", n, word)
 }
 
-// writeFinding writes a finding; titleOnly leaves out its explanation and
-// suggested fix. A finding with an ID shows it after the title.
+// writeFinding writes a finding; titleOnly leaves out its explanation,
+// suggested fix and suggested change. A finding with an ID shows it after the title.
+// The suggested change is display text: "<!--", "<details" and "<summary" are
+// escaped and a line starting with "/" gets a zero-width space, so a caller
+// that needs the exact text to apply it must use Finding.Suggestion itself.
 func writeFinding(b *strings.Builder, f Finding, titleOnly bool) {
 	where := f.File
 	if f.Line > 0 {
@@ -704,23 +761,38 @@ func writeFinding(b *strings.Builder, f Finding, titleOnly bool) {
 		}
 		fmt.Fprintf(b, "_Suggested fix:_%s%s\n\n", sep, fix)
 	}
+	if f.Suggestion != "" {
+		lines := fmt.Sprintf("line %d", f.Line)
+		if f.EndLine > 0 && f.EndLine != f.Line {
+			lines = fmt.Sprintf("lines %d–%d", f.Line, f.EndLine)
+		}
+		// "\r" goes first: neutralizeQuickActions removes it later and could join
+		// two backtick runs into one longer than the fence.
+		text := neutralizeComments(strings.ReplaceAll(f.Suggestion, "\r", ""))
+		fence := strings.Repeat("`", max(3, longestBacktickRun(text)+1))
+		fmt.Fprintf(b, "_Suggested change, replacing %s:_\n\n%s\n%s\n%s\n\n", lines, fence, text, fence)
+	}
+}
+
+// longestBacktickRun returns the length of the longest run of backticks in s.
+func longestBacktickRun(s string) int {
+	longest, run := 0, 0
+	for _, c := range s {
+		if c == '`' {
+			run++
+			longest = max(longest, run)
+		} else {
+			run = 0
+		}
+	}
+	return longest
 }
 
 // codeSpan wraps s in an inline code span whose backtick fence is longer than
 // any backtick run inside s.
 func codeSpan(s string) string {
 	s = oneLine(s)
-	longest, run := 0, 0
-	for _, c := range s {
-		if c == '`' {
-			run++
-			if run > longest {
-				longest = run
-			}
-		} else {
-			run = 0
-		}
-	}
+	longest := longestBacktickRun(s)
 	fence := strings.Repeat("`", longest+1)
 	if longest > 0 {
 		return fence + " " + s + " " + fence
@@ -801,7 +873,9 @@ func closeFences(s string) string {
 	return strings.TrimRight(s, "\n") + "\n" + strings.Repeat(string(open), openLen)
 }
 
-// modelText prepares multi-line model text for the comment.
+// modelText prepares multi-line model text for the comment. "\r" goes first:
+// neutralizeQuickActions removes it from the whole comment later, which would
+// rebuild a comment marker or a fence that the steps here had broken up.
 func modelText(s string) string {
-	return closeFences(neutralizeComments(strings.TrimSpace(s)))
+	return closeFences(neutralizeComments(strings.ReplaceAll(strings.TrimSpace(s), "\r", "")))
 }

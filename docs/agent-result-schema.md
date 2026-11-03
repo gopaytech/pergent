@@ -22,6 +22,8 @@ A failed review is still a result. A review that could not run at all is an **er
     {
       "name": "code-review",
       "verdict": "has_blocking_issues",
+      "confidence": 4,
+      "confidence_reason": "The handler's callers are outside this change and were not read.",
       "findings": [
         {
           "id": "a1b2c3",
@@ -175,6 +177,8 @@ Each entry of `skills`:
 |---|---|---|
 | `name` | string | The skill's name. |
 | `verdict` | string | `no_blocking_issues`, `has_blocking_issues` or `failed` (any batch failed). |
+| `confidence` | number | 1–5: the model's own judgement of how safe the change is to merge, from what it reviewed, before caps. The lowest score among the skill's finished batches. Omitted when no batch finished or when any finished batch gave no score. See below. |
+| `confidence_reason` | string | The model's one-sentence reason for that lowest score. Omitted when empty or when `confidence` is omitted. |
 | `findings` | array | The skill's findings, from the batches that finished. |
 | `summaries` | array | `{batch, text}`: the model's summary of each batch. Omitted when empty. |
 | `checks` | array | One entry per batch that reported a checklist: `batch`, `dropped` (valid checks beyond the per-answer limit), `findings` (the number of findings in that batch) and `checks`, a list of `{section, name, status, detail}` where `status` is `pass`, `fail` or `n/a`. Omitted when no batch reported checks. |
@@ -187,6 +191,8 @@ Each entry of `skills`:
 | `duration_seconds` | number | Wall-clock time for the skill, to a tenth of a second. |
 | `tokens` | object | `input` and `output` token counts, summed over every run of the skill: batch, repair, verification and cross-batch runs. A provider that reports no usage gives zeros. |
 
+`confidence` is the model's own score. A caller showing it applies the caps first: a blocking finding caps it at 3, a failed skill is not scored, and a `deleted`, `binary`, `vendored`, `lockfile` or `generated` skip caps it at 4 (`render.SkillScore` does this). A skill with `verdict: failed` may still carry `confidence`; the caller applies the "not scored" cap. It is information only and says nothing about approval.
+
 Each entry of `findings`:
 
 | Field | Type | Meaning |
@@ -195,10 +201,12 @@ Each entry of `findings`:
 | `fingerprint` | string | Stable identity of the finding across runs, 12 hex characters. Derived from the skill, the file and the normalised title, so it survives line moves. |
 | `file` | string | Path from the repo root. |
 | `line` | number | Line in the head version. Omitted when the finding has none. |
+| `end_line` | number | Last line of the range that starts at `line`. Omitted when not given. |
 | `severity` | string | `blocking` or `suggestion`. |
 | `title` | string | One-line title. |
 | `explanation` | string | Why it is a problem. |
 | `suggested_fix` | string | A proposed fix. Omitted when empty. |
+| `suggestion` | string | The exact replacement text for lines `line` to `end_line` (or `line` alone). Omitted when empty. |
 
 `failures[].message` and `files.not_reviewed[].cause` are one line of plain text with no markdown and no opencode stderr, made for machines. The markdown version is in `comment.markdown`.
 
