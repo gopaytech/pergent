@@ -49,10 +49,12 @@ type Finding struct {
 	Fingerprint  string
 	File         string
 	Line         int
+	EndLine      int // last line of the range the finding covers; 0 means Line only
 	Severity     Severity
 	Title        string
 	Explanation  string
 	SuggestedFix string
+	Suggestion   string // replacement text for the lines Line to EndLine
 }
 
 // Check is one item of a skill's checklist.
@@ -110,6 +112,11 @@ type Skill struct {
 	Skipped  []Skipped
 	Reviewed []string
 	Notes    []string
+
+	// Confidence is the model's score for the review, 1 to 5; 0 means none.
+	// SkillScore lowers it for the comment.
+	Confidence       int
+	ConfidenceReason string
 
 	Batches         int
 	BatchesFinished int
@@ -217,6 +224,7 @@ func render(skills []Skill, changedFiles []string, l layout) string {
 
 	b.WriteString(Marker + "\n")
 	b.WriteString("## pergent review\n\n")
+	writeConfidence(&b, skills)
 
 	if len(changedFiles) > 0 {
 		fmt.Fprintf(&b, "<details><summary>Files changed (%d)</summary>\n\n", len(changedFiles))
@@ -251,16 +259,26 @@ const findingsBlockVersion = 1
 type blockFinding struct {
 	File         string   `json:"file"`
 	Line         int      `json:"line,omitempty"`
+	EndLine      int      `json:"end_line,omitempty"`
 	Severity     Severity `json:"severity"`
 	Title        string   `json:"title"`
 	Explanation  string   `json:"explanation"`
 	SuggestedFix string   `json:"suggested_fix,omitempty"`
+	Suggestion   string   `json:"suggestion,omitempty"`
 	Fingerprint  string   `json:"fingerprint,omitempty"`
 }
 
+// blockConfidence is a skill's score as the hidden block stores it: the
+// model's, before any cap.
+type blockConfidence struct {
+	Score  int    `json:"score"`
+	Reason string `json:"reason,omitempty"`
+}
+
 type findingsBlock struct {
-	Version int                       `json:"version"`
-	Skills  map[string][]blockFinding `json:"skills"`
+	Version    int                        `json:"version"`
+	Skills     map[string][]blockFinding  `json:"skills"`
+	Confidence map[string]blockConfidence `json:"confidence,omitempty"`
 }
 
 // FindingsBlock returns the hidden line that carries the findings to the next
@@ -272,11 +290,18 @@ func FindingsBlock(skills []Skill) string {
 		fs := make([]blockFinding, len(s.Findings))
 		for i, f := range s.Findings {
 			fs[i] = blockFinding{
-				File: f.File, Line: f.Line, Severity: f.Severity, Title: f.Title,
-				Explanation: f.Explanation, SuggestedFix: f.SuggestedFix, Fingerprint: f.Fingerprint,
+				File: f.File, Line: f.Line, EndLine: f.EndLine, Severity: f.Severity, Title: f.Title,
+				Explanation: f.Explanation, SuggestedFix: f.SuggestedFix, Suggestion: f.Suggestion,
+				Fingerprint: f.Fingerprint,
 			}
 		}
 		block.Skills[s.Name] = fs
+		if hasModelScore(s) {
+			if block.Confidence == nil {
+				block.Confidence = map[string]blockConfidence{}
+			}
+			block.Confidence[s.Name] = blockConfidence{Score: s.Confidence, Reason: s.ConfidenceReason}
+		}
 	}
 	data, err := json.Marshal(block)
 	if err != nil {
