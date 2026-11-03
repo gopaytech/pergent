@@ -117,7 +117,7 @@ A failed review is still a result. A review that could not run at all is an **er
     }
   ],
   "comment": {
-    "markdown": "### code-review\n\n**1 blocking issue**\n\n...\n\n<!-- pergent:findings ... -->",
+    "markdown": "<!-- pergent -->\n### ❌ 1 blocking issue\n\n...\n\n<!-- pergent:findings ... -->",
     "findings_block": "<!-- pergent:findings ... -->"
   }
 }
@@ -168,7 +168,7 @@ Top level:
 
 | Field | Meaning |
 |---|---|
-| `markdown` | The full comment, rendered with `--max-comment-size`. Each finding's ID is shown in backticks after its title. For an error result it is the error comment. |
+| `markdown` | The full comment, rendered with `--max-comment-size`. Each finding's ID is shown in its row as `id <code>…</code>`. For an error result it is the error comment. |
 | `findings_block` | The hidden `<!-- pergent:findings ... -->` block on its own. Completed results only. |
 
 Each entry of `skills`:

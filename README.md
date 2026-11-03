@@ -251,7 +251,7 @@ cross_batch: true
 
 | Field | Meaning |
 |---|---|
-| `paths` | Glob patterns. When set, the skill reviews only changed files matching one of them. Files that match none are listed under "Skipped files" as out of scope. Unset means every changed file. |
+| `paths` | Glob patterns. When set, the skill reviews only changed files matching one of them. Files that match none are listed in the comment's Files list as skipped, out of scope. Unset means every changed file. |
 | `exclude` | Glob patterns for files the skill skips even though they are in scope. |
 | `cross_batch` | `true` adds one extra run, after all batches, that looks for problems spanning batches (for example conflicting changes in different directories). It only runs when the change needed more than one batch. Default `false`. |
 
@@ -259,7 +259,7 @@ Patterns use `/`-separated paths from the repo root. `*` matches within one path
 
 ### Default exclusions
 
-Every skill skips these files, and the comment lists them under "Skipped files" with the reason:
+Every skill skips these files, and the comment's Files list shows them as skipped, with the reason:
 
 - **Always skipped:** deleted files, binary files, and files with no content changes (for example a pure rename).
 - **Skipped unless a skill's `paths` match them:** lockfiles (`package-lock.json`, `go.sum`, `yarn.lock`, `pnpm-lock.yaml`, `Cargo.lock`, `composer.lock`, `Gemfile.lock`, `poetry.lock`, `Pipfile.lock`), vendored code (anything under a `vendor`, `node_modules` or `third_party` directory), and generated files (paths marked `linguist-generated` in the repo's `.gitattributes`, or files whose first lines say the code is generated and not to be edited).
@@ -283,7 +283,7 @@ When a skill has no `## Blocking` section, pergent appends a default one: bugs, 
 
 ### Checklists become a checks table
 
-If a skill contains a checklist (section headings with items under them, as bullets or checkboxes), the model reports every item as a check: pass, fail or n/a, with the evidence it compared. The comment shows them as one table per section. No special syntax is needed; write the checklist as you would for a human reviewer. The `## Blocking` section is not treated as a checklist. Findings still decide the verdict: a failed check should come with a finding, and the comment notes it when one doesn't.
+If a skill contains a checklist (section headings with items under them, as bullets or checkboxes), the model reports every item as a check: pass, fail or n/a, with the evidence it compared. The comment shows the failed checks in a table and the rest collapsed. No special syntax is needed; write the checklist as you would for a human reviewer. The `## Blocking` section is not treated as a checklist. Findings still decide the verdict: a failed check should come with a finding, and the comment notes it when one doesn't.
 
 ### Don't put output-format instructions in skills
 
@@ -291,48 +291,60 @@ pergent appends its own output-format instructions to every skill: the model mus
 
 ## 💬 The review comment
 
-pergent posts one comment per PR/MR, updated in place on each run. It starts with a collapsed list of the changed files, then has one section per skill.
+pergent posts one comment per PR/MR, updated in place on each run. It leads with the result and the findings; the detail is collapsed below. In order:
 
-When the model scored the review, the comment opens with a confidence line (`**Confidence: 3/5**`, with the model's reason) and a skills table (skill, verdict, confidence, findings). The score is the model's own judgement of how safe the change is to merge, from what it reviewed. It is the lowest score among a skill's finished batches, and pergent caps it: a blocking finding caps it at 3, and a file skipped as deleted, binary, vendored, a lockfile or generated caps it at 4. A skill that failed is not scored. It is information only: it never changes a verdict. A review the model did not score has no such line.
-
-Each skill section has:
-
-- a verdict line first: `No blocking issues`, `N blocking issues`, or a warning that part of the review failed (and which files it did not cover)
-- the model's summary of what it checked and concluded, written even when it found nothing: a `Summary:` line, or one bullet per batch (`Batch N of M`) for a batched review
-- the checks, when the skill has a checklist: a count line (`Checks: 14 passed · 1 failed · 2 n/a`) and one table per checklist section (✅ pass, ❌ fail, ➖ n/a). In a batched review each batch's tables are collapsed, and a batch with a failed check starts open.
-- each blocking finding in full: `file:line`, a title, the explanation and an optional suggested fix
-- for a small fix, the exact replacement code, as a block under the finding (`Suggested change, replacing lines 42–43:`). The model gives it for at most 10 lines; a suggestion that doesn't fit is dropped and the finding is kept
-- the suggestions in a collapsed block
-- the files the skill reviewed, in a collapsed block
-- the skipped files, with the reason for each, in a collapsed block
+- a headline with the verdict over all skills (`✅ No blocking issues`, `❌ N blocking issues`, or `⚠️ N skills failed`) and, when the model scored the review, the confidence (`· Confidence 3/5`)
+- a small line of facts: the reviewed commit (first 7 characters), the number of files, `N of M checks passed`, and the finding counts
+- the model's reason for the score, as a one-sentence quote
+- a skills table (skill, verdict, confidence, findings), only when more than one skill ran
+- failures, one `⚠️ Review failed:` line each, with the cause and the files that were not reviewed
+- the findings, one list across all skills: blocking findings first and open, suggestions collapsed. Each row shows the title, `file:line` linked to those lines, and the skill name when there are several. Open a row for the explanation, the suggested fix and, for a small fix, the exact replacement code (`Suggested change, replacing lines 42–43:`). The model gives replacement code for at most 10 lines; a suggestion that doesn't fit is dropped and the finding is kept
+- the dismissed findings, collapsed, when someone set any aside
+- the checks, when a skill has a checklist: failed checks in a table, the rest collapsed as `Checks: 14 of 15 passed, 2 n/a`. A check that several batches answered is one row, with the worst status
 - notes, such as a skill with no files in scope, or a verification that was skipped
+- one collapsed `Files (N)` list of every changed file, with the reason for each file a skill skipped or did not review
+- a footer with the pergent version
+- the hidden findings block (last line)
 
 A skill with failed batches still shows the findings from the batches that finished, next to the failure.
 
-A clean review looks like this:
+A review with one blocking finding looks like this:
 
-```markdown
-### code-review
+````markdown
+### ❌ 1 blocking issue · Confidence 3/5 (capped)
 
-✅ **No blocking issues**
+<sub>Commit `4f1c2a9` · 4 files · 2 of 3 checks passed · 1 blocking · 1 suggestion</sub>
 
-**Summary:** Checked the handler and its tests in api/: input is validated before use, errors are returned to the caller, and the new query is parameterised.
+> The retry loop in `internal/retry/retry.go` is new and untested. (capped: 1 blocking finding)
 
-**Checks:** 2 passed
+#### Findings (2)
 
-**Input handling**
+▸ ❌ **Retry never stops on a cancelled context** · internal/retry/retry.go:42–47
+▸ 💡 **Name the backoff constant** · internal/retry/backoff.go:9
 
-| Check | Status | Detail |
-|---|---|---|
-| Request body is validated | ✅ | `api/handler.go` calls `validate(req)` before use |
-| Query is parameterised | ✅ | `db.Query("... WHERE id = $1", id)` |
+**Failed checks (1)**
 
-<details><summary>Reviewed files (2)</summary> …
-```
+| Area | Check | Status | Detail |
+|---|---|---|---|
+| Errors | Context cancellation is honoured | ❌ | `retry.Do` loops on `ctx.Err()` without returning |
+
+▸ Checks: 2 of 3 passed
+▸ Files (4)
+
+pergent v0.3.0
+````
+
+(In the real comment each `▸` row is a collapsed `<details>` block, and the blocking one is open.)
+
+The confidence is the model's own judgement of how safe the change is to merge, from what it reviewed. It is the lowest score among a skill's finished batches, and pergent caps it: a blocking finding caps it at 3, and a file skipped as deleted, binary, vendored, a lockfile or generated caps it at 4. A skill that failed is not scored. It is information only: it never changes a verdict. A review the model did not score shows no confidence at all.
+
+**Links.** In GitHub CI mode, `file:line` links to the file at the pull request's head commit (`pull_request.head.sha`); in GitLab CI mode, at `CI_COMMIT_SHA`. Local and agent mode have no links. `actions/checkout` checks out the merge commit of a pull request, so if the base branch changed the same file above a finding since the branch was cut, the line anchor on GitHub can be a few lines off.
+
+**Dismissing a finding.** With pergent.sh, each finding also shows a ready-to-copy dismiss command with its ID, and a dismissed finding moves to the Dismissed list. The CLI alone shows each finding's ID next to its title and has no dismiss command.
 
 The last line of the comment is a hidden HTML comment holding the findings for the next run (see below). Don't edit it. Secrets are redacted from the comment and from that block.
 
-A comment that would exceed the platform's size limit (65,536 characters on GitHub, 1,000,000 on GitLab) is shrunk to fit rather than failing to post: first the hidden findings block is dropped (the next `--previous-review` run is then a first review), then the suggestions' explanations and fixes, then the suggestions, then the passed and n/a checks, then the check tables (the count line stays), then the summaries, then the file lists are cut to a count. The confidence line and the skills table are always kept, as are blocking findings and failures; each step leaves a note in the comment.
+A comment that would exceed the platform's size limit (65,536 characters on GitHub, 1,000,000 on GitLab) is shrunk to fit rather than failing to post. In order: the hidden findings block is dropped (the next `--previous-review` run is then a first review), then the suggestions' explanations and fixes (their titles stay), then the suggestions and dismissed findings, then the passed and n/a checks, then the failed checks table (the counts in the facts line stay), then the `Files` list is cut to 20 paths and then to a count. The headline, facts line, reason, skills table, blocking findings and failures are always kept; each step leaves a note in the comment.
 
 ## 🔄 Previous review as context
 
