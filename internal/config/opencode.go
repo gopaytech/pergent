@@ -184,6 +184,16 @@ func GenerateOpenCodeConfigWith(o OpenCodeOptions) (string, func(), error) {
 			"skill":     "deny",
 			"webfetch":  "deny",
 			"websearch": "deny",
+			// opencode's default for these two is "ask". `opencode run` rejects
+			// every ask, and a rejection ends the run with no answer; a deny
+			// only fails that one tool call. The model may re-read the files
+			// pergent attaches, which live in pergent-* temp directories.
+			"external_directory": map[string]string{
+				"*":                                      "deny",
+				filepath.Join(os.TempDir(), "pergent-*"): "allow",
+			},
+			// A repeated tool call is bounded by the agent's step limit.
+			"doom_loop": "allow",
 		},
 		// Auto-compaction summarises the conversation when the context fills
 		// and then prompts the model to continue, which can end a run with no

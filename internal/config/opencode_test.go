@@ -80,6 +80,29 @@ func TestGenerateOpenCodeConfig(t *testing.T) {
 		t.Error("permission.write should not be set (write is gated by edit)")
 	}
 
+	// opencode's default for these is "ask", which `opencode run` rejects,
+	// and a rejection ends the run with no answer.
+	if cfg.Permission["doom_loop"] != "allow" {
+		t.Errorf("permission.doom_loop = %v, want %q", cfg.Permission["doom_loop"], "allow")
+	}
+	external, ok := cfg.Permission["external_directory"].(map[string]any)
+	if !ok {
+		t.Fatalf("permission.external_directory = %v, want object", cfg.Permission["external_directory"])
+	}
+	attachments := filepath.Join(os.TempDir(), "pergent-*")
+	wantExternal := map[string]string{"*": "deny", attachments: "allow"}
+	for pattern, action := range wantExternal {
+		if external[pattern] != action {
+			t.Errorf("permission.external_directory[%q] = %v, want %q", pattern, external[pattern], action)
+		}
+	}
+	if len(external) != len(wantExternal) {
+		t.Errorf("permission.external_directory has %d rules, want %d", len(external), len(wantExternal))
+	}
+	if bytes.Index(data, []byte(`"*": "deny"`)) > bytes.Index(data, []byte(`"`+attachments+`": "allow"`)) {
+		t.Error(`external_directory "*" must come before the attachments rule (last match wins)`)
+	}
+
 	read, ok := cfg.Permission["read"].(map[string]any)
 	if !ok {
 		t.Fatalf("permission.read = %v, want object", cfg.Permission["read"])
@@ -456,7 +479,8 @@ func TestGenerateWith_DenySecretFiles(t *testing.T) {
 
 // goldenCIConfig is the exact output of GenerateOpenCodeConfig(20, 0,
 // "test prompt", repo) for a repo with an AGENTS.md, captured before
-// GenerateOpenCodeConfigWith was introduced. %s is the AGENTS.md path.
+// GenerateOpenCodeConfigWith was introduced. %[1]s is the AGENTS.md path, %[2]s
+// the pattern for pergent's temp directories.
 const goldenCIConfig = `{
   "$schema": "https://opencode.ai/config.json",
   "model": "anthropic/claude-sonnet-4",
@@ -485,7 +509,12 @@ const goldenCIConfig = `{
   },
   "permission": {
     "bash": "deny",
+    "doom_loop": "allow",
     "edit": "deny",
+    "external_directory": {
+      "*": "deny",
+      "%[2]s": "allow"
+    },
     "glob": "allow",
     "grep": "allow",
     "list": "allow",
@@ -525,7 +554,7 @@ func TestGenerate_Unchanged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := fmt.Sprintf(goldenCIConfig, agentsPath)
+	want := fmt.Sprintf(goldenCIConfig, agentsPath, filepath.Join(os.TempDir(), "pergent-*"))
 	if string(got) != want {
 		t.Errorf("CI config changed.\ngot:\n%s\nwant:\n%s", got, want)
 	}
