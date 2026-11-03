@@ -141,15 +141,18 @@ func toRender(results []review.SkillResult, ids map[string]string) []render.Skil
 	skills := make([]render.Skill, len(results))
 	for i, r := range results {
 		s := render.Skill{
-			Name:            redact.String(r.Skill),
-			Verdict:         string(r.Verdict),
-			Batches:         r.Batches,
-			BatchesFinished: r.BatchesFinished,
+			Name:             redact.String(r.Skill),
+			Verdict:          string(r.Verdict),
+			Batches:          r.Batches,
+			BatchesFinished:  r.BatchesFinished,
+			Confidence:       r.Confidence,
+			ConfidenceReason: redact.String(r.ConfidenceReason),
 		}
 		for _, f := range redactFindings(r.Findings) {
 			s.Findings = append(s.Findings, render.Finding{
-				ID: ids[f.Fingerprint], Fingerprint: f.Fingerprint, File: f.File, Line: f.Line,
+				ID: ids[f.Fingerprint], Fingerprint: f.Fingerprint, File: f.File, Line: f.Line, EndLine: f.EndLine,
 				Severity: render.Severity(f.Severity), Title: f.Title, Explanation: f.Explanation, SuggestedFix: f.SuggestedFix,
+				Suggestion: f.Suggestion,
 			})
 		}
 		if s.Findings == nil {
@@ -211,6 +214,7 @@ func redactFindings(fs []finding.Finding) []finding.Finding {
 		f.Title = redact.String(f.Title)
 		f.Explanation = redact.String(f.Explanation)
 		f.SuggestedFix = redact.String(f.SuggestedFix)
+		f.Suggestion = redact.String(f.Suggestion)
 		f.Fingerprint = redact.String(f.Fingerprint)
 		out[i] = f
 	}
