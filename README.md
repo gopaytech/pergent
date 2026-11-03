@@ -287,17 +287,17 @@ If a skill contains a checklist (section headings with items under them, as bull
 
 ### Don't put output-format instructions in skills
 
-pergent appends its own output-format instructions to every skill: the model must end its answer with one JSON block holding a short `summary` of what it checked and concluded, its `checks` (the skill's checklist, if it has one), and its findings. A missing summary is not an error; the review still counts. Don't tell a skill how to format its answer (no "use bullet points", "start with a summary", or JSON schemas of your own). Instructions like that conflict with the required format and make runs fail. Write what to look for and what counts as blocking; pergent handles the rest.
+pergent appends its own output-format instructions to every skill: the model must end its answer with one JSON block holding a short `summary` of what it checked and concluded, its `checks` (the skill's checklist, if it has one), and its findings. The summary goes into the agent result (`summaries`) but is not shown in the comment. A missing summary is not an error; the review still counts. Don't tell a skill how to format its answer (no "use bullet points", "start with a summary", or JSON schemas of your own). Instructions like that conflict with the required format and make runs fail. Write what to look for and what counts as blocking; pergent handles the rest.
 
 ## 💬 The review comment
 
 pergent posts one comment per PR/MR, updated in place on each run. It leads with the result and the findings; the detail is collapsed below. In order:
 
-- a headline with the verdict over all skills (`✅ No blocking issues`, `❌ N blocking issues`, or `⚠️ N skills failed`) and, when the model scored the review, the confidence (`· Confidence 3/5`)
-- a small line of facts: the reviewed commit (first 7 characters), the number of files, `N of M checks passed`, and the finding counts
+- a headline with the verdict over all skills (`✅ No blocking issues`, `❌ N blocking issues`, or `⚠️ N skills failed`; a clean review that has dismissed blocking findings reads `No blocking issues (2 dismissed)`) and, when a skill carries a model score, the confidence (`· Confidence 3/5`, or `· Confidence not scored` when the skill that carried the score failed)
+- a small line of facts: the reviewed commit (first 7 characters), the number of files, `N of M checks passed`, and the finding counts, ending with `· N skills failed` when there are blocking findings and a skill also failed
 - the model's reason for the score, as a one-sentence quote
 - a skills table (skill, verdict, confidence, findings), only when more than one skill ran
-- failures, one `⚠️ Review failed:` line each, with the cause and the files that were not reviewed
+- failures, one `⚠️ Review failed:` line each, with the cause, and the files that were not reviewed when the skill had several batches or several failures
 - the findings, one list across all skills: blocking findings first and open, suggestions collapsed. Each row shows the title, `file:line` linked to those lines, and the skill name when there are several. Open a row for the explanation, the suggested fix and, for a small fix, the exact replacement code (`Suggested change, replacing lines 42–43:`). The model gives replacement code for at most 10 lines; a suggestion that doesn't fit is dropped and the finding is kept
 - the dismissed findings, collapsed, when someone set any aside
 - the checks, when a skill has a checklist: failed checks in a table, the rest collapsed as `Checks: 14 of 15 passed, 2 n/a`. A check that several batches answered is one row, with the worst status
@@ -336,15 +336,15 @@ pergent v0.3.0
 
 (In the real comment each `▸` row is a collapsed `<details>` block, and the blocking one is open.)
 
-The confidence is the model's own judgement of how safe the change is to merge, from what it reviewed. It is the lowest score among a skill's finished batches, and pergent caps it: a blocking finding caps it at 3, and a file skipped as deleted, binary, vendored, a lockfile or generated caps it at 4. A skill that failed is not scored. It is information only: it never changes a verdict. A review the model did not score shows no confidence at all.
+The confidence is the model's own judgement of how safe the change is to merge, from what it reviewed. It is the lowest score among a skill's finished batches, and pergent caps it: a blocking finding caps it at 3, and a file skipped as deleted, binary, vendored, a lockfile or generated caps it at 4. A skill that failed is not scored. It is information only: it never changes a verdict. When no skill carries a model score (older answers, failed runs), the comment shows no confidence at all.
 
 **Links.** In GitHub CI mode, `file:line` links to the file at the pull request's head commit (`pull_request.head.sha`); in GitLab CI mode, at `CI_COMMIT_SHA`. Local and agent mode have no links. `actions/checkout` checks out the merge commit of a pull request, so if the base branch changed the same file above a finding since the branch was cut, the line anchor on GitHub can be a few lines off.
 
-**Dismissing a finding.** With pergent.sh, each finding also shows a ready-to-copy dismiss command with its ID, and a dismissed finding moves to the Dismissed list. The CLI alone shows each finding's ID next to its title and has no dismiss command.
+**Dismissing a finding.** With pergent.sh, each finding also shows a ready-to-copy dismiss command with its ID, and a dismissed finding moves to the Dismissed list. The CLI's CI comment shows no finding IDs or dismiss command. Agent mode shows each finding's ID in its row (`id …`), and pergent.sh adds the dismiss command.
 
 The last line of the comment is a hidden HTML comment holding the findings for the next run (see below). Don't edit it. Secrets are redacted from the comment and from that block.
 
-A comment that would exceed the platform's size limit (65,536 characters on GitHub, 1,000,000 on GitLab) is shrunk to fit rather than failing to post. In order: the hidden findings block is dropped (the next `--previous-review` run is then a first review), then the suggestions' explanations and fixes (their titles stay), then the suggestions and dismissed findings, then the passed and n/a checks, then the failed checks table (the counts in the facts line stay), then the `Files` list is cut to 20 paths and then to a count. The headline, facts line, reason, skills table, blocking findings and failures are always kept; each step leaves a note in the comment.
+A comment that would exceed the platform's size limit (65,536 characters on GitHub, 1,000,000 on GitLab) is shrunk to fit rather than failing to post. In order: the hidden findings block is dropped (the next `--previous-review` run is then a first review), then the suggestions' explanations and fixes (their titles stay), then the suggestions and dismissed findings, then the passed and n/a checks, then the failed checks table (the counts in the facts line stay), then the `Files` list is cut to 20 paths and then to a count. The headline, facts line, reason, skills table, blocking findings and failures are always kept; each step leaves a note in the comment. As a last resort, if the blocking findings and failures alone exceed the limit, the comment is cut at the limit with a note.
 
 ## 🔄 Previous review as context
 
