@@ -177,8 +177,8 @@ Each entry of `skills`:
 |---|---|---|
 | `name` | string | The skill's name. |
 | `verdict` | string | `no_blocking_issues`, `has_blocking_issues` or `failed` (any batch failed). |
-| `confidence` | number | 1 to 5: the model's own score for how well it could review the change. The lowest score over the skill's batches. Omitted when not scored. See below. |
-| `confidence_reason` | string | The model's one-line reason for `confidence`. Omitted when empty. |
+| `confidence` | number | 1–5: the model's own judgement of how safe the change is to merge, from what it reviewed, before caps. The lowest score among the skill's finished batches. Omitted when no batch finished or when any finished batch gave no score. See below. |
+| `confidence_reason` | string | The model's one-sentence reason for that lowest score. Omitted when `confidence` is. |
 | `findings` | array | The skill's findings, from the batches that finished. |
 | `summaries` | array | `{batch, text}`: the model's summary of each batch. Omitted when empty. |
 | `checks` | array | One entry per batch that reported a checklist: `batch`, `dropped` (valid checks beyond the per-answer limit), `findings` (the number of findings in that batch) and `checks`, a list of `{section, name, status, detail}` where `status` is `pass`, `fail` or `n/a`. Omitted when no batch reported checks. |
