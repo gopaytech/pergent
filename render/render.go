@@ -134,6 +134,15 @@ type Options struct {
 	MaxLen int
 	// ChangedFiles are listed at the top of the comment.
 	ChangedFiles []string
+	// Inline holds the fingerprints of the findings the caller posted as
+	// inline comments on the diff. They are left out of each skill's finding
+	// lists and replaced by a note with their count; the verdict line, the
+	// skills table and the hidden findings block still count them.
+	Inline map[string]bool
+	// Footer is markdown the caller trusts, such as a hint on how to dismiss
+	// a finding. It is written after the last skill, before the hidden
+	// findings block, in every layout; empty writes nothing.
+	Footer string
 }
 
 // failedPrefix starts the report of a failed batch.
@@ -177,7 +186,7 @@ type layout struct {
 // failures are never dropped; if they alone are over the limit, the comment
 // is cut at the limit with a note.
 func Comment(skills []Skill, o Options) string {
-	out := render(skills, o.ChangedFiles, layout{listLimit: -1})
+	out := render(skills, o, layout{listLimit: -1})
 	if o.MaxLen <= 0 || len(out) <= o.MaxLen {
 		return out
 	}
@@ -191,7 +200,7 @@ func Comment(skills []Skill, o Options) string {
 		{noHidden: true, noSuggestions: true, checksFailOnly: true, noCheckTables: true, noSummaries: true, listLimit: 20},
 		{noHidden: true, noSuggestions: true, checksFailOnly: true, noCheckTables: true, noSummaries: true, listLimit: 0},
 	} {
-		out = render(skills, o.ChangedFiles, l)
+		out = render(skills, o, l)
 		if len(out) <= o.MaxLen {
 			return out
 		}
@@ -219,7 +228,8 @@ func cutBytes(s string, n int) string {
 	return s[:n]
 }
 
-func render(skills []Skill, changedFiles []string, l layout) string {
+func render(skills []Skill, o Options, l layout) string {
+	changedFiles := o.ChangedFiles
 	var b strings.Builder
 
 	b.WriteString(Marker + "\n")
@@ -237,7 +247,10 @@ func render(skills []Skill, changedFiles []string, l layout) string {
 	}
 
 	for _, s := range skills {
-		writeSkill(&b, s, l)
+		writeSkill(&b, s, o.Inline, l)
+	}
+	if o.Footer != "" {
+		b.WriteString(o.Footer + "\n\n")
 	}
 
 	out := neutralizeQuickActions(b.String())
@@ -339,16 +352,28 @@ func writeFailure(b *strings.Builder, f Failure) {
 	fmt.Fprintf(b, "%s %s\n", failedPrefix, neutralizeComments(line))
 }
 
-func writeSkill(b *strings.Builder, r Skill, l layout) {
+func writeSkill(b *strings.Builder, r Skill, inline map[string]bool, l layout) {
 	fmt.Fprintf(b, "<!-- pergent:%s -->\n", r.Name)
 	fmt.Fprintf(b, "### %s\n\n", r.Name)
 
-	var blocking, suggestions []Finding
+	// The verdict line counts every finding; the lists leave out the inline ones.
+	var blocking, suggestions, shownBlocking, shownSuggestions []Finding
+	inlineCount := 0
 	for _, f := range r.Findings {
+		isInline := f.Fingerprint != "" && inline[f.Fingerprint]
+		if isInline {
+			inlineCount++
+		}
 		if f.Severity == Suggestion {
 			suggestions = append(suggestions, f)
+			if !isInline {
+				shownSuggestions = append(shownSuggestions, f)
+			}
 		} else {
 			blocking = append(blocking, f)
+			if !isInline {
+				shownBlocking = append(shownBlocking, f)
+			}
 		}
 	}
 
@@ -386,22 +411,25 @@ func writeSkill(b *strings.Builder, r Skill, l layout) {
 		}
 		b.WriteString("\n\n")
 	}
+	if inlineCount > 0 {
+		fmt.Fprintf(b, "> %s posted as inline comments on the diff.\n\n", plural(inlineCount, "finding"))
+	}
 
 	writeSummaries(b, r, l)
 	writeChecks(b, r, l)
-	for _, f := range blocking {
+	for _, f := range shownBlocking {
 		writeFinding(b, f, false)
 	}
 	switch {
-	case len(suggestions) == 0:
+	case len(shownSuggestions) == 0:
 	case l.noSuggestions:
-		fmt.Fprintf(b, "> %s omitted to fit the comment size limit.\n\n", plural(len(suggestions), "suggestion"))
+		fmt.Fprintf(b, "> %s omitted to fit the comment size limit.\n\n", plural(len(shownSuggestions), "suggestion"))
 	default:
-		fmt.Fprintf(b, "<details><summary>Suggestions (%d)</summary>\n\n", len(suggestions))
+		fmt.Fprintf(b, "<details><summary>Suggestions (%d)</summary>\n\n", len(shownSuggestions))
 		if l.suggestionTitles {
 			b.WriteString(detailsDroppedNote + "\n\n")
 		}
-		for _, f := range suggestions {
+		for _, f := range shownSuggestions {
 			writeFinding(b, f, l.suggestionTitles)
 		}
 		b.WriteString("</details>\n\n")
@@ -703,8 +731,8 @@ func plural(n int, word string) string {
 	return fmt.Sprintf("%d %ss", n, word)
 }
 
-// writeFinding writes a finding; titleOnly leaves out its explanation and
-// suggested fix. A finding with an ID shows it after the title.
+// writeFinding writes a finding; titleOnly leaves out its explanation,
+// suggested fix and suggested change. A finding with an ID shows it after the title.
 func writeFinding(b *strings.Builder, f Finding, titleOnly bool) {
 	where := f.File
 	if f.Line > 0 {
@@ -729,23 +757,36 @@ func writeFinding(b *strings.Builder, f Finding, titleOnly bool) {
 		}
 		fmt.Fprintf(b, "_Suggested fix:_%s%s\n\n", sep, fix)
 	}
+	if f.Suggestion != "" {
+		lines := fmt.Sprintf("line %d", f.Line)
+		if f.EndLine > 0 && f.EndLine != f.Line {
+			lines = fmt.Sprintf("lines %d–%d", f.Line, f.EndLine)
+		}
+		text := neutralizeComments(f.Suggestion)
+		fence := strings.Repeat("`", max(3, longestBacktickRun(text)+1))
+		fmt.Fprintf(b, "_Suggested change, replacing %s:_\n\n%s\n%s\n%s\n\n", lines, fence, text, fence)
+	}
+}
+
+// longestBacktickRun returns the length of the longest run of backticks in s.
+func longestBacktickRun(s string) int {
+	longest, run := 0, 0
+	for _, c := range s {
+		if c == '`' {
+			run++
+			longest = max(longest, run)
+		} else {
+			run = 0
+		}
+	}
+	return longest
 }
 
 // codeSpan wraps s in an inline code span whose backtick fence is longer than
 // any backtick run inside s.
 func codeSpan(s string) string {
 	s = oneLine(s)
-	longest, run := 0, 0
-	for _, c := range s {
-		if c == '`' {
-			run++
-			if run > longest {
-				longest = run
-			}
-		} else {
-			run = 0
-		}
-	}
+	longest := longestBacktickRun(s)
 	fence := strings.Repeat("`", longest+1)
 	if longest > 0 {
 		return fence + " " + s + " " + fence
