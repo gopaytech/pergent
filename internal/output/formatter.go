@@ -100,6 +100,14 @@ type Options struct {
 	// IDs maps a finding's fingerprint to its short ID. A finding with an ID
 	// shows it as a code span after its title.
 	IDs map[string]string
+	// Commit is the reviewed commit; the comment shows its first 7 characters.
+	Commit string
+	// FileURL returns the web link for a finding's lines (render.GitHubFileURL,
+	// render.GitLabFileURL); nil leaves locations as plain text. render builds
+	// the link from the redacted path.
+	FileURL func(path string, line, endLine int) string
+	// Version is shown in the footer, e.g. "v0.3.0".
+	Version string
 }
 
 // FormatReview renders the results as one markdown comment: for each skill a
@@ -124,7 +132,7 @@ func FormatReviewWithinOptions(results []review.SkillResult, changedFiles []stri
 	for i, f := range changedFiles {
 		files[i] = redact.String(f)
 	}
-	return render.Comment(toRender(results, o.IDs), render.Options{MaxLen: maxLen, ChangedFiles: files})
+	return render.Comment(toRender(results, o.IDs), render.Options{MaxLen: maxLen, ChangedFiles: files, Commit: o.Commit, FileURL: o.FileURL, Version: o.Version})
 }
 
 // FindingsBlock returns the hidden line that carries the findings to the next

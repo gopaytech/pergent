@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -30,6 +31,11 @@ type GitHubConfig struct {
 	PRNumber   int
 	BaseBranch string
 	DiffBase   string
+	// HeadSHA is the PR's head commit (event pull_request.head.sha).
+	HeadSHA string
+	// WebURL is the repository's web address, for links to files; empty when
+	// the repository is unknown.
+	WebURL string
 }
 
 type GitLabConfig struct {
@@ -39,6 +45,10 @@ type GitLabConfig struct {
 	MRIID      int
 	BaseBranch string
 	DiffBase   string
+	// HeadSHA is the commit the pipeline runs on (CI_COMMIT_SHA).
+	HeadSHA string
+	// WebURL is the project's web address (CI_PROJECT_URL).
+	WebURL string
 }
 
 type Config struct {
@@ -182,6 +192,14 @@ func resolveGitHub() GitHubConfig {
 		Repo:  os.Getenv("GITHUB_REPOSITORY"),
 	}
 
+	if cfg.Repo != "" {
+		server := strings.TrimRight(os.Getenv("GITHUB_SERVER_URL"), "/")
+		if server == "" {
+			server = "https://github.com"
+		}
+		cfg.WebURL = server + "/" + cfg.Repo
+	}
+
 	eventPath := os.Getenv("GITHUB_EVENT_PATH")
 	if eventPath != "" {
 		data, err := os.ReadFile(eventPath)
@@ -189,7 +207,10 @@ func resolveGitHub() GitHubConfig {
 			var event struct {
 				PullRequest struct {
 					Number int `json:"number"`
-					Base   struct {
+					Head   struct {
+						SHA string `json:"sha"`
+					} `json:"head"`
+					Base struct {
 						Ref string `json:"ref"`
 						SHA string `json:"sha"`
 					} `json:"base"`
@@ -199,6 +220,7 @@ func resolveGitHub() GitHubConfig {
 				cfg.PRNumber = event.PullRequest.Number
 				cfg.BaseBranch = event.PullRequest.Base.Ref
 				cfg.DiffBase = event.PullRequest.Base.SHA
+				cfg.HeadSHA = event.PullRequest.Head.SHA
 			}
 		}
 	}
@@ -215,6 +237,8 @@ func resolveGitLab() GitLabConfig {
 		MRIID:      mriid,
 		BaseBranch: os.Getenv("CI_MERGE_REQUEST_TARGET_BRANCH_NAME"),
 		DiffBase:   os.Getenv("CI_MERGE_REQUEST_DIFF_BASE_SHA"),
+		HeadSHA:    os.Getenv("CI_COMMIT_SHA"),
+		WebURL:     os.Getenv("CI_PROJECT_URL"),
 	}
 }
 

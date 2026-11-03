@@ -252,7 +252,7 @@ func runAgent(ctx context.Context, args []string, getenv func(string) string, st
 		}
 	}
 	res.Comment = result.Comment{
-		Markdown:      output.FormatReviewWithinOptions(results, in.Files, in.MaxCommentSize, output.Options{IDs: ids}),
+		Markdown:      output.FormatReviewWithinOptions(results, in.Files, in.MaxCommentSize, output.Options{IDs: ids, Commit: in.Head, Version: "v" + version}),
 		FindingsBlock: output.FindingsBlock(results),
 	}
 

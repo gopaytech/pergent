@@ -12,6 +12,7 @@ import (
 	"github.com/gopaytech/pergent/internal/finding"
 	"github.com/gopaytech/pergent/internal/review"
 	"github.com/gopaytech/pergent/internal/runner"
+	"github.com/gopaytech/pergent/render"
 )
 
 func TestFormatReview_Layout(t *testing.T) {
@@ -523,5 +524,33 @@ func TestParsePreviousFindings_KeepsSuggestion(t *testing.T) {
 	fs := prev["code-review"]
 	if len(fs) != 1 || fs[0].EndLine != 43 || fs[0].Suggestion != "x" {
 		t.Errorf("previous findings = %+v, want EndLine 43 and Suggestion x", fs)
+	}
+}
+
+func TestFormatReviewLinksAndCommit(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "ghp_secretvalue123")
+	results := []review.SkillResult{{
+		Skill:   "security",
+		Verdict: review.HasBlockingIssues,
+		Findings: []finding.Finding{
+			{File: "main.go", Line: 3, Severity: finding.Blocking, Title: "Nil deref", Explanation: "boom", Fingerprint: "fp1"},
+			{File: "ghp_secretvalue123/x.go", Line: 5, Severity: finding.Blocking, Title: "Leak", Explanation: "boom", Fingerprint: "fp2"},
+		},
+	}}
+	out := FormatReviewWithinOptions(results, nil, 0, Options{
+		Commit:  "abcdef1234",
+		FileURL: render.GitHubFileURL("https://github.com/o/r", "abcdef1234"),
+		Version: "v9.9.9",
+	})
+	for _, want := range []string{"Commit `abcdef1`", `href="https://github.com/o/r/blob/abcdef1234/main.go#L3"`, "pergent v9.9.9"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("comment lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "ghp_secretvalue123") {
+		t.Errorf("token leaked into the comment (label or link):\n%s", out)
+	}
+	if !strings.Contains(out, "[REDACTED]/x.go") {
+		t.Errorf("redacted path missing:\n%s", out)
 	}
 }

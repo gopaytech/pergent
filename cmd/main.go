@@ -18,6 +18,7 @@ import (
 	"github.com/gopaytech/pergent/internal/redact"
 	"github.com/gopaytech/pergent/internal/review"
 	"github.com/gopaytech/pergent/internal/skill"
+	"github.com/gopaytech/pergent/render"
 )
 
 const version = "0.2.0"
@@ -173,7 +174,7 @@ func main() {
 
 	// A comment over the platform's size limit would fail to post, so it is
 	// shrunk to fit; local mode prints it whole.
-	comment := output.FormatReviewWithin(results, changedFiles, commentLimit(cfg.Platform))
+	comment := output.FormatReviewWithinOptions(results, changedFiles, commentLimit(cfg.Platform), commentOptions(cfg))
 
 	if cfg.Local {
 		fmt.Print(comment)
@@ -216,6 +217,24 @@ func commentLimit(platform string) int {
 		return 1000000
 	}
 	return 0
+}
+
+// commentOptions names the reviewed commit and links findings to the
+// platform's file view. Local mode has neither: no links, and no commit.
+func commentOptions(cfg config.Config) output.Options {
+	o := output.Options{Version: "v" + version}
+	if cfg.Local {
+		return o
+	}
+	switch cfg.Platform {
+	case "github":
+		o.Commit = cfg.GitHub.HeadSHA
+		o.FileURL = render.GitHubFileURL(cfg.GitHub.WebURL, cfg.GitHub.HeadSHA)
+	case "gitlab":
+		o.Commit = cfg.GitLab.HeadSHA
+		o.FileURL = render.GitLabFileURL(cfg.GitLab.WebURL, cfg.GitLab.HeadSHA)
+	}
+	return o
 }
 
 // failureLogLine renders a failed batch for the CI log, with the files it
