@@ -143,6 +143,22 @@ type Options struct {
 	// a finding. It is written after the last skill, before the hidden
 	// findings block, in every layout; empty writes nothing.
 	Footer string
+	// Commit is the reviewed commit, shown as its first 7 characters.
+	Commit string
+	// FileURL returns the web link for a finding's lines; nil, or an empty
+	// result, means the location is plain text. GitHubFileURL and
+	// GitLabFileURL build one.
+	FileURL func(path string, line, endLine int) string
+	// DismissCommand is the command prefix that dismisses a finding, such as
+	// "@pergent-review dismiss"; empty means no dismiss line.
+	DismissCommand string
+	// Version is shown in the footer after "pergent ".
+	Version string
+	// FindingsTitle replaces the "Findings" heading when non-empty.
+	FindingsTitle string
+	// FindingNote maps a finding's fingerprint to a one-line note shown at the
+	// top of that finding's body, such as why it is not an inline comment.
+	FindingNote map[string]string
 }
 
 // failedPrefix starts the report of a failed batch.
