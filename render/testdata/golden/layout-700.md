@@ -1,38 +1,18 @@
 <!-- pergent -->
-## pergent review
+### ❌ 3 blocking issues
 
-<details><summary>Files changed (2)</summary>
+<sub>4 files · 3 blocking · 1 suggestion · 1 skill failed</sub>
 
-- and 2 more not listed to fit the comment size limit
+| Skill | Verdict | Findings |
+|---|---|---|
+| `code-review` | ❌ Has blocking issues | 2 blocking · 1 suggestion |
+| `security-review` | ✅ No blocking issues | none |
+| `docs-review` | ⚠️ Failed | none |
+| `one-issue` | ❌ Has blocking issues | 1 blocking |
 
-</details>
+⚠️ `docs-review`: Files `a.md`: **Review failed:** opencode exited normally after 3 steps, but the model did not produce a final answer.
 
-<!-- pergent:code-review -->
-### code-review
-
-❌ **2 blocking issues**
-
-**`main.go:42`** — **Nil dereference**
-
-p can be nil here.
-
-_Suggested fix:_ Check p first.
-
-**`util.go`** — **Leak**
-
-The file is never closed.
-
-> 1 suggestion omitted to fit the comment size limit.
-
-<details><summary>Reviewed files (2)</summary>
-
-- and 2 more not listed to fit the comment size limit
-
-</details>
-
-<details><summary>Skipped files (2)</summary>
-
-- and 2 more not listed to fit the comment size limit
+⚠️ `docs-review`: Files `b.md`, `c.md`: **Review failed:** The model's answer was not in the required format.
 
 
 > Comment truncated to fit the comment size limit.

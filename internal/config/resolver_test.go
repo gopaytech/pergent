@@ -623,3 +623,61 @@ func TestResolve_TimeoutZeroMeansDefault(t *testing.T) {
 		t.Errorf("Timeout = %v, want the 10m default for an explicit 0", cfg.Timeout)
 	}
 }
+
+func TestResolveGitHubHeadAndWebURL(t *testing.T) {
+	dir := t.TempDir()
+	eventPath := filepath.Join(dir, "event.json")
+	event := map[string]interface{}{
+		"pull_request": map[string]interface{}{
+			"number": 1,
+			"base":   map[string]string{"ref": "main"},
+			"head":   map[string]string{"sha": "h1"},
+		},
+	}
+	data, _ := json.Marshal(event)
+	if err := os.WriteFile(eventPath, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GITHUB_EVENT_PATH", eventPath)
+	t.Setenv("GITHUB_REPOSITORY", "o/r")
+	t.Setenv("GITHUB_SERVER_URL", "")
+
+	cfg := resolveGitHub()
+	if cfg.HeadSHA != "h1" {
+		t.Errorf("HeadSHA = %q, want h1", cfg.HeadSHA)
+	}
+	if cfg.WebURL != "https://github.com/o/r" {
+		t.Errorf("WebURL = %q", cfg.WebURL)
+	}
+
+	t.Setenv("GITHUB_SERVER_URL", "https://ghe.example.com")
+	if got := resolveGitHub().WebURL; got != "https://ghe.example.com/o/r" {
+		t.Errorf("WebURL with server URL = %q", got)
+	}
+
+	t.Setenv("GITHUB_REPOSITORY", "")
+	if got := resolveGitHub().WebURL; got != "" {
+		t.Errorf("WebURL without repository = %q, want empty", got)
+	}
+}
+
+func TestResolveGitLabHeadAndWebURL(t *testing.T) {
+	t.Setenv("CI_COMMIT_SHA", "h2")
+	t.Setenv("CI_PROJECT_URL", "https://gitlab.example.com/g/p")
+	cfg := resolveGitLab()
+	if cfg.HeadSHA != "h2" || cfg.WebURL != "https://gitlab.example.com/g/p" {
+		t.Errorf("HeadSHA = %q, WebURL = %q", cfg.HeadSHA, cfg.WebURL)
+	}
+}
+
+func TestResolveGitLabHeadPrefersMergeRequestSourceSHA(t *testing.T) {
+	t.Setenv("CI_COMMIT_SHA", "merge-result")
+	t.Setenv("CI_MERGE_REQUEST_SOURCE_BRANCH_SHA", "branch-head")
+	if got := resolveGitLab().HeadSHA; got != "branch-head" {
+		t.Errorf("HeadSHA = %q, want the source branch SHA", got)
+	}
+	t.Setenv("CI_MERGE_REQUEST_SOURCE_BRANCH_SHA", "")
+	if got := resolveGitLab().HeadSHA; got != "merge-result" {
+		t.Errorf("HeadSHA = %q, want CI_COMMIT_SHA", got)
+	}
+}

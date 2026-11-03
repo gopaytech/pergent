@@ -1,60 +1,40 @@
 <!-- pergent -->
-## pergent review
+### ❌ 3 blocking issues
 
-<details><summary>Files changed (2)</summary>
+<sub>4 files · 3 blocking · 1 suggestion · 1 skill failed</sub>
 
-- and 2 more not listed to fit the comment size limit
+| Skill | Verdict | Findings |
+|---|---|---|
+| `code-review` | ❌ Has blocking issues | 2 blocking · 1 suggestion |
+| `security-review` | ✅ No blocking issues | none |
+| `docs-review` | ⚠️ Failed | none |
+| `one-issue` | ❌ Has blocking issues | 1 blocking |
 
-</details>
+⚠️ `docs-review`: Files `a.md`: **Review failed:** opencode exited normally after 3 steps, but the model did not produce a final answer.
 
-<!-- pergent:code-review -->
-### code-review
+⚠️ `docs-review`: Files `b.md`, `c.md`: **Review failed:** The model's answer was not in the required format.
 
-❌ **2 blocking issues**
+#### Findings (3)
 
-**`main.go:42`** — **Nil dereference**
+<details open><summary>❌ <b>Nil dereference</b> · <code>main.go:42</code> · <code>code-review</code></summary>
 
 p can be nil here.
 
-_Suggested fix:_ Check p first.
+**Fix:** Check p first.
 
-**`util.go`** — **Leak**
+</details>
+
+<details open><summary>❌ <b>Leak</b> · <code>util.go</code> · <code>code-review</code></summary>
 
 The file is never closed.
 
-> 1 suggestion omitted to fit the comment size limit.
-
-<details><summary>Reviewed files (2)</summary>
-
-- and 2 more not listed to fit the comment size limit
-
 </details>
 
-<details><summary>Skipped files (2)</summary>
+<details open><summary>❌ <b>Bad</b> · <code>x.go:1</code> · <code>one-issue</code></summary>
 
-- and 2 more not listed to fit the comment size limit
+Really bad.
 
 </details>
-
-> batch 2 was small
-
-<!-- /pergent:code-review -->
-
-<!-- pergent:security-review -->
-### security-review
-
-✅ **No blocking issues**
-
-<!-- /pergent:security-review -->
-
-<!-- pergent:docs-review -->
-### docs-review
-
-⚠️ Files `a.md`: **Review failed:** opencode exited normally after 3 steps, but the model did not produce a final answer.
-
-⚠️ Files `b.md`, `c.md`: **Review failed:** The model's answer was not in the required format.
-
-<!-- /pergent:docs-review -->
 
 
 > Comment truncated to fit the comment size limit.

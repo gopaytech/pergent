@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gopaytech/pergent/internal/config"
 	"github.com/gopaytech/pergent/internal/finding"
 	"github.com/gopaytech/pergent/internal/output"
 	"github.com/gopaytech/pergent/internal/review"
@@ -79,5 +80,34 @@ func TestCommentLimit(t *testing.T) {
 		if got := commentLimit(platform); got != want {
 			t.Errorf("commentLimit(%q) = %d, want %d", platform, got, want)
 		}
+	}
+}
+
+func TestCommentOptions(t *testing.T) {
+	gh := config.Config{Platform: "github", GitHub: config.GitHubConfig{HeadSHA: "h1", WebURL: "https://github.com/o/r"}}
+	o := commentOptions(gh)
+	if o.Commit != "h1" || o.Version != "v"+version || o.FileURL == nil {
+		t.Fatalf("github options = %+v", o)
+	}
+	if got := o.FileURL("a.go", 3, 0); got != "https://github.com/o/r/blob/h1/a.go?plain=1#L3" {
+		t.Errorf("github link = %q", got)
+	}
+
+	gl := config.Config{Platform: "gitlab", GitLab: config.GitLabConfig{HeadSHA: "h2", WebURL: "https://gitlab.example.com/g/p"}}
+	o = commentOptions(gl)
+	if got := o.FileURL("a.go", 3, 0); got != "https://gitlab.example.com/g/p/-/blob/h2/a.go?plain=1#L3" {
+		t.Errorf("gitlab link = %q", got)
+	}
+
+	// A missing commit or address means no link.
+	gh.GitHub.HeadSHA = ""
+	if o = commentOptions(gh); o.FileURL != nil {
+		t.Error("link built without a commit")
+	}
+
+	// Local mode has no links and no commit.
+	local := config.Config{Local: true, GitHub: gh.GitHub}
+	if o = commentOptions(local); o.FileURL != nil || o.Commit != "" || o.Version != "v"+version {
+		t.Errorf("local options = %+v", o)
 	}
 }

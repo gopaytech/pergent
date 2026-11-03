@@ -1,40 +1,32 @@
 <!-- pergent -->
-## pergent review
+### ✅ No blocking issues
 
-<!-- pergent:multi -->
-### multi
+<sub>1 file · 3 of 6 checks passed · no findings</sub>
 
-✅ **No blocking issues**
+| Skill | Verdict | Findings |
+|---|---|---|
+| `multi` | ✅ No blocking issues | none |
+| `single` | ✅ No blocking issues | none |
 
-**Checks:** 2 passed · 2 failed · 1 n/a
+**Failed checks (3)**
 
-> Check tables omitted to fit the comment size limit.
+| Skill | Area | Check | Status | Detail |
+|---|---|---|---|---|
+| `multi` | A | b1 | ❌ | x |
+| `multi` | B | b2 | ❌ |  |
+| `single` | Sec\|tion | fail | ❌ |  |
 
-> 2 failed checks have no matching finding; the verdict is based on findings.
-> 3 checks beyond the first 60 per answer were not shown.
-> Verification dropped 1 of 1 blocking finding: Not real (it is handled upstream)
+> Passed and n/a checks omitted to fit the comment size limit.
 
-<details><summary>Reviewed files (1)</summary>
+> `multi`: 2 failed checks have no matching finding; the verdict is based on findings.
+> `multi`: 3 checks beyond the first 60 per answer were not shown.
+> `multi`: Verification dropped 1 of 1 blocking finding: Not real (it is handled upstream)
+> `multi`: another note
 
-- `a.go`
+<details><summary>Files (1)</summary>
+
+- `a.go` — reviewed by `multi`
 
 </details>
-
-> another note
-
-<!-- /pergent:multi -->
-
-<!-- pergent:single -->
-### single
-
-✅ **No blocking issues**
-
-**Summary:** Sum.
-
-**Checks:** 1 passed · 1 failed
-
-> Check tables omitted to fit the comment size limit.
-
-<!-- /pergent:single -->
 
 > Findings were too large to store for the next run; --previous-review will treat the next run as a first review.

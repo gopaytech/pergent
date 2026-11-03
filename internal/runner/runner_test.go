@@ -462,6 +462,61 @@ func TestRun_ExcludeEnv(t *testing.T) {
 	}
 }
 
+func TestRun_OwnDataDirPerRun(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake opencode is a shell script")
+	}
+	dir := t.TempDir()
+	seen := filepath.Join(dir, "seen")
+	script := fmt.Sprintf("#!/bin/sh\necho \"$XDG_DATA_HOME $(cat \"$XDG_DATA_HOME/opencode/auth.json\")\" >> %q\ncat <<'EOF'\n%sEOF\n", seen,
+		`{"type":"step_start","part":{"type":"step-start"}}`+"\n"+
+			`{"type":"text","part":{"type":"text","text":"ok"}}`+"\n"+
+			`{"type":"step_finish","part":{"type":"step-finish","reason":"stop"}}`+"\n")
+	bin := filepath.Join(dir, "bin")
+	os.Mkdir(bin, 0755)
+	if err := os.WriteFile(filepath.Join(bin, "opencode"), []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	shared := filepath.Join(dir, "share")
+	os.MkdirAll(filepath.Join(shared, "opencode"), 0700)
+	if err := os.WriteFile(filepath.Join(shared, "opencode", "auth.json"), []byte(`{"k":1}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_DATA_HOME", shared)
+
+	for range 2 {
+		if got := Run(context.Background(), testOptions(time.Minute)); got.Status != StatusCompleted {
+			t.Fatalf("Run() = %+v, want completed", got)
+		}
+	}
+	data, err := os.ReadFile(seen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("opencode ran %d times, want 2: %q", len(lines), data)
+	}
+	var dirs []string
+	for _, line := range lines {
+		d, auth, _ := strings.Cut(line, " ")
+		if d == shared || d == "" {
+			t.Errorf("XDG_DATA_HOME = %q, want a directory of the run's own", d)
+		}
+		if auth != `{"k":1}` {
+			t.Errorf("auth.json in the run's data directory = %q, want the user's", auth)
+		}
+		if _, err := os.Stat(d); !os.IsNotExist(err) {
+			t.Errorf("data directory %s still exists after the run (err %v)", d, err)
+		}
+		dirs = append(dirs, d)
+	}
+	if dirs[0] == dirs[1] {
+		t.Errorf("both runs used data directory %s", dirs[0])
+	}
+}
+
 // captureStderr sends os.Stderr to a file for the test and returns a func
 // that reads what was written.
 func captureStderr(t *testing.T) func() string {

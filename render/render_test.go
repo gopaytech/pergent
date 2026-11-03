@@ -102,7 +102,7 @@ func TestCommentFindingIDAndBlock(t *testing.T) {
 		Findings: []render.Finding{{ID: "abcdef", Fingerprint: "abcdef123456", File: "a.go", Line: 2, Severity: render.Blocking, Title: "T", Explanation: "e"}},
 	}}
 	got := render.Comment(skills, render.Options{})
-	if !strings.Contains(got, "**`a.go:2`** \u2014 **T** `abcdef`\n") {
+	if !strings.Contains(got, " \u00b7 id <code>abcdef</code></summary>\n") {
 		t.Errorf("ID not shown:\n%s", got)
 	}
 	if !strings.HasSuffix(got, render.FindingsBlock(skills)) {

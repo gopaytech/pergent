@@ -67,28 +67,29 @@ func TestComment_ConfidenceHeaderAndTable(t *testing.T) {
 		{Name: "docs", Verdict: VerdictFailed, Confidence: 5, Findings: []Finding{}},
 	}
 	out := Comment(skills, Options{})
-	want := "## pergent review\n\n" +
-		"**Confidence: 3/5** (capped: 1 blocking finding) — `code-review`: One blocking issue: a nil map write.\n\n" +
+	want := Marker + "\n### ❌ 1 blocking issue · Confidence 3/5 (capped)\n\n" +
+		"<sub>1 blocking · 2 suggestions · 1 skill failed</sub>\n\n" +
+		"> `code-review`: One blocking issue: a nil map write. (capped: 1 blocking finding)\n\n" +
 		"| Skill | Verdict | Confidence | Findings |\n|---|---|---|---|\n" +
 		"| `code-review` | ❌ Has blocking issues | 3/5 (capped) | 1 blocking · 2 suggestions |\n" +
 		"| `security` | ✅ No blocking issues | 5/5 | none |\n" +
 		"| `docs` | ⚠️ Failed | not scored | none |\n\n"
-	if !strings.Contains(out, want) {
-		t.Errorf("comment does not start with the confidence header and table:\n%s", out)
+	if !strings.HasPrefix(out, want) {
+		t.Errorf("comment does not start with the headline, meta line, reason and table:\n%s", out)
 	}
 }
 
 func TestComment_ConfidenceNotScoredWhenAllFailed(t *testing.T) {
 	out := Comment([]Skill{{Name: "docs", Verdict: VerdictFailed, Confidence: 5}}, Options{})
-	want := "## pergent review\n\n**Confidence: not scored**\n\n| Skill |"
-	if !strings.Contains(out, want) {
+	want := Marker + "\n### ⚠️ 1 skill failed · Confidence not scored\n\n"
+	if !strings.HasPrefix(out, want) {
 		t.Errorf("comment lacks the not-scored line:\n%s", out)
 	}
 }
 
 func TestComment_ConfidenceReasonIsMentionSafe(t *testing.T) {
 	out := Comment([]Skill{{Name: "a", Verdict: VerdictNoBlockingIssues, Confidence: 5, ConfidenceReason: "ask @bob <b>\nnow"}}, Options{})
-	if !strings.Contains(out, "`a`: ask @‍bob &lt;b> now\n\n") {
+	if !strings.Contains(out, "> ask @‍bob &lt;b> now\n\n") {
 		t.Errorf("reason was not made safe:\n%s", out)
 	}
 }
@@ -97,11 +98,11 @@ func TestComment_ConfidenceKeptAtSmallestLimit(t *testing.T) {
 	skills := []Skill{{Name: "s", Verdict: VerdictHasBlockingIssues, Confidence: 4,
 		Findings: []Finding{{File: "a.go", Line: 1, Severity: Blocking, Title: "B", Explanation: strings.Repeat("long explanation ", 100)}}}}
 	out := Comment(skills, Options{MaxLen: 400})
-	if !strings.Contains(out, "**Confidence: 3/5**") {
-		t.Errorf("confidence line lost when shrinking:\n%s", out)
+	if !strings.Contains(out, "### ❌ 1 blocking issue · Confidence 3/5 (capped)\n") {
+		t.Errorf("headline lost when shrinking:\n%s", out)
 	}
-	if !strings.Contains(out, "| Skill | Verdict | Confidence | Findings |") {
-		t.Errorf("skills table lost when shrinking:\n%s", out)
+	if !strings.Contains(out, "> Capped: 1 blocking finding\n") {
+		t.Errorf("reason lost when shrinking:\n%s", out)
 	}
 }
 
@@ -111,7 +112,7 @@ func TestComment_NoConfidenceUnchanged(t *testing.T) {
 	if strings.Contains(out, "Confidence") || strings.Contains(out, "| Skill |") {
 		t.Errorf("a skill without a score added confidence output:\n%s", out)
 	}
-	if !strings.HasPrefix(out, Marker+"\n## pergent review\n\n<!-- pergent:s -->") {
+	if !strings.HasPrefix(out, Marker+"\n### ✅ No blocking issues\n\n") {
 		t.Errorf("comment layout changed:\n%s", out)
 	}
 }

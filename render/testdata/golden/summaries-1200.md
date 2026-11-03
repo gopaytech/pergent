@@ -1,38 +1,19 @@
 <!-- pergent -->
-## pergent review
+### ✅ No blocking issues
 
-<!-- pergent:first -->
-### first
+<sub>2 files · no findings</sub>
 
-✅ **No blocking issues**
+| Skill | Verdict | Findings |
+|---|---|---|
+| `first` | ✅ No blocking issues | none |
+| `second` | ✅ No blocking issues | none |
+| `third` | ✅ No blocking issues | none |
 
-> Summaries omitted to fit the comment size limit.
+<details><summary>Files (2)</summary>
 
-<!-- /pergent:first -->
-
-<!-- pergent:second -->
-### second
-
-✅ **No blocking issues**
-
-> Summaries omitted to fit the comment size limit.
-
-<!-- /pergent:second -->
-
-<!-- pergent:third -->
-### third
-
-✅ **No blocking issues**
-
-> Summaries omitted to fit the comment size limit.
-
-<details><summary>Reviewed files (2)</summary>
-
-- `a.go`
-- `b.go`
+- `a.go` — reviewed by `third`
+- `b.go` — reviewed by `third`
 
 </details>
 
-<!-- /pergent:third -->
-
-> Findings were too large to store for the next run; --previous-review will treat the next run as a first review.
+<!-- pergent:findings eyJ2ZXJzaW9uIjoxLCJza2lsbHMiOnsiZmlyc3QiOltdLCJzZWNvbmQiOltdLCJ0aGlyZCI6W119fQ== -->

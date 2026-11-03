@@ -75,7 +75,7 @@ func countFindings(fs []Finding) (blocking, suggestions int) {
 }
 
 // anyModelScore reports whether any skill carries a model score; without one
-// the comment has no confidence header.
+// the comment does not mention confidence.
 func anyModelScore(skills []Skill) bool {
 	for _, s := range skills {
 		if hasModelScore(s) {
@@ -87,28 +87,21 @@ func anyModelScore(skills []Skill) bool {
 
 func hasModelScore(s Skill) bool { return s.Confidence >= 1 && s.Confidence <= 5 }
 
-// writeConfidence writes the confidence line and the skills table.
-func writeConfidence(b *strings.Builder, skills []Skill) {
-	if !anyModelScore(skills) {
-		return
-	}
-	score, at := ReviewScore(skills)
-	if at < 0 {
-		b.WriteString("**Confidence: not scored**\n\n")
+// writeSkillsTable writes one row per skill; the Confidence column only when
+// some skill carries a model score.
+func writeSkillsTable(b *strings.Builder, skills []Skill) {
+	scored := anyModelScore(skills)
+	if scored {
+		b.WriteString("| Skill | Verdict | Confidence | Findings |\n|---|---|---|---|\n")
 	} else {
-		fmt.Fprintf(b, "**Confidence: %d/5**", score.Value)
-		if score.Capped != "" {
-			fmt.Fprintf(b, " (capped: %s)", score.Capped)
-		}
-		if reason := mentionSafe(skills[at].ConfidenceReason); reason != "" {
-			fmt.Fprintf(b, " — %s: %s", codeSpan(skills[at].Name), reason)
-		}
-		b.WriteString("\n\n")
+		b.WriteString("| Skill | Verdict | Findings |\n|---|---|---|\n")
 	}
-
-	b.WriteString("| Skill | Verdict | Confidence | Findings |\n|---|---|---|---|\n")
 	for _, s := range skills {
-		fmt.Fprintf(b, "| %s | %s | %s | %s |\n", checkCell(codeSpan(s.Name)), verdictCell(s.Verdict), confidenceCell(SkillScore(s)), findingsCell(s.Findings))
+		fmt.Fprintf(b, "| %s | %s |", checkCell(codeSpan(s.Name)), verdictCell(s.Verdict))
+		if scored {
+			fmt.Fprintf(b, " %s |", confidenceCell(SkillScore(s)))
+		}
+		fmt.Fprintf(b, " %s |\n", findingsCell(s.Findings))
 	}
 	b.WriteString("\n")
 }

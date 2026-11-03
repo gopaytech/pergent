@@ -44,7 +44,7 @@ func goldenCases() []goldenCase {
 		{name: "ids", results: idResults(), ids: map[string]string{"fp-blocking": "abcdef11", "fp-suggestion": "12345678"}, maxLens: []int{0, 900, 600, 400, 300}},
 		{name: "ids-hostile", results: idResults(), ids: map[string]string{"fp-blocking": "a`b\nc"}, maxLens: []int{0}},
 		{name: "big", results: big, changed: bigChanged, maxLens: shrink},
-		{name: "checks-big", results: bigChecksResult(), maxLens: []int{0, 6000, 3000, 2800, 1500, 800}},
+		{name: "checks-big", results: bigChecksResult(), maxLens: []int{0, 6000, 3000, 2800, 1500, 800, 600}},
 		{name: "checks-multi", results: checksMultiResults(), maxLens: []int{0, 1500, 1000}},
 		{name: "summaries", results: summariesResults(), maxLens: []int{0, 1200, 800}},
 		{name: "failures", results: failureResults(), changed: []string{"a.go", "b.go"}, maxLens: []int{0, 2500, 900}},

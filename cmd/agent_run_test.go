@@ -159,7 +159,7 @@ func TestRunAgent_HTTPCompleted(t *testing.T) {
 	if id == "" {
 		t.Fatal("finding has no id")
 	}
-	if !strings.Contains(r.Comment.Markdown, "`"+id+"`") {
+	if !strings.Contains(r.Comment.Markdown, "id <code>"+id+"</code>") {
 		t.Errorf("comment.markdown does not show the finding's id %q:\n%s", id, r.Comment.Markdown)
 	}
 	if r.Comment.FindingsBlock == "" || !strings.HasSuffix(r.Comment.Markdown, r.Comment.FindingsBlock) {

@@ -29,13 +29,13 @@ func TestFormat_IDsShown(t *testing.T) {
 	}
 
 	out := FormatReviewWithinOptions(results, nil, 0, Options{IDs: ids})
-	if !strings.Contains(out, "**Nil deref** `abcdef11`\n") {
+	if !strings.Contains(out, " · id <code>abcdef11</code></summary>") {
 		t.Errorf("blocking finding has no ID:\n%s", out)
 	}
-	if !strings.Contains(out, "**Rename** `12345678`\n") {
+	if !strings.Contains(out, " · id <code>12345678</code></summary>") {
 		t.Errorf("suggestion has no ID:\n%s", out)
 	}
-	if !strings.Contains(out, "**No id**\n") {
+	if !strings.Contains(out, "<b>No id</b> · <code>c.go</code></summary>") {
 		t.Errorf("finding without an ID changed:\n%s", out)
 	}
 
@@ -49,21 +49,21 @@ func TestFormat_IDsShown(t *testing.T) {
 	if !strings.Contains(titleOnly, detailsDroppedNote) {
 		t.Fatalf("expected the title-only layout:\n%s", titleOnly)
 	}
-	for _, want := range []string{"**Nil deref** `abcdef11`", "**Rename** `12345678`"} {
+	for _, want := range []string{"<b>Nil deref</b> · <code>a.go:3</code> · id <code>abcdef11</code></summary>", "<b>Rename</b> · <code>b.go:9</code> · id <code>12345678</code></li>\n"} {
 		if !strings.Contains(titleOnly, want) {
 			t.Errorf("title-only layout lacks %q:\n%s", want, titleOnly)
 		}
 	}
 	// With no room for suggestions, the blocking ID stays.
 	noSugg := FormatReviewWithinOptions(results, nil, len(titleOnly)-1, Options{IDs: ids})
-	if !strings.Contains(noSugg, "**Nil deref** `abcdef11`") {
+	if !strings.Contains(noSugg, "<b>Nil deref</b> · <code>a.go:3</code> · id <code>abcdef11</code></summary>") {
 		t.Errorf("no-suggestions layout lacks the blocking ID:\n%s", noSugg)
 	}
 }
 
 func TestFormat_IDCannotBreakLayout(t *testing.T) {
 	out := FormatReviewWithinOptions(idResults(), nil, 0, Options{IDs: map[string]string{"fp-blocking": "a`b\nc"}})
-	if !strings.Contains(out, "**Nil deref** ``"+" a`b c "+"``\n") {
+	if !strings.Contains(out, "<b>Nil deref</b> · <code>a.go:3</code> · id <code>a`b c</code></summary>") {
 		t.Errorf("ID not rendered as a single code span:\n%s", out)
 	}
 }

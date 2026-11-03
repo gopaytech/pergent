@@ -84,27 +84,30 @@ func TestApplyDismissalsVerdictAndInput(t *testing.T) {
 }
 
 func TestDismissedSection(t *testing.T) {
-	skills := ApplyDismissals(dismissSkills(), []Dismissal{
+	skills := ApplyDismissals(dismissSkills()[:1], []Dismissal{
 		{Fingerprint: "aaaaaa111111", Severity: "blocking", By: "alice", Reason: "intended behaviour"},
 		{Fingerprint: "bbbbbb111111", Severity: "suggestion", By: "bob", Reason: "later"},
 	})
 	got := Comment(skills, Options{})
 
 	for _, want := range []string{
-		"\u2705 **No blocking issues** (1 dismissed)\n",
+		"### \u2705 No blocking issues (1 dismissed)\n",
 		"<details><summary>Dismissed (2)</summary>\n\n",
-		"- **Nil deref** `aaaaaa` \u2014 dismissed by alice: intended behaviour\n",
-		"- **Rename** `bbbbbb` \u2014 dismissed by bob: later\n",
+		"- **Nil deref** id `aaaaaa` \u2014 dismissed by alice: intended behaviour\n",
+		"- **Rename** id `bbbbbb` \u2014 dismissed by bob: later\n",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("comment lacks %q:\n%s", want, got)
 		}
 	}
-	if strings.Contains(got, "**`a.go:1`**") {
+	if strings.Contains(got, "<b>Nil deref</b>") || strings.Contains(got, "<code>a.go:1</code>") {
 		t.Errorf("a dismissed finding is shown in full:\n%s", got)
 	}
-	if strings.Contains(got, "<details><summary>Suggestions") {
-		t.Errorf("an empty Suggestions block is shown:\n%s", got)
+	if strings.Contains(got, "#### ") {
+		t.Errorf("an empty findings list is shown:\n%s", got)
+	}
+	if strings.Contains(got, "`aaaaaa`") && !strings.Contains(got, "id `aaaaaa`") {
+		t.Errorf("a finding ID is shown bare:\n%s", got)
 	}
 	// Dismissed findings are not carried to the next run.
 	if strings.Contains(decodeBlock(t, FindingsBlock(skills)), "Nil deref") {
@@ -115,11 +118,11 @@ func TestDismissedSection(t *testing.T) {
 	mixed := ApplyDismissals(dismissSkills(), []Dismissal{{Fingerprint: "bbbbbb111111", Severity: "suggestion", By: "bob"}})
 	mixed[0].Findings = append(mixed[0].Findings, Finding{File: "z.go", Severity: Suggestion, Title: "Other"})
 	text := Comment(mixed, Options{})
-	sug, dis := strings.Index(text, "<summary>Suggestions (1)"), strings.Index(text, "<summary>Dismissed (1)")
+	sug, dis := strings.Index(text, "<b>Other</b>"), strings.Index(text, "<summary>Dismissed (1)")
 	if sug < 0 || dis < sug {
 		t.Errorf("want Suggestions before Dismissed:\n%s", text)
 	}
-	if !strings.Contains(text, "- **Rename** `bbbbbb` \u2014 dismissed by bob\n") {
+	if !strings.Contains(text, "- **Rename** id `bbbbbb` \u2014 dismissed by bob\n") {
 		t.Errorf("a dismissal without a reason:\n%s", text)
 	}
 	if strings.Contains(text, "No blocking issues") {

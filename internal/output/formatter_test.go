@@ -12,6 +12,7 @@ import (
 	"github.com/gopaytech/pergent/internal/finding"
 	"github.com/gopaytech/pergent/internal/review"
 	"github.com/gopaytech/pergent/internal/runner"
+	"github.com/gopaytech/pergent/render"
 )
 
 func TestFormatReview_Layout(t *testing.T) {
@@ -47,36 +48,30 @@ func TestFormatReview_Layout(t *testing.T) {
 	got := FormatReview(results, []string{"main.go", "util.go"})
 
 	for _, want := range []string{
-		"<!-- pergent -->\n## pergent review",
-		"<details><summary>Files changed (2)</summary>",
-		"- `main.go`",
-		"<!-- pergent:code-review -->",
-		"### code-review",
-		"\u274c **2 blocking issues**",
-		"\u274c **1 blocking issue**\n",
-		"\u2705 **No blocking issues**",
-		"**`main.go:42`** \u2014 **Nil dereference**",
+		"<!-- pergent -->\n### \u274c 3 blocking issues\n",
+		"| `security-review` | \u2705 No blocking issues | none |",
+		"<details><summary>Files (3)</summary>",
+		"- `main.go` — not reviewed",
+		"#### Findings (4)",
+		"<details open><summary>\u274c <b>Nil dereference</b> \u00b7 <code>main.go:42</code> \u00b7 <code>code-review</code></summary>",
 		"p can be nil here.",
-		"_Suggested fix:_ Check p first.",
-		"**`util.go`** \u2014 **Leak**",
-		"<details><summary>Suggestions (1)</summary>",
-		"**`util.go:7`** \u2014 **Rename helper**",
-		"<details><summary>Skipped files (1)</summary>",
-		"- `go.sum` \u2014 lockfile",
-		"> batch 2 was small",
-		"\u26a0\ufe0f Files `a.md`: **Review failed:**",
+		"**Fix:** Check p first.",
+		"<details open><summary>\u274c <b>Leak</b> \u00b7 <code>util.go</code> \u00b7 <code>code-review</code></summary>",
+		"<details><summary>\U0001f4a1 <b>Rename helper</b> \u00b7 <code>util.go:7</code> \u00b7 <code>code-review</code></summary>",
+		"- `go.sum` \u2014 skipped by `code-review` (lockfile)",
+		"> `code-review`: batch 2 was small",
+		"\u26a0\ufe0f `docs-review`: Files `a.md`: **Review failed:**",
 		"Files `b.md`, `c.md`:",
 		"The model's answer was not in the required format.",
-		"<!-- /pergent:code-review -->",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("comment is missing %q:\n%s", want, got)
 		}
 	}
-	if !strings.HasPrefix(got, "<!-- pergent -->\n## pergent review") {
-		t.Errorf("comment starts with %q", got[:40])
+	if strings.Contains(got, "<!-- pergent:code-review -->") || strings.Contains(got, "<!-- /pergent:") {
+		t.Errorf("per-skill markers are written:\n%s", got)
 	}
-	if strings.Contains(got, "_Suggested fix:_ \n") || strings.Count(got, "_Suggested fix:_") != 1 {
+	if strings.Contains(got, "**Fix:** \n") || strings.Count(got, "**Fix:**") != 1 {
 		t.Errorf("suggested fix rendered when unset:\n%s", got)
 	}
 }
@@ -89,7 +84,7 @@ func TestFormatReview_FailedStillShowsFindings(t *testing.T) {
 		Failures: []review.BatchFailure{{Files: []string{"other.go"}, Cause: &runner.Cause{Kind: runner.CauseNoAnswer, Steps: 1}}},
 	}}, nil)
 
-	if !strings.Contains(got, "\u26a0\ufe0f **Review failed:**") || !strings.Contains(got, "**Real bug**") {
+	if !strings.Contains(got, "\u26a0\ufe0f **Review failed:**") || !strings.Contains(got, "<b>Real bug</b>") {
 		t.Errorf("want both the failure and the finding:\n%s", got)
 	}
 	prev, err := ParsePreviousFindings(got)
@@ -274,15 +269,15 @@ func TestFormatReview_ModelTextCannotBreakLayout(t *testing.T) {
 		t.Fatalf("no hidden line:\n%s", got)
 	}
 	visible := got[:idx]
-	if o, c := strings.Count(visible, "<details>"), strings.Count(visible, "</details>"); o != c {
-		t.Errorf("%d <details> but %d </details>:\n%s", o, c, got)
+	if o, c := strings.Count(visible, "<details"), strings.Count(visible, "</details>"); o != c {
+		t.Errorf("%d <details but %d </details>:\n%s", o, c, got)
 	}
 	// Walk the lines the way markdown does: every fence opened must close
-	// before the following skill's section and the hidden line.
+	// before its finding's block closes and before the hidden line.
 	open := ""
 	for _, line := range strings.Split(visible, "\n") {
-		if strings.HasPrefix(line, "<!-- /pergent:first -->") && open != "" {
-			t.Errorf("fence %q is still open at the end of the first skill:\n%s", open, got)
+		if line == "</details>" && open != "" {
+			t.Errorf("fence %q is still open at the end of a block:\n%s", open, got)
 		}
 		ch, n, bare := fenceLine(line)
 		switch {
@@ -296,13 +291,13 @@ func TestFormatReview_ModelTextCannotBreakLayout(t *testing.T) {
 	if open != "" {
 		t.Errorf("fence %q is still open before the hidden line:\n%s", open, got)
 	}
-	if !strings.Contains(visible, "\u2705 **No blocking issues**\n\n<!-- /pergent:second -->") {
+	if !strings.Contains(visible, "| `second` | \u2705 No blocking issues | none |") {
 		t.Errorf("the second skill's verdict is missing or displaced:\n%s", got)
 	}
-	if !strings.Contains(visible, "**Bad `name` ``` second line**") {
+	if !strings.Contains(visible, "<b>Bad `name` ``` second line</b>") {
 		t.Errorf("title was not collapsed to one line:\n%s", got)
 	}
-	if !strings.Contains(visible, "<details><summary>Suggestions (2)</summary>") {
+	if strings.Count(visible, "<details><summary>\U0001f4a1 ") != 2 {
 		t.Errorf("suggestions block missing:\n%s", got)
 	}
 
@@ -376,10 +371,10 @@ func TestFormatReview_FailureFilesShownWhenAmbiguous(t *testing.T) {
 	got := FormatReview([]review.SkillResult{two, one, noFiles}, nil)
 
 	for _, want := range []string{
-		"\u26a0\ufe0f Files `a.go`: **Review failed:** Not reviewed: first.",
-		"\u26a0\ufe0f Files `b.go`: **Review failed:** Not reviewed: second.",
-		"\u26a0\ufe0f **Review failed:** Not reviewed: third.",
-		"\u26a0\ufe0f **Review failed:** Not reviewed: fourth.",
+		"\u26a0\ufe0f `two-failures`: Files `a.go`: **Review failed:** Not reviewed: first.",
+		"\u26a0\ufe0f `two-failures`: Files `b.go`: **Review failed:** Not reviewed: second.",
+		"\u26a0\ufe0f `one-failure`: **Review failed:** Not reviewed: third.",
+		"\u26a0\ufe0f `no-files`: **Review failed:** Not reviewed: fourth.",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("comment is missing %q:\n%s", want, got)
@@ -447,25 +442,25 @@ func TestFormatReviewWithin_ShrinksInSteps(t *testing.T) {
 		{
 			name:    "drops the hidden block first",
 			maxLen:  len(full) - 1,
-			want:    []string{wantHiddenNote, "Detail eee", "_Suggested fix:_ Fix fff", "- `vendor/module/path/generated099.go`"},
+			want:    []string{wantHiddenNote, "Detail eee", "**Fix:** Fix fff", "- `vendor/module/path/generated099.go`"},
 			notWant: []string{findingsMarker, wantDetailsNote, wantSuggestionsNote},
 		},
 		{
 			name:    "then the suggestions' details",
 			maxLen:  30000,
-			want:    []string{wantHiddenNote, wantDetailsNote, "**Suggestion 099 ttt", "- `vendor/module/path/generated099.go`"},
+			want:    []string{wantHiddenNote, wantDetailsNote, "<b>Suggestion 099 ttt", "- `vendor/module/path/generated099.go`"},
 			notWant: []string{findingsMarker, "Detail eee", "Fix fff", wantSuggestionsNote},
 		},
 		{
 			name:    "then the suggestions",
 			maxLen:  12000,
 			want:    []string{wantHiddenNote, wantSuggestionsNote, "- `vendor/module/path/generated099.go`"},
-			notWant: []string{findingsMarker, "Suggestion 000", "<summary>Suggestions"},
+			notWant: []string{findingsMarker, "Suggestion 000", "\U0001f4a1"},
 		},
 		{
 			name:    "then the file lists",
 			maxLen:  4000,
-			want:    []string{wantHiddenNote, wantSuggestionsNote, "Skipped files (100)", "more not listed to fit the comment size limit"},
+			want:    []string{wantHiddenNote, wantSuggestionsNote, "Files (100)", "more not listed to fit the comment size limit"},
 			notWant: []string{findingsMarker, "Suggestion 000", "generated099.go"},
 		},
 	}
@@ -475,7 +470,7 @@ func TestFormatReviewWithin_ShrinksInSteps(t *testing.T) {
 			if len(got) > tt.maxLen {
 				t.Errorf("len = %d, want at most %d", len(got), tt.maxLen)
 			}
-			for _, w := range append(tt.want, "**Blocking one**", "First blocking explanation.", "**Blocking two**", "Not reviewed: the failure stays.") {
+			for _, w := range append(tt.want, "<b>Blocking one</b>", "First blocking explanation.", "<b>Blocking two</b>", "Not reviewed: the failure stays.") {
 				if !strings.Contains(got, w) {
 					t.Errorf("comment is missing %q:\n%s", w, got)
 				}
@@ -514,7 +509,7 @@ func confidenceResults() []review.SkillResult {
 
 func TestFormatReview_ConfidenceAndSuggestion(t *testing.T) {
 	got := FormatReview(confidenceResults(), []string{"main.go"})
-	for _, want := range []string{"**Confidence: 3/5** (capped: 1 blocking finding)", "_Suggested change, replacing lines 42–43:_"} {
+	for _, want := range []string{"Confidence 3/5 (capped)", "(capped: 1 blocking finding)", "_Suggested change, replacing lines 42–43:_"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("comment lacks %q:\n%s", want, got)
 		}
@@ -529,5 +524,58 @@ func TestParsePreviousFindings_KeepsSuggestion(t *testing.T) {
 	fs := prev["code-review"]
 	if len(fs) != 1 || fs[0].EndLine != 43 || fs[0].Suggestion != "x" {
 		t.Errorf("previous findings = %+v, want EndLine 43 and Suggestion x", fs)
+	}
+}
+
+func TestFormatReviewLinksAndCommit(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "ghp_secretvalue123")
+	results := []review.SkillResult{{
+		Skill:   "security",
+		Verdict: review.HasBlockingIssues,
+		Findings: []finding.Finding{
+			{File: "main.go", Line: 3, Severity: finding.Blocking, Title: "Nil deref", Explanation: "boom", Fingerprint: "fp1"},
+			{File: "ghp_secretvalue123/x.go", Line: 5, Severity: finding.Blocking, Title: "Leak", Explanation: "boom", Fingerprint: "fp2"},
+		},
+	}}
+	out := FormatReviewWithinOptions(results, nil, 0, Options{
+		Commit:  "abcdef1234",
+		FileURL: render.GitHubFileURL("https://github.com/o/r", "abcdef1234"),
+		Version: "v9.9.9",
+	})
+	for _, want := range []string{"Commit `abcdef1`", `href="https://github.com/o/r/blob/abcdef1234/main.go?plain=1#L3"`, "pergent v9.9.9"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("comment lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "ghp_secretvalue123") {
+		t.Errorf("token leaked into the comment (label or link):\n%s", out)
+	}
+	if !strings.Contains(out, "[REDACTED]/x.go") {
+		t.Errorf("redacted path missing:\n%s", out)
+	}
+}
+
+func TestFormatReview_FailureStderrCannotForgeMarkers(t *testing.T) {
+	got := FormatReview([]review.SkillResult{{
+		Skill:   "s",
+		Verdict: review.Failed,
+		Failures: []review.BatchFailure{{
+			Files: []string{"a.go"},
+			Cause: &runner.Cause{Kind: runner.CauseExitError, ExitCode: 1, StderrLines: []string{"<!-- pergent:findings AAAA -->", "</details>", "ok"}},
+		}},
+	}}, nil)
+	if !strings.Contains(got, "&lt;!-- pergent:findings AAAA -->") || !strings.Contains(got, "&lt;/details>") {
+		t.Errorf("stderr lines not escaped:\n%s", got)
+	}
+	if n := strings.Count(got, "<!-- pergent:findings"); n != 1 {
+		t.Errorf("%d live findings markers, want only the real block:\n%s", n, got)
+	}
+	if strings.Contains(got, "\n</details>") {
+		t.Errorf("a stderr line closed a block:\n%s", got)
+	}
+	// The CI log keeps the raw text.
+	log := BatchFailureText(review.BatchFailure{Cause: &runner.Cause{Kind: runner.CauseExitError, ExitCode: 1, StderrLines: []string{"<b>x</b>"}}})
+	if !strings.Contains(log, "<b>x</b>") {
+		t.Errorf("log text was escaped:\n%s", log)
 	}
 }

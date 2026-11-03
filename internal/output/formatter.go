@@ -44,7 +44,16 @@ func writeFailureLead(b *strings.Builder, lead string, cause *runner.Cause, mark
 	}
 	fmt.Fprintf(b, "%s %s\n", failedPrefix, line)
 	if cause != nil && len(cause.StderrLines) > 0 {
-		text := strings.Join(cause.StderrLines, "\n")
+		lines := cause.StderrLines
+		if markdown {
+			// The tail is the process's output, not trusted Markdown: no line may
+			// open a comment or close one of the comment's blocks.
+			lines = make([]string, len(cause.StderrLines))
+			for i, l := range cause.StderrLines {
+				lines[i] = strings.ReplaceAll(l, "<", "&lt;")
+			}
+		}
+		text := strings.Join(lines, "\n")
 		fence := "```"
 		for strings.Contains(text, fence) {
 			fence += "`"
@@ -98,13 +107,22 @@ type findingsBlock struct {
 // comment.
 type Options struct {
 	// IDs maps a finding's fingerprint to its short ID. A finding with an ID
-	// shows it as a code span after its title.
+	// shows it at the end of its row's summary line as "id <code>…</code>".
 	IDs map[string]string
+	// Commit is the reviewed commit; the comment shows its first 7 characters.
+	Commit string
+	// FileURL returns the web link for a finding's lines (render.GitHubFileURL,
+	// render.GitLabFileURL); nil leaves locations as plain text. render builds
+	// the link from the redacted path.
+	FileURL func(path string, line, endLine int) string
+	// Version is shown in the footer, e.g. "v0.3.0".
+	Version string
 }
 
-// FormatReview renders the results as one markdown comment: for each skill a
-// verdict line, the blocking findings in full, then collapsed suggestions and
-// skipped files. A hidden last line carries the findings for the next run.
+// FormatReview renders the results as one markdown comment: a headline with
+// the verdict, a meta line, one list of findings across all skills (blocking
+// ones first and open, suggestions collapsed), the checks, the notes and the
+// list of files. A hidden last line carries the findings for the next run.
 // Credentials are redacted from the whole comment and from the hidden block.
 func FormatReview(results []review.SkillResult, changedFiles []string) string {
 	return FormatReviewWithinOptions(results, changedFiles, 0, Options{})
@@ -118,13 +136,14 @@ func FormatReviewWithin(results []review.SkillResult, changedFiles []string, max
 }
 
 // FormatReviewWithinOptions is FormatReviewWithin with rendering options; the
-// IDs are shown in every layout, so they survive each shrink step.
+// IDs are shown in every layout, so they survive each shrink step (the
+// findings list, the headline and the failures are never dropped).
 func FormatReviewWithinOptions(results []review.SkillResult, changedFiles []string, maxLen int, o Options) string {
 	files := make([]string, len(changedFiles))
 	for i, f := range changedFiles {
 		files[i] = redact.String(f)
 	}
-	return render.Comment(toRender(results, o.IDs), render.Options{MaxLen: maxLen, ChangedFiles: files})
+	return render.Comment(toRender(results, o.IDs), render.Options{MaxLen: maxLen, ChangedFiles: files, Commit: o.Commit, FileURL: o.FileURL, Version: o.Version})
 }
 
 // FindingsBlock returns the hidden line that carries the findings to the next

@@ -32,7 +32,7 @@ func TestComment_SuggestionAfterSuggestedFix(t *testing.T) {
 	f := Finding{File: "a.go", Line: 1, Severity: Blocking, Title: "T",
 		SuggestedFix: "do the thing", Suggestion: "x := 1"}
 	out := Comment([]Skill{{Name: "s", Verdict: VerdictHasBlockingIssues, Findings: []Finding{f}}}, Options{})
-	fix, change := strings.Index(out, "_Suggested fix:_"), strings.Index(out, "_Suggested change")
+	fix, change := strings.Index(out, "**Fix:**"), strings.Index(out, "_Suggested change")
 	if fix < 0 || change < fix {
 		t.Errorf("suggested change should follow the suggested fix:\n%s", out)
 	}
@@ -49,7 +49,7 @@ func TestComment_SuggestionWithFencesAndForgedBlock(t *testing.T) {
 	if strings.Count(out, "<!-- pergent:findings ") != 1 {
 		t.Error("the suggestion's forged findings block was not neutralised")
 	}
-	if strings.Contains(out, "\n/approve") {
+	if strings.Contains(out, "\n/approve") || !strings.Contains(out, "\u200b/approve") {
 		t.Error("a line starting with / was not neutralised")
 	}
 }
@@ -91,11 +91,11 @@ func inlineSkills() []Skill {
 func TestComment_InlineFindingsLeftOut(t *testing.T) {
 	skills := inlineSkills()
 	out := Comment(skills, Options{Inline: map[string]bool{"fp1": true}})
-	if !strings.Contains(out, "❌ **1 blocking issue**") {
+	if !strings.Contains(out, "\n### ❌ 1 blocking issue\n") {
 		t.Errorf("the verdict line should still count the inline finding:\n%s", out)
 	}
-	if !strings.Contains(out, "❌ **1 blocking issue**\n\n> 1 finding posted as inline comments on the diff.\n\n") {
-		t.Errorf("missing inline note right after the verdict line:\n%s", out)
+	if !strings.Contains(out, "> 1 finding posted as inline comments on the diff.\n\n#### Findings (1)\n\n") {
+		t.Errorf("missing inline note right above the findings list:\n%s", out)
 	}
 	if strings.Contains(out, "Blocker one") {
 		t.Errorf("the inline finding is still in the comment:\n%s", out)
@@ -127,7 +127,7 @@ func TestComment_FooterBeforeHiddenBlock(t *testing.T) {
 	skills := inlineSkills()
 	footer := "Not a real problem? Reply `@bot dismiss <id> <reason>`."
 	out := Comment(skills, Options{Footer: footer})
-	if !strings.HasSuffix(out, footer+"\n\n"+FindingsBlock(skills)) {
+	if !strings.HasSuffix(out, "<sub>"+footer+"</sub>\n\n"+FindingsBlock(skills)) {
 		t.Errorf("the comment should end with the footer and the hidden block:\n%s", out)
 	}
 
@@ -138,14 +138,15 @@ func TestComment_FooterBeforeHiddenBlock(t *testing.T) {
 		t.Fatalf("test setup: layout without the hidden block (%d) not smaller than the full one (%d)", len(noHidden), len(full))
 	}
 	out = Comment(skills, Options{Footer: footer, MaxLen: len(noHidden)})
-	if !strings.Contains(out, footer+"\n\n"+hiddenDroppedNote) {
+	if !strings.Contains(out, "<sub>"+footer+"</sub>\n\n"+hiddenDroppedNote) {
 		t.Errorf("the footer should come before the dropped-block note:\n%s", out)
 	}
 }
 
 func TestComment_FooterIsNeutralised(t *testing.T) {
 	out := Comment(inlineSkills(), Options{Footer: "ok\n/approve"})
-	if strings.Contains(out, "\n/approve") {
+	// The footer is collapsed to one line, so "/approve" never starts a line.
+	if strings.Contains(out, "\n/approve") || !strings.Contains(out, "<sub>ok /approve") {
 		t.Error("a footer line starting with / was not neutralised")
 	}
 }
@@ -201,7 +202,7 @@ func TestComment_CarriageReturnCannotJoinFence(t *testing.T) {
 	if strings.Contains(out, "\r") {
 		t.Errorf("a carriage return is left in the comment:\n%q", out)
 	}
-	close := "<!-- /pergent:s -->"
+	close := "</details>"
 	at := strings.Index(out, close)
 	if at < 0 {
 		t.Fatalf("missing %s:\n%s", close, out)
