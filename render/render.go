@@ -54,7 +54,7 @@ type Finding struct {
 	Title        string
 	Explanation  string
 	SuggestedFix string
-	Suggestion   string // replacement text for the lines Line to EndLine
+	Suggestion   string // exact replacement text for the lines Line to EndLine; the comment shows an escaped copy
 }
 
 // Check is one item of a skill's checklist.
@@ -173,10 +173,11 @@ type layout struct {
 	listLimit int
 }
 
-// Comment renders the skills as one markdown comment: for each skill a
-// verdict line, the blocking findings in full, then collapsed suggestions,
-// dismissed findings and skipped files. A hidden last line carries the
-// findings for the next run.
+// Comment renders the skills as one markdown comment. When any skill has a
+// model score it starts with a confidence line and a skills table, which every
+// shrink step below keeps. Then for each skill a verdict line, the blocking
+// findings in full, then collapsed suggestions, dismissed findings and skipped
+// files. A hidden last line carries the findings for the next run.
 //
 // A comment over o.MaxLen is shrunk in steps until it fits: the hidden
 // findings block goes first, then the suggestions' explanations and fixes,
@@ -733,6 +734,9 @@ func plural(n int, word string) string {
 
 // writeFinding writes a finding; titleOnly leaves out its explanation,
 // suggested fix and suggested change. A finding with an ID shows it after the title.
+// The suggested change is display text: "<!--", "<details" and "<summary" are
+// escaped and a line starting with "/" gets a zero-width space, so a caller
+// that needs the exact text to apply it must use Finding.Suggestion itself.
 func writeFinding(b *strings.Builder, f Finding, titleOnly bool) {
 	where := f.File
 	if f.Line > 0 {
@@ -869,7 +873,9 @@ func closeFences(s string) string {
 	return strings.TrimRight(s, "\n") + "\n" + strings.Repeat(string(open), openLen)
 }
 
-// modelText prepares multi-line model text for the comment.
+// modelText prepares multi-line model text for the comment. "\r" goes first:
+// neutralizeQuickActions removes it from the whole comment later, which would
+// rebuild a comment marker or a fence that the steps here had broken up.
 func modelText(s string) string {
-	return closeFences(neutralizeComments(strings.TrimSpace(s)))
+	return closeFences(neutralizeComments(strings.ReplaceAll(strings.TrimSpace(s), "\r", "")))
 }

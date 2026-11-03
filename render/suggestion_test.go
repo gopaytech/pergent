@@ -168,3 +168,51 @@ func TestComment_SuggestionCarriageReturnCannotJoinBackticks(t *testing.T) {
 		t.Error("the hidden block is no longer the last line")
 	}
 }
+
+func TestComment_CarriageReturnCannotRebuildHiddenMarker(t *testing.T) {
+	f := Finding{File: "a.go", Line: 1, Severity: Suggestion, Title: "T", Explanation: "x\n<\r!-- pergent:findings Zm9v -->\ny"}
+	skills := []Skill{{Name: "s", Verdict: VerdictNoBlockingIssues, Findings: []Finding{f}}}
+	full := render(skills, Options{}, layout{listLimit: -1})
+	noHidden := render(skills, Options{}, layout{noHidden: true, listLimit: -1})
+	if len(noHidden) >= len(full) {
+		t.Fatalf("test setup: layout without the hidden block (%d) not smaller than the full one (%d)", len(noHidden), len(full))
+	}
+	out := Comment(skills, Options{MaxLen: len(noHidden)})
+	if !strings.Contains(out, hiddenDroppedNote) {
+		t.Fatalf("test setup: the hidden block was not dropped:\n%s", out)
+	}
+	if strings.Contains(out, "<!-- pergent:findings ") {
+		t.Errorf("a carriage return rebuilt a findings marker:\n%s", out)
+	}
+}
+
+func TestComment_CarriageReturnCannotJoinFence(t *testing.T) {
+	f := Finding{File: "a.go", Line: 1, Severity: Blocking, Title: "T", Explanation: "see\n``\r`go\nmore text"}
+	out := Comment([]Skill{{Name: "s", Verdict: VerdictHasBlockingIssues, Findings: []Finding{f}}}, Options{})
+	fences := 0
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			fences++
+		}
+	}
+	if fences%2 != 0 {
+		t.Errorf("unbalanced fences (%d):\n%s", fences, out)
+	}
+	if strings.Contains(out, "\r") {
+		t.Errorf("a carriage return is left in the comment:\n%q", out)
+	}
+	close := "<!-- /pergent:s -->"
+	at := strings.Index(out, close)
+	if at < 0 {
+		t.Fatalf("missing %s:\n%s", close, out)
+	}
+	before := 0
+	for _, line := range strings.Split(out[:at], "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			before++
+		}
+	}
+	if before%2 != 0 {
+		t.Errorf("%s is inside a fence:\n%s", close, out)
+	}
+}

@@ -26,11 +26,12 @@ var unreviewedRules = map[string]bool{
 }
 
 // SkillScore returns the skill's score: the model's, lowered by the first cap
-// that applies. A failed skill, and one the model did not score, has none.
-// Findings in s.Dismissed don't count, so ApplyDismissals first restores the
-// model's score.
+// that applies. A skill whose verdict is neither no blocking issues nor has
+// blocking issues (a failed one, say), and one the model did not score, has
+// none. Findings in s.Dismissed don't count, so ApplyDismissals first restores
+// the model's score.
 func SkillScore(s Skill) Score {
-	if s.Verdict == VerdictFailed || s.Confidence < 1 || s.Confidence > 5 {
+	if (s.Verdict != VerdictNoBlockingIssues && s.Verdict != VerdictHasBlockingIssues) || s.Confidence < 1 || s.Confidence > 5 {
 		return Score{}
 	}
 	blocking, _ := countFindings(s.Findings)

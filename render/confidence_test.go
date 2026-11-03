@@ -18,6 +18,7 @@ func TestSkillScore(t *testing.T) {
 		{"not scored", Skill{Verdict: VerdictNoBlockingIssues}, Score{}},
 		{"out of range", Skill{Verdict: VerdictNoBlockingIssues, Confidence: 9}, Score{}},
 		{"failed", Skill{Verdict: VerdictFailed, Confidence: 5}, Score{}},
+		{"empty verdict", Skill{Confidence: 5}, Score{}},
 		{"blocking caps at 3", Skill{Verdict: VerdictHasBlockingIssues, Confidence: 5, Findings: []Finding{blocking}}, Score{3, "1 blocking finding"}},
 		{"two blocking", Skill{Verdict: VerdictHasBlockingIssues, Confidence: 4, Findings: []Finding{blocking, blocking}}, Score{3, "2 blocking findings"}},
 		{"blocking under cap", Skill{Verdict: VerdictHasBlockingIssues, Confidence: 2, Findings: []Finding{blocking}}, Score{2, ""}},
