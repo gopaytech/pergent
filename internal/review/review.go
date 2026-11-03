@@ -97,8 +97,9 @@ type SkillResult struct {
 	// Checks are the checklist results of the batches that finished, in
 	// batch order. Batches that reported no checks are left out.
 	Checks []BatchChecks
-	// Confidence is the model's own score (1-5) for how well it could review
-	// the skill's files: the lowest among the batches that finished. 0 means
+	// Confidence is the model's own score (1-5) for how safe the change is to
+	// merge, judged from what it reviewed: the lowest among the batches that
+	// finished. 0 means
 	// not scored: no batch finished, or a finished batch gave no score.
 	Confidence int
 	// ConfidenceReason is the reason the model gave for that lowest score.

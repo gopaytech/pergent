@@ -291,12 +291,17 @@ pergent appends its own output-format instructions to every skill: the model mus
 
 ## 💬 The review comment
 
-pergent posts one comment per PR/MR, updated in place on each run. It starts with a collapsed list of the changed files, then has one section per skill:
+pergent posts one comment per PR/MR, updated in place on each run. It starts with a collapsed list of the changed files, then has one section per skill.
+
+When the model scored the review, the comment opens with a confidence line (`**Confidence: 3/5**`, with the model's reason) and a skills table (skill, verdict, confidence, findings). The score is the model's own judgement of how safe the change is to merge, from what it reviewed. It is the lowest score among a skill's finished batches, and pergent caps it: a blocking finding caps it at 3, and a file skipped as deleted, binary, vendored, a lockfile or generated caps it at 4. A skill that failed is not scored. It is information only: it never changes a verdict. A review the model did not score has no such line.
+
+Each skill section has:
 
 - a verdict line first: `No blocking issues`, `N blocking issues`, or a warning that part of the review failed (and which files it did not cover)
 - the model's summary of what it checked and concluded, written even when it found nothing: a `Summary:` line, or one bullet per batch (`Batch N of M`) for a batched review
 - the checks, when the skill has a checklist: a count line (`Checks: 14 passed · 1 failed · 2 n/a`) and one table per checklist section (✅ pass, ❌ fail, ➖ n/a). In a batched review each batch's tables are collapsed, and a batch with a failed check starts open.
 - each blocking finding in full: `file:line`, a title, the explanation and an optional suggested fix
+- for a small fix, the exact replacement code, as a block under the finding (`Suggested change, replacing lines 42–43:`). The model gives it for at most 10 lines; a suggestion that doesn't fit is dropped and the finding is kept
 - the suggestions in a collapsed block
 - the files the skill reviewed, in a collapsed block
 - the skipped files, with the reason for each, in a collapsed block
@@ -327,7 +332,7 @@ A clean review looks like this:
 
 The last line of the comment is a hidden HTML comment holding the findings for the next run (see below). Don't edit it. Secrets are redacted from the comment and from that block.
 
-A comment that would exceed the platform's size limit (65,536 characters on GitHub, 1,000,000 on GitLab) is shrunk to fit rather than failing to post: first the hidden findings block is dropped (the next `--previous-review` run is then a first review), then the suggestions' explanations and fixes, then the suggestions, then the passed and n/a checks, then the check tables (the count line stays), then the summaries, then the file lists are cut to a count. Blocking findings and failures are kept; each step leaves a note in the comment.
+A comment that would exceed the platform's size limit (65,536 characters on GitHub, 1,000,000 on GitLab) is shrunk to fit rather than failing to post: first the hidden findings block is dropped (the next `--previous-review` run is then a first review), then the suggestions' explanations and fixes, then the suggestions, then the passed and n/a checks, then the check tables (the count line stays), then the summaries, then the file lists are cut to a count. The confidence line and the skills table are always kept, as are blocking findings and failures; each step leaves a note in the comment.
 
 ## 🔄 Previous review as context
 
