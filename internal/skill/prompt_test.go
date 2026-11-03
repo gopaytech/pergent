@@ -1,8 +1,11 @@
 package skill
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/gopaytech/pergent/internal/finding"
 )
 
 const defaultBlocking = "Treat these as blocking: bugs, security vulnerabilities, and broken configuration."
@@ -61,5 +64,25 @@ func TestPrompt_BlockingIsNotAChecklist(t *testing.T) {
 	p := Skill{Name: "a", Body: "Review it."}.Prompt()
 	if !strings.Contains(p, "The Blocking section is not a checklist") {
 		t.Error("prompt doesn't say the Blocking section is not a checklist")
+	}
+}
+
+func TestPrompt_AsksForConfidenceAndSuggestion(t *testing.T) {
+	p := Skill{Name: "a", Body: "Review it."}.Prompt()
+	for _, want := range []string{
+		`"confidence": 4`,
+		`"confidence_reason"`,
+		`"end_line": 43`,
+		`"suggestion"`,
+		"how safe this change is to merge, judged only from what you reviewed",
+		"at most 10 lines",
+		"Otherwise describe the fix in `suggested_fix`",
+	} {
+		if !strings.Contains(p, want) {
+			t.Errorf("prompt missing %q", want)
+		}
+	}
+	if !strings.Contains(p, fmt.Sprintf("at most %d lines", finding.MaxSuggestionLines)) {
+		t.Error("prompt's line limit differs from finding.MaxSuggestionLines")
 	}
 }
