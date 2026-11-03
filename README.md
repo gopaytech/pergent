@@ -57,6 +57,8 @@ When `OPENCODE_PROVIDER` is set, pergent writes a temporary `opencode.json` for 
 
 pergent also sets `OPENCODE_DISABLE_PROJECT_CONFIG=true`, so an `opencode.json` or `.opencode/` directory (agents, plugins, commands) in the reviewed branch can't change these permissions or run plugin code while your platform token and LLM key are in the environment. Because that setting also stops opencode from finding `AGENTS.md` / `CLAUDE.md` by itself, pergent passes the root file to opencode explicitly.
 
+Each opencode run also gets its own empty `XDG_DATA_HOME`, removed when the run ends. opencode creates its SQLite database there on first start, and runs started at the same moment in one fresh directory (a new CI container) race on that setup. The losers exit before the model's first step. Your `auth.json`, if you have one, is copied in, so `opencode auth login` still works.
+
 ## 🩺 When a review fails
 
 Each opencode run (one per batch) ends in one of two ways: the model's own final answer, in the required format, is parsed into findings, or the batch is reported as **Review failed:** with the cause and the files it covered. pergent never posts opencode's internal messages or the model's in-progress text ("Let me check...") as a review. A skill with any failed batch has the verdict **failed**, never "no blocking issues", even if the other batches found nothing.

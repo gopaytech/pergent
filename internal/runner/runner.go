@@ -185,7 +185,12 @@ func runAttempt(ctx context.Context, opts Options) attempt {
 	defer stop()
 	cmd := BuildCommand(runCtx, opts.ConfigPath, opts.Files, opts.Message, opts.RepoPath)
 
-	cmd.Env = withoutEnv(cmd.Env, opts.ExcludeEnv)
+	dataDir, err := newDataDir()
+	if err != nil {
+		return attempt{runErr: err}
+	}
+	defer os.RemoveAll(dataDir)
+	cmd.Env = append(withoutEnv(cmd.Env, append([]string{"XDG_DATA_HOME"}, opts.ExcludeEnv...)), "XDG_DATA_HOME="+dataDir)
 
 	pw := &progressWriter{buf: &bytes.Buffer{}, w: os.Stderr, prefix: opts.logPrefix()}
 	if opts.StepLimit > 0 {
@@ -203,7 +208,7 @@ func runAttempt(ctx context.Context, opts Options) attempt {
 	cmd.Stdout = pw
 	cmd.Stderr = io.MultiWriter(passthrough, stderr)
 
-	err := cmd.Run()
+	err = cmd.Run()
 	passthrough.Flush()
 
 	if debugFile := os.Getenv("PERGENT_DEBUG_OUTPUT"); debugFile != "" {
@@ -224,6 +229,36 @@ func runAttempt(ctx context.Context, opts Options) attempt {
 	}
 	a.transcript.LastToolTarget = relativeTo(opts.RepoPath, a.transcript.LastToolTarget)
 	return a
+}
+
+// newDataDir returns a new, empty directory for one opencode run's
+// XDG_DATA_HOME. opencode keeps its SQLite database there and creates it on
+// first start; runs started at once in a shared, fresh directory (a new CI
+// container) race on that and the losers exit 1 before the first step. The
+// user's auth.json is copied in, so `opencode auth login` keeps working.
+func newDataDir() (string, error) {
+	dir, err := os.MkdirTemp("", "pergent-opencode-data-")
+	if err != nil {
+		return "", fmt.Errorf("creating opencode's data directory: %w", err)
+	}
+	base := os.Getenv("XDG_DATA_HOME")
+	if base == "" {
+		home, _ := os.UserHomeDir()
+		base = filepath.Join(home, ".local", "share")
+	}
+	auth, err := os.ReadFile(filepath.Join(base, "opencode", "auth.json"))
+	if err != nil {
+		return dir, nil
+	}
+	err = os.Mkdir(filepath.Join(dir, "opencode"), 0o700)
+	if err == nil {
+		err = os.WriteFile(filepath.Join(dir, "opencode", "auth.json"), auth, 0o600)
+	}
+	if err != nil {
+		os.RemoveAll(dir)
+		return "", fmt.Errorf("copying opencode's auth.json: %w", err)
+	}
+	return dir, nil
 }
 
 // relativeTo shortens an absolute path inside the repo to a repo-relative one.
