@@ -669,3 +669,15 @@ func TestResolveGitLabHeadAndWebURL(t *testing.T) {
 		t.Errorf("HeadSHA = %q, WebURL = %q", cfg.HeadSHA, cfg.WebURL)
 	}
 }
+
+func TestResolveGitLabHeadPrefersMergeRequestSourceSHA(t *testing.T) {
+	t.Setenv("CI_COMMIT_SHA", "merge-result")
+	t.Setenv("CI_MERGE_REQUEST_SOURCE_BRANCH_SHA", "branch-head")
+	if got := resolveGitLab().HeadSHA; got != "branch-head" {
+		t.Errorf("HeadSHA = %q, want the source branch SHA", got)
+	}
+	t.Setenv("CI_MERGE_REQUEST_SOURCE_BRANCH_SHA", "")
+	if got := resolveGitLab().HeadSHA; got != "merge-result" {
+		t.Errorf("HeadSHA = %q, want CI_COMMIT_SHA", got)
+	}
+}

@@ -45,7 +45,10 @@ type GitLabConfig struct {
 	MRIID      int
 	BaseBranch string
 	DiffBase   string
-	// HeadSHA is the commit the pipeline runs on (CI_COMMIT_SHA).
+	// HeadSHA is the merge request's source branch head
+	// (CI_MERGE_REQUEST_SOURCE_BRANCH_SHA, set in merged-results pipelines,
+	// where CI_COMMIT_SHA is a synthetic merge commit), else the commit the
+	// pipeline runs on (CI_COMMIT_SHA).
 	HeadSHA string
 	// WebURL is the project's web address (CI_PROJECT_URL).
 	WebURL string
@@ -230,6 +233,10 @@ func resolveGitHub() GitHubConfig {
 
 func resolveGitLab() GitLabConfig {
 	mriid, _ := strconv.Atoi(os.Getenv("CI_MERGE_REQUEST_IID"))
+	head := os.Getenv("CI_MERGE_REQUEST_SOURCE_BRANCH_SHA")
+	if head == "" {
+		head = os.Getenv("CI_COMMIT_SHA")
+	}
 	return GitLabConfig{
 		Token:      os.Getenv("GITLAB_TOKEN"),
 		URL:        os.Getenv("CI_SERVER_URL"),
@@ -237,7 +244,7 @@ func resolveGitLab() GitLabConfig {
 		MRIID:      mriid,
 		BaseBranch: os.Getenv("CI_MERGE_REQUEST_TARGET_BRANCH_NAME"),
 		DiffBase:   os.Getenv("CI_MERGE_REQUEST_DIFF_BASE_SHA"),
-		HeadSHA:    os.Getenv("CI_COMMIT_SHA"),
+		HeadSHA:    head,
 		WebURL:     os.Getenv("CI_PROJECT_URL"),
 	}
 }
