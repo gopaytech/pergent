@@ -411,3 +411,75 @@ func TestBuild_FailureTextsHaveNoMarkdown(t *testing.T) {
 		t.Errorf("failure = %q / cause %q, want the text kept without markdown", f[1].Message, f[1].Cause.Message)
 	}
 }
+
+func TestBuild_ConfidenceAndSuggestion(t *testing.T) {
+	f := finding.Finding{
+		File: "x.go", Line: 42, EndLine: 43, Severity: finding.Blocking,
+		Title: "Nil deref", Explanation: "p may be nil", Suggestion: "x",
+		Fingerprint: "a1b2c3d4e5f6",
+	}
+	sr := review.SkillResult{
+		Skill: "s", Verdict: review.HasBlockingIssues,
+		Findings:   []finding.Finding{f},
+		Confidence: 5, ConfidenceReason: "R",
+	}
+	b, err := Encode(Build(testMeta(), []review.SkillResult{sr}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sk := decode(t, b)["skills"].([]any)[0].(map[string]any)
+	// The model's own score, before the cap a blocking finding puts on it.
+	if sk["confidence"] != float64(5) || sk["confidence_reason"] != "R" {
+		t.Errorf("confidence = %v, reason = %v", sk["confidence"], sk["confidence_reason"])
+	}
+	fd := sk["findings"].([]any)[0].(map[string]any)
+	if fd["end_line"] != float64(43) || fd["suggestion"] != "x" {
+		t.Errorf("end_line = %v, suggestion = %v", fd["end_line"], fd["suggestion"])
+	}
+}
+
+func TestBuild_NoConfidenceOmitted(t *testing.T) {
+	f := finding.Finding{
+		File: "x.go", Line: 3, Severity: finding.Blocking,
+		Title: "Nil deref", Explanation: "p may be nil", Fingerprint: "a1b2c3d4e5f6",
+	}
+	sr := review.SkillResult{Skill: "s", Verdict: review.HasBlockingIssues, Findings: []finding.Finding{f}}
+	b, err := Encode(Build(testMeta(), []review.SkillResult{sr}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sk := decode(t, b)["skills"].([]any)[0].(map[string]any)
+	for _, k := range []string{"confidence", "confidence_reason"} {
+		if _, ok := sk[k]; ok {
+			t.Errorf("skill has %q", k)
+		}
+	}
+	fd := sk["findings"].([]any)[0].(map[string]any)
+	for _, k := range []string{"end_line", "suggestion"} {
+		if _, ok := fd[k]; ok {
+			t.Errorf("finding has %q", k)
+		}
+	}
+}
+
+func TestEncode_RedactsConfidenceReasonAndSuggestion(t *testing.T) {
+	const secret = "glpat-secretvalue"
+	t.Setenv("GITLAB_TOKEN", secret)
+	f := finding.Finding{
+		File: "x.go", Line: 3, Severity: finding.Suggestion,
+		Title: "t", Explanation: "e", Suggestion: "tok := \"" + secret + "\"",
+		Fingerprint: "a1b2c3d4e5f6",
+	}
+	sr := review.SkillResult{
+		Skill: "s", Verdict: review.NoBlockingIssues,
+		Findings:   []finding.Finding{f},
+		Confidence: 4, ConfidenceReason: "saw " + secret,
+	}
+	b, err := Encode(Build(testMeta(), []review.SkillResult{sr}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(b, []byte(secret)) {
+		t.Errorf("token leaked: %s", b)
+	}
+}

@@ -54,18 +54,20 @@ type Result struct {
 
 // Skill is one skill's review.
 type Skill struct {
-	Name            string        `json:"name"`
-	Verdict         string        `json:"verdict"`
-	Findings        []Finding     `json:"findings"`
-	Summaries       []Summary     `json:"summaries,omitempty"`
-	Checks          []BatchChecks `json:"checks,omitempty"`
-	Files           Files         `json:"files"`
-	Failures        []Failure     `json:"failures"`
-	Notes           []string      `json:"notes"`
-	Batches         int           `json:"batches"`
-	BatchesFinished int           `json:"batches_finished"`
-	DurationSeconds float64       `json:"duration_seconds"`
-	Tokens          Tokens        `json:"tokens"`
+	Name             string        `json:"name"`
+	Verdict          string        `json:"verdict"`
+	Confidence       int           `json:"confidence,omitempty"`
+	ConfidenceReason string        `json:"confidence_reason,omitempty"`
+	Findings         []Finding     `json:"findings"`
+	Summaries        []Summary     `json:"summaries,omitempty"`
+	Checks           []BatchChecks `json:"checks,omitempty"`
+	Files            Files         `json:"files"`
+	Failures         []Failure     `json:"failures"`
+	Notes            []string      `json:"notes"`
+	Batches          int           `json:"batches"`
+	BatchesFinished  int           `json:"batches_finished"`
+	DurationSeconds  float64       `json:"duration_seconds"`
+	Tokens           Tokens        `json:"tokens"`
 }
 
 // Finding is a finding with its short ID.
@@ -74,10 +76,12 @@ type Finding struct {
 	Fingerprint  string `json:"fingerprint"`
 	File         string `json:"file"`
 	Line         int    `json:"line,omitempty"`
+	EndLine      int    `json:"end_line,omitempty"`
 	Severity     string `json:"severity"`
 	Title        string `json:"title"`
 	Explanation  string `json:"explanation"`
 	SuggestedFix string `json:"suggested_fix,omitempty"`
+	Suggestion   string `json:"suggestion,omitempty"`
 }
 
 // Summary is the model's summary of one batch.
@@ -198,16 +202,18 @@ func baseResult(meta Meta, status string) Result {
 
 func buildSkill(s review.SkillResult, ids map[string]string) Skill {
 	out := Skill{
-		Name:            s.Skill,
-		Verdict:         string(s.Verdict),
-		Findings:        make([]Finding, 0, len(s.Findings)),
-		Files:           Files{Reviewed: nonNil(s.Reviewed), Skipped: []Skipped{}, NotReviewed: []NotReviewed{}},
-		Failures:        []Failure{},
-		Notes:           nonNil(s.Notes),
-		Batches:         s.Batches,
-		BatchesFinished: s.BatchesFinished,
-		DurationSeconds: math.Round(s.Duration.Seconds()*10) / 10,
-		Tokens:          Tokens{Input: s.Usage.Input, Output: s.Usage.Output},
+		Name:             s.Skill,
+		Verdict:          string(s.Verdict),
+		Confidence:       s.Confidence,
+		ConfidenceReason: s.ConfidenceReason,
+		Findings:         make([]Finding, 0, len(s.Findings)),
+		Files:            Files{Reviewed: nonNil(s.Reviewed), Skipped: []Skipped{}, NotReviewed: []NotReviewed{}},
+		Failures:         []Failure{},
+		Notes:            nonNil(s.Notes),
+		Batches:          s.Batches,
+		BatchesFinished:  s.BatchesFinished,
+		DurationSeconds:  math.Round(s.Duration.Seconds()*10) / 10,
+		Tokens:           Tokens{Input: s.Usage.Input, Output: s.Usage.Output},
 	}
 	for _, f := range s.Findings {
 		out.Findings = append(out.Findings, buildFinding(f, ids))
@@ -274,10 +280,12 @@ func buildFinding(f finding.Finding, ids map[string]string) Finding {
 		Fingerprint:  f.Fingerprint,
 		File:         f.File,
 		Line:         f.Line,
+		EndLine:      f.EndLine,
 		Severity:     string(f.Severity),
 		Title:        f.Title,
 		Explanation:  f.Explanation,
 		SuggestedFix: f.SuggestedFix,
+		Suggestion:   f.Suggestion,
 	}
 }
 
@@ -348,12 +356,14 @@ func redactResult(r Result) Result {
 
 func redactSkill(s Skill) Skill {
 	s.Name = redact.String(s.Name)
+	s.ConfidenceReason = redact.String(s.ConfidenceReason)
 	findings := make([]Finding, len(s.Findings))
 	for i, f := range s.Findings {
 		f.File = redact.String(f.File)
 		f.Title = redact.String(f.Title)
 		f.Explanation = redact.String(f.Explanation)
 		f.SuggestedFix = redact.String(f.SuggestedFix)
+		f.Suggestion = redact.String(f.Suggestion)
 		findings[i] = f
 	}
 	s.Findings = findings
