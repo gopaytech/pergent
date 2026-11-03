@@ -97,6 +97,12 @@ type SkillResult struct {
 	// Checks are the checklist results of the batches that finished, in
 	// batch order. Batches that reported no checks are left out.
 	Checks []BatchChecks
+	// Confidence is the model's own score (1-5) for how well it could review
+	// the skill's files: the lowest among the batches that finished. 0 means
+	// not scored: no batch finished, or a finished batch gave no score.
+	Confidence int
+	// ConfidenceReason is the reason the model gave for that lowest score.
+	ConfidenceReason string
 	// Usage is the tokens used by every run of the skill: batch, repair,
 	// cross-batch and verification runs.
 	Usage runner.Usage
@@ -231,12 +237,15 @@ func Run(ctx context.Context, req Request) []SkillResult {
 // batchOutcome is one batch's review: its findings, why it was not
 // reviewed, or that its run never started.
 type batchOutcome struct {
-	findings   []finding.Finding
-	summary    string
-	checks     []finding.Check
-	dropped    int
-	failure    *BatchFailure
-	notStarted bool
+	findings []finding.Finding
+	summary  string
+	checks   []finding.Check
+	dropped  int
+	// confidence is the model's score for the batch (1-5; 0 = not scored).
+	confidence       int
+	confidenceReason string
+	failure          *BatchFailure
+	notStarted       bool
 	// usage is the tokens of the batch's runs, whatever their outcome.
 	usage runner.Usage
 }
@@ -294,6 +303,7 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillRes
 	// finished first.
 	var all []finding.Finding
 	var unstarted []string
+	unscored := false
 	for i, o := range outcomes {
 		res.Usage = res.Usage.Add(o.usage)
 		switch {
@@ -306,6 +316,13 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillRes
 		default:
 			res.BatchesFinished++
 			all = append(all, o.findings...)
+			// The skill's score is its lowest batch score, the first on a tie.
+			switch {
+			case o.confidence == 0:
+				unscored = true
+			case res.Confidence == 0 || o.confidence < res.Confidence:
+				res.Confidence, res.ConfidenceReason = o.confidence, o.confidenceReason
+			}
 			if o.summary != "" {
 				res.Summaries = append(res.Summaries, BatchSummary{Batch: i + 1, Text: o.summary})
 			}
@@ -316,6 +333,9 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillRes
 				res.Reviewed = append(res.Reviewed, f.Path)
 			}
 		}
+	}
+	if unscored {
+		res.Confidence, res.ConfidenceReason = 0, ""
 	}
 	if len(unstarted) > 0 {
 		res.Failures = append(res.Failures, BatchFailure{
@@ -436,7 +456,8 @@ func (r *reviewer) reviewBatch(ctx context.Context, s skill.Skill, batch []diff.
 
 // answered is the outcome of a batch whose answer parsed.
 func answered(ans finding.Answer) batchOutcome {
-	return batchOutcome{findings: ans.Findings, summary: ans.Summary, checks: ans.Checks, dropped: ans.ChecksDropped}
+	return batchOutcome{findings: ans.Findings, summary: ans.Summary, checks: ans.Checks, dropped: ans.ChecksDropped,
+		confidence: ans.Confidence, confidenceReason: ans.ConfidenceReason}
 }
 
 // stopReason says why runs can no longer start: the budget ran out, or the
