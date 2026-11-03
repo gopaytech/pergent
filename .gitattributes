@@ -1,0 +1,3 @@
+# Expected test output, rewritten by -update-goldens: GitHub collapses it in
+# diffs and pergent skips it in reviews.
+render/testdata/golden/** linguist-generated=true
