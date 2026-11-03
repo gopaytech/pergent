@@ -9,10 +9,10 @@
 | `second` | ✅ No blocking issues | none |
 | `third` | ✅ No blocking issues | none |
 
-<details><summary>Reviewed files (2)</summary>
+<details><summary>Files (2)</summary>
 
-- `a.go`
-- `b.go`
+- `a.go` — reviewed by `third`
+- `b.go` — reviewed by `third`
 
 </details>
 

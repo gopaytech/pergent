@@ -1,7 +1,7 @@
 <!-- pergent -->
 ### ❌ 1 blocking issue
 
-<sub>2 files · 1 blocking · 2 suggestions</sub>
+<sub>3 files · 1 blocking · 2 suggestions</sub>
 
 | Skill | Verdict | Findings |
 |---|---|---|
@@ -9,7 +9,7 @@
 | `second` | ❌ Has blocking issues | 1 blocking |
 | `sk&lt;!--ill` | ✅ No blocking issues | none |
 
-#### Findings (3)
+#### Findings (1)
 
 <details open><summary>❌ <b>Bad [REDACTED]</b> · <code>a.go:1</code> · <code>second</code></summary>
 
@@ -30,24 +30,16 @@ https://x.example/?key=[REDACTED]&token=[REDACTED]
 
 </details>
 
-> Suggestion details omitted to fit the comment size limit.
+> 2 suggestions omitted to fit the comment size limit.
 
-- 💡 <b>Bad `name` ``` second line</b> · <code>a.go:1</code>
-- 💡 <b>Second</b> · <code>b.go:2</code>
+> `second`: note with &lt;!-- comment --> and newline
+> `second`: token [REDACTED]
 
-<details><summary>Skipped files (1)</summary>
+<details><summary>Files (3)</summary>
 
-- `` x`y.go `` — rule &lt;/details>
-
-</details>
-
-> note with &lt;!-- comment --> and newline
-> token [REDACTED]
-
-<details><summary>Files changed (2)</summary>
-
-- `` we`ird.go ``
-- `[REDACTED].txt`
+- `` we`ird.go `` — not reviewed
+- `[REDACTED].txt` — not reviewed
+- `` x`y.go `` — skipped by `second` (rule &lt;/details>)
 
 </details>
 

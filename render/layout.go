@@ -72,31 +72,11 @@ func writeHeadline(b *strings.Builder, skills []Skill, blocking, dismissed, fail
 	b.WriteString("\n\n")
 }
 
-// metaFileCount is the number of files the review covered: the changed files,
-// or when the caller gave none, the distinct files the skills reviewed.
-func metaFileCount(skills []Skill, o Options) int {
-	if len(o.ChangedFiles) > 0 {
-		return len(o.ChangedFiles)
-	}
-	seen := map[string]bool{}
-	for _, s := range skills {
-		for _, p := range s.Reviewed {
-			seen[p] = true
-		}
-	}
-	return len(seen)
-}
-
 // metaCheckCounts returns the checks that passed and all that passed or
-// failed, over every skill. n/a checks count in neither.
+// failed, counting a check the batches of a skill answered once. n/a checks
+// count in neither. They are the numbers of the checks block.
 func metaCheckCounts(skills []Skill) (passed, total int) {
-	for _, s := range skills {
-		for _, bc := range s.Checks {
-			c := countChecks(bc.Checks)
-			passed += c.pass
-			total += c.pass + c.fail
-		}
-	}
+	passed, total, _ = checkTotals(mergeChecks(skills))
 	return passed, total
 }
 
@@ -263,16 +243,21 @@ func writeFindings(b *strings.Builder, skills []Skill, o Options, l layout) {
 	case l.noSuggestions:
 		fmt.Fprintf(b, "> %s omitted to fit the comment size limit.\n\n", plural(len(suggestions), "suggestion"))
 	case l.suggestionTitles:
-		b.WriteString(detailsDroppedNote + "\n\n")
+		// One HTML block with no blank line inside, so Markdown in a title
+		// stays text.
+		b.WriteString(detailsDroppedNote + "\n\n<ul>\n")
 		for _, r := range suggestions {
-			fmt.Fprintf(b, "- 💡 <b>%s</b> · %s", escapeSummary(r.Title), locationHTML(r.Finding, o))
+			fmt.Fprintf(b, "<li>💡 <b>%s</b> · %s", escapeSummary(r.Title), locationHTML(r.Finding, o))
+			if many {
+				fmt.Fprintf(b, " · <code>%s</code>", escapeSummary(r.skill))
+			}
 			// There is no dismiss line here, so the ID stays to be quoted.
 			if r.ID != "" {
 				fmt.Fprintf(b, " · id <code>%s</code>", escapeSummary(r.ID))
 			}
-			b.WriteString("\n")
+			b.WriteString("</li>\n")
 		}
-		b.WriteString("\n")
+		b.WriteString("</ul>\n\n")
 	default:
 		for _, r := range suggestions {
 			writeFindingRow(b, r, o, many)

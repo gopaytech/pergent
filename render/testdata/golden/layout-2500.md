@@ -1,7 +1,7 @@
 <!-- pergent -->
 ### ❌ 3 blocking issues
 
-<sub>2 files · 3 blocking · 1 suggestion · 1 skill failed</sub>
+<sub>4 files · 3 blocking · 1 suggestion · 1 skill failed</sub>
 
 | Skill | Verdict | Findings |
 |---|---|---|
@@ -49,27 +49,15 @@ foo()
 
 </details>
 
-<details><summary>Reviewed files (2)</summary>
+> `code-review`: batch 2 was small
 
-- `main.go`
-- `util.go`
+<details><summary>Files (4)</summary>
 
-</details>
-
-<details><summary>Skipped files (2)</summary>
-
-- `go.sum` — lockfile
-- `gen/<!--x.go` — generated file
+- `main.go` — reviewed by `code-review`
+- `util.go` — reviewed by `code-review`
+- `go.sum` — skipped by `code-review` (lockfile)
+- `gen/<!--x.go` — skipped by `code-review` (generated file)
 
 </details>
 
-> batch 2 was small
-
-<details><summary>Files changed (2)</summary>
-
-- `main.go`
-- `util.go`
-
-</details>
-
-> Findings were too large to store for the next run; --previous-review will treat the next run as a first review.
+<!-- pergent:findings eyJ2ZXJzaW9uIjoxLCJza2lsbHMiOnsiY29kZS1yZXZpZXciOlt7ImZpbGUiOiJtYWluLmdvIiwibGluZSI6NDIsInNldmVyaXR5IjoiYmxvY2tpbmciLCJ0aXRsZSI6Ik5pbCBkZXJlZmVyZW5jZSIsImV4cGxhbmF0aW9uIjoicCBjYW4gYmUgbmlsIGhlcmUuIiwic3VnZ2VzdGVkX2ZpeCI6IkNoZWNrIHAgZmlyc3QuIiwiZmluZ2VycHJpbnQiOiJhYWFhYWFhYWFhYWEifSx7ImZpbGUiOiJ1dGlsLmdvIiwic2V2ZXJpdHkiOiJibG9ja2luZyIsInRpdGxlIjoiTGVhayIsImV4cGxhbmF0aW9uIjoiVGhlIGZpbGUgaXMgbmV2ZXIgY2xvc2VkLiIsImZpbmdlcnByaW50IjoiYmJiYmJiYmJiYmJiIn0seyJmaWxlIjoidXRpbC5nbyIsImxpbmUiOjcsInNldmVyaXR5Ijoic3VnZ2VzdGlvbiIsInRpdGxlIjoiUmVuYW1lIGhlbHBlciIsImV4cGxhbmF0aW9uIjoiVGhlIG5hbWUgaXMgdW5jbGVhci4iLCJzdWdnZXN0ZWRfZml4IjoiUmVuYW1lIGl0IHRvXG5gYGBnb1xuZm9vKClcbmBgYCIsImZpbmdlcnByaW50IjoiY2NjY2NjY2NjY2NjIn1dLCJkb2NzLXJldmlldyI6W10sIm9uZS1pc3N1ZSI6W3siZmlsZSI6InguZ28iLCJsaW5lIjoxLCJzZXZlcml0eSI6ImJsb2NraW5nIiwidGl0bGUiOiJCYWQiLCJleHBsYW5hdGlvbiI6IlJlYWxseSBiYWQuIn1dLCJzZWN1cml0eS1yZXZpZXciOltdfX0= -->

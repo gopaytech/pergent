@@ -31,18 +31,16 @@ func TestFormatReview_ReviewedFiles(t *testing.T) {
 		Reviewed: []string{"a.go", "b.go"},
 		Skipped:  []diff.Skip{{Path: "go.sum", Rule: "lockfile"}},
 	}}, nil)
-	reviewed := strings.Index(got, "<details><summary>Reviewed files (2)</summary>")
-	skipped := strings.Index(got, "<details><summary>Skipped files (1)</summary>")
-	if reviewed < 0 || skipped < reviewed {
-		t.Errorf("want Reviewed files before Skipped files:\n%s", got)
+	if !strings.Contains(got, "<details><summary>Files (3)</summary>") {
+		t.Errorf("want one Files block:\n%s", got)
 	}
-	if !strings.Contains(got, "- `a.go`\n- `b.go`\n") {
-		t.Errorf("reviewed files not listed:\n%s", got)
+	if !strings.Contains(got, "- `a.go`\n- `b.go`\n- `go.sum` \u2014 skipped: lockfile\n") {
+		t.Errorf("files not listed:\n%s", got)
 	}
 
 	none := FormatReview([]review.SkillResult{{Skill: "s", Verdict: review.NoBlockingIssues}}, nil)
-	if strings.Contains(none, "Reviewed files") {
-		t.Errorf("a skill with no reviewed files shows the block:\n%s", none)
+	if strings.Contains(none, "Files (") {
+		t.Errorf("a skill with no files shows the block:\n%s", none)
 	}
 }
 

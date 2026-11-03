@@ -274,7 +274,7 @@ func TestSuggestionTitlesLayout(t *testing.T) {
 		{File: "b.go", Line: 2, Severity: Suggestion, Title: "S", Explanation: "suggbody"},
 	}}
 	out := render([]Skill{s}, Options{}, layout{noHidden: true, suggestionTitles: true, listLimit: -1})
-	if !strings.Contains(out, detailsDroppedNote+"\n\n- 💡 <b>S</b> · <code>b.go:2</code>\n") || strings.Contains(out, "suggbody") || !strings.Contains(out, "blockbody") {
+	if !strings.Contains(out, detailsDroppedNote+"\n\n<ul>\n<li>💡 <b>S</b> · <code>b.go:2</code></li>\n</ul>\n\n") || strings.Contains(out, "suggbody") || !strings.Contains(out, "blockbody") {
 		t.Errorf("layout:\n%s", out)
 	}
 	out = render([]Skill{s}, Options{}, layout{noHidden: true, noSuggestions: true, listLimit: -1})
@@ -305,5 +305,201 @@ func TestSkillNameStaysInertInHeader(t *testing.T) {
 	}
 	if strings.Contains(got, "</details>") {
 		t.Errorf("a skill name closed a block:\n%s", got)
+	}
+}
+
+func TestChecksFailedAboveCollapsed(t *testing.T) {
+	s := Skill{Name: "s", Verdict: VerdictNoBlockingIssues, Batches: 1, Checks: []BatchChecks{{Batch: 1, Checks: []Check{
+		{Section: "Sec", Name: "good", Status: CheckPass, Detail: "ok"},
+		{Section: "Sec", Name: "bad", Status: CheckFail, Detail: "broken"},
+		{Name: "skip", Status: CheckNA},
+	}}}}
+	got := Comment([]Skill{s}, Options{})
+	failed := strings.Index(got, "**Failed checks (1)**\n\n| Area | Check | Status | Detail |\n|---|---|---|---|\n| Sec | bad | ❌ | broken |\n")
+	details := strings.Index(got, "<details><summary>Checks: 1 of 2 passed, 1 n/a</summary>\n\n")
+	if failed < 0 || details < 0 || failed > details {
+		t.Fatalf("failed table at %d, details at %d:\n%s", failed, details, got)
+	}
+	inside := got[details:]
+	inside = inside[:strings.Index(inside, "</details>")]
+	if strings.Contains(inside, "| bad |") || !strings.Contains(inside, "| Sec | good | ✅ | ok |") || !strings.Contains(inside, "|  | skip | ➖ |  |") {
+		t.Errorf("collapsed block:\n%s", inside)
+	}
+}
+
+func TestChecksMultiSkillAndBatch(t *testing.T) {
+	a := Skill{Name: "a", Verdict: VerdictNoBlockingIssues, Batches: 2, Checks: []BatchChecks{
+		{Batch: 1, Checks: []Check{{Name: "Tests", Status: CheckPass, Detail: "ok"}}},
+		{Batch: 2, Checks: []Check{{Name: "Tests", Status: CheckFail, Detail: "missing"}}},
+	}}
+	b := Skill{Name: "b", Verdict: VerdictNoBlockingIssues, Batches: 1, Checks: []BatchChecks{
+		{Batch: 1, Checks: []Check{{Name: "Tests", Status: CheckPass, Detail: "fine"}}},
+	}}
+	got := Comment([]Skill{a, b}, Options{})
+	if !strings.Contains(got, "| Skill | Area | Check | Status | Detail |\n|---|---|---|---|---|\n") {
+		t.Errorf("no skill column:\n%s", got)
+	}
+	if n := strings.Count(got, "| `a` |  | Tests |"); n != 1 {
+		t.Errorf("%d rows for a:\n%s", n, got)
+	}
+	if !strings.Contains(got, "**Failed checks (1)**\n\n| Skill | Area | Check | Status | Detail |\n|---|---|---|---|---|\n| `a` |  | Tests | ❌ | missing |\n") {
+		t.Errorf("merged failed row:\n%s", got)
+	}
+	if strings.Contains(got, "| ok |") || !strings.Contains(got, "| `b` |  | Tests | ✅ | fine |") {
+		t.Errorf("collapsed rows:\n%s", got)
+	}
+	// One number per fact: the meta line counts merged rows.
+	if !strings.Contains(got, "1 of 2 checks passed") || !strings.Contains(got, "<summary>Checks: 1 of 2 passed</summary>") {
+		t.Errorf("counts:\n%s", got)
+	}
+}
+
+func TestChecksNotes(t *testing.T) {
+	// Two batches fail the same check, neither with findings: one unmatched row.
+	a := Skill{Name: "a", Verdict: VerdictNoBlockingIssues, Batches: 2, Notes: []string{"Verification dropped 1 finding", "plain note"},
+		Checks: []BatchChecks{
+			{Batch: 1, Dropped: 2, Checks: []Check{{Name: "T", Status: CheckFail}}},
+			{Batch: 2, Checks: []Check{{Name: "T", Status: CheckFail}}},
+		}}
+	got := Comment([]Skill{a, cleanSkill("b", 0)}, Options{})
+	want := "> `a`: 1 failed check has no matching finding; the verdict is based on findings.\n" +
+		"> `a`: 2 checks beyond the first 60 per answer were not shown.\n" +
+		"> `a`: Verification dropped 1 finding\n" +
+		"> `a`: plain note\n\n"
+	if !strings.Contains(got, want) {
+		t.Errorf("notes missing:\n%s", got)
+	}
+}
+
+func TestFilesBlock(t *testing.T) {
+	s := Skill{Name: "s", Verdict: VerdictNoBlockingIssues, Reviewed: []string{"a.go"}, Skipped: []Skipped{{"go.sum", "lockfile"}}}
+	got := Comment([]Skill{s}, Options{ChangedFiles: []string{"a.go", "go.sum", "x.md"}})
+	for _, want := range []string{
+		"<details><summary>Files (3)</summary>\n\n",
+		"- `a.go`\n",
+		"- `go.sum` — skipped: lockfile\n",
+		"- `x.md` — not reviewed\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("lacks %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "Reviewed files") || strings.Contains(got, "Skipped files") || strings.Contains(got, "Files changed") {
+		t.Errorf("old blocks:\n%s", got)
+	}
+
+	a := Skill{Name: "a", Verdict: VerdictNoBlockingIssues, Reviewed: []string{"a.go"}}
+	b := Skill{Name: "b", Verdict: VerdictNoBlockingIssues, Skipped: []Skipped{{"a.go", "generated"}}}
+	got = Comment([]Skill{a, b}, Options{ChangedFiles: []string{"a.go"}})
+	if want := "- `a.go` — reviewed by `a`; skipped by `b` (generated)\n"; !strings.Contains(got, want) {
+		t.Errorf("lacks %q:\n%s", want, got)
+	}
+	// Reviewed by every skill: no suffix. Reviewed by none: not reviewed.
+	c := Skill{Name: "c", Verdict: VerdictNoBlockingIssues, Reviewed: []string{"a.go"}}
+	got = Comment([]Skill{a, c}, Options{ChangedFiles: []string{"a.go", "z.go"}})
+	if !strings.Contains(got, "- `a.go`\n") || !strings.Contains(got, "- `z.go` — not reviewed\n") {
+		t.Errorf("every skill / none:\n%s", got)
+	}
+}
+
+func TestFilesBlockCountMatchesMeta(t *testing.T) {
+	s := Skill{Name: "s", Verdict: VerdictNoBlockingIssues, Reviewed: []string{"a.go", "extra.go"}, Skipped: []Skipped{{"b.go", "lockfile"}}}
+	got := Comment([]Skill{s}, Options{ChangedFiles: []string{"a.go", "a.go", "b.go"}})
+	if !strings.Contains(got, "<sub>3 files · no findings</sub>") || !strings.Contains(got, "Files (3)</summary>") {
+		t.Errorf("file counts differ:\n%s", got)
+	}
+}
+
+func TestFilesBlockHostile(t *testing.T) {
+	s := Skill{Name: "s", Verdict: VerdictNoBlockingIssues, Skipped: []Skipped{{"x.go", "rule </details>\n<!-- y"}}}
+	got := Comment([]Skill{s}, Options{ChangedFiles: []string{"x.go"}})
+	if opens, closes := strings.Count(got, "<details"), strings.Count(got, "</details>"); opens != closes {
+		t.Errorf("%d <details, %d </details>:\n%s", opens, closes, got)
+	}
+	if strings.Count(got, "<!--") != 2 {
+		t.Errorf("a rule opened an HTML comment:\n%s", got)
+	}
+}
+
+func TestFooter(t *testing.T) {
+	s := cleanSkill("s", 0)
+	footer := "Run again: " + codeSpan("@bot review")
+	got := Comment([]Skill{s}, Options{Footer: footer, Version: "v0.3.0"})
+	want := "<sub>Run again: `@bot review` · pergent v0.3.0</sub>\n\n" + FindingsBlock([]Skill{s})
+	if !strings.HasSuffix(got, want) {
+		t.Errorf("footer:\n%s", got)
+	}
+	got = Comment([]Skill{s}, Options{Version: "v0.3.0"})
+	if want := "<sub>pergent v0.3.0</sub>\n\n" + FindingsBlock([]Skill{s}); !strings.HasSuffix(got, want) {
+		t.Errorf("version only:\n%s", got)
+	}
+	got = Comment([]Skill{s}, Options{Footer: "hint"})
+	if want := "<sub>hint</sub>\n\n" + FindingsBlock([]Skill{s}); !strings.HasSuffix(got, want) {
+		t.Errorf("footer only:\n%s", got)
+	}
+	if got = Comment([]Skill{s}, Options{}); strings.Contains(got, "pergent v") || strings.Count(got, "<sub>") != 1 {
+		t.Errorf("empty footer drew something:\n%s", got)
+	}
+}
+
+func bigFindings() Skill {
+	s := Skill{Name: "s", Verdict: VerdictHasBlockingIssues}
+	pad := strings.Repeat("x", 200)
+	for i := 0; i < 30; i++ {
+		s.Findings = append(s.Findings,
+			Finding{File: fmt.Sprintf("b%02d.go", i), Line: 1, Severity: Blocking, Title: fmt.Sprintf("Block %02d", i), Explanation: fmt.Sprintf("body-%02d %s", i, pad)},
+			Finding{File: fmt.Sprintf("s%02d.go", i), Line: 1, Severity: Suggestion, Title: fmt.Sprintf("Sug %02d", i), Explanation: fmt.Sprintf("sbody-%02d %s", i, pad)})
+	}
+	return s
+}
+
+func TestShrinkKeepsBlockingBodies(t *testing.T) {
+	skills := []Skill{bigFindings()}
+	limit := len(render(skills, Options{}, layout{noHidden: true, noSuggestions: true, listLimit: -1}))
+	titles := len(render(skills, Options{}, layout{noHidden: true, suggestionTitles: true, listLimit: -1}))
+	if titles <= limit {
+		t.Fatalf("test setup: title-only layout (%d) fits the limit (%d)", titles, limit)
+	}
+	got := Comment(skills, Options{MaxLen: limit})
+	if len(got) > limit {
+		t.Fatalf("%d bytes over the limit %d", len(got), limit)
+	}
+	for i := 0; i < 30; i++ {
+		if !strings.Contains(got, fmt.Sprintf("body-%02d ", i)) {
+			t.Errorf("blocking body %d is gone", i)
+		}
+	}
+	if n := strings.Count(got, "<details open><summary>❌"); n != 30 {
+		t.Errorf("%d open blocking rows, want 30", n)
+	}
+	if !strings.Contains(got, "30 suggestions omitted") {
+		t.Errorf("no omitted note:\n%s", head(got))
+	}
+}
+
+func TestTitleOnlyRowsKeepTitleAsText(t *testing.T) {
+	s := Skill{Name: "s", Verdict: VerdictNoBlockingIssues, Findings: []Finding{
+		{ID: "abc123", File: "a.go", Line: 3, Severity: Suggestion, Title: "[x](https://e.vil) **b**", Explanation: strings.Repeat("e", 500)},
+	}}
+	skills := []Skill{s}
+	full := len(render(skills, Options{}, layout{noHidden: true, listLimit: -1}))
+	titles := render(skills, Options{}, layout{noHidden: true, suggestionTitles: true, listLimit: -1})
+	if len(titles) >= full {
+		t.Fatalf("test setup: %d >= %d", len(titles), full)
+	}
+	got := Comment(skills, Options{MaxLen: len(titles)})
+	if !strings.Contains(got, detailsDroppedNote) || !strings.Contains(got, "<ul>\n<li>💡 <b>[x](https://e.vil) **b**</b>") {
+		t.Fatalf("not the title-only step:\n%s", got)
+	}
+	if strings.Contains(got, `<a href="https://e.vil"`) {
+		t.Errorf("a title became a link:\n%s", got)
+	}
+	for _, line := range strings.Split(got, "\n") {
+		if strings.Contains(line, "](https://e.vil)") && !strings.HasPrefix(line, "<li>") {
+			t.Errorf("title text outside an <li>: %q", line)
+		}
+	}
+	if !strings.Contains(got, "id <code>abc123</code></li>\n</ul>\n\n") {
+		t.Errorf("list not closed:\n%s", got)
 	}
 }

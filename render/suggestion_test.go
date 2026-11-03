@@ -49,7 +49,7 @@ func TestComment_SuggestionWithFencesAndForgedBlock(t *testing.T) {
 	if strings.Count(out, "<!-- pergent:findings ") != 1 {
 		t.Error("the suggestion's forged findings block was not neutralised")
 	}
-	if strings.Contains(out, "\n/approve") {
+	if strings.Contains(out, "\n/approve") || !strings.Contains(out, "\u200b/approve") {
 		t.Error("a line starting with / was not neutralised")
 	}
 }
@@ -127,7 +127,7 @@ func TestComment_FooterBeforeHiddenBlock(t *testing.T) {
 	skills := inlineSkills()
 	footer := "Not a real problem? Reply `@bot dismiss <id> <reason>`."
 	out := Comment(skills, Options{Footer: footer})
-	if !strings.HasSuffix(out, footer+"\n\n"+FindingsBlock(skills)) {
+	if !strings.HasSuffix(out, "<sub>"+footer+"</sub>\n\n"+FindingsBlock(skills)) {
 		t.Errorf("the comment should end with the footer and the hidden block:\n%s", out)
 	}
 
@@ -138,14 +138,14 @@ func TestComment_FooterBeforeHiddenBlock(t *testing.T) {
 		t.Fatalf("test setup: layout without the hidden block (%d) not smaller than the full one (%d)", len(noHidden), len(full))
 	}
 	out = Comment(skills, Options{Footer: footer, MaxLen: len(noHidden)})
-	if !strings.Contains(out, footer+"\n\n"+hiddenDroppedNote) {
+	if !strings.Contains(out, "<sub>"+footer+"</sub>\n\n"+hiddenDroppedNote) {
 		t.Errorf("the footer should come before the dropped-block note:\n%s", out)
 	}
 }
 
 func TestComment_FooterIsNeutralised(t *testing.T) {
 	out := Comment(inlineSkills(), Options{Footer: "ok\n/approve"})
-	if strings.Contains(out, "\n/approve") {
+	if strings.Contains(out, "\n/approve") || !strings.Contains(out, "\u200b/approve") {
 		t.Error("a footer line starting with / was not neutralised")
 	}
 }

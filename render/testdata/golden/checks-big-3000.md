@@ -11,13 +11,11 @@ e
 
 </details>
 
-**Checks:** 60 passed · 1 failed
+**Failed checks (1)**
 
-**S**
-
-| Check | Status | Detail |
-|---|---|---|
-| the failing one | ❌ | ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff |
+| Area | Check | Status | Detail |
+|---|---|---|---|
+| S | the failing one | ❌ | ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff |
 
 > Passed and n/a checks omitted to fit the comment size limit.
 

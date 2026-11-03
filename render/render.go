@@ -132,7 +132,8 @@ type Options struct {
 	// MaxLen is the platform's comment size limit in bytes; not positive
 	// means no limit.
 	MaxLen int
-	// ChangedFiles are listed at the top of the comment.
+	// ChangedFiles are listed in the Files block, which also names the
+	// skills that reviewed or skipped each file.
 	ChangedFiles []string
 	// Inline holds the fingerprints of the findings the caller posted as
 	// inline comments on the diff. They are left out of each skill's finding
@@ -140,8 +141,9 @@ type Options struct {
 	// skills table and the hidden findings block still count them.
 	Inline map[string]bool
 	// Footer is markdown the caller trusts, such as a hint on how to dismiss
-	// a finding. It is written after the last skill, before the hidden
-	// findings block, in every layout; empty writes nothing.
+	// a finding. It is written after the files, before the hidden
+	// findings block, in every layout, in one line with Version; empty writes
+	// nothing.
 	Footer string
 	// Commit is the reviewed commit, shown as its first 7 characters.
 	Commit string
@@ -182,8 +184,8 @@ type layout struct {
 	suggestionTitles bool // suggestions without their explanation and fix
 	noSuggestions    bool // also leaves out the dismissed findings
 	checksFailOnly   bool // check tables keep only failed checks
-	noCheckTables    bool // only the checks count line is kept
-	// listLimit caps the changed-files and skipped-files lists; -1 means no cap.
+	noCheckTables    bool // the failed checks table goes too
+	// listLimit caps the files list; -1 means no cap.
 	listLimit int
 }
 
@@ -191,18 +193,19 @@ type layout struct {
 // verdict over all skills (and the confidence score, when a skill has one), a
 // meta line, the reason for the score, a skills table when there are several
 // skills, the failures, then one list of findings across all skills, blocking
-// ones first and open, then the dismissed findings, then each skill's checks,
-// reviewed and skipped files. A hidden last line carries the findings for the
-// next run. The headline, meta line, reason, table and failures are kept by
-// every shrink step below.
+// ones first and open, then the dismissed findings, then the checks of all
+// skills (the failed ones in a table, the rest collapsed), the notes, the
+// list of files and the footer. A hidden last line carries the findings for
+// the next run. The headline, meta line, reason, table and failures are kept
+// by every shrink step below.
 //
 // A comment over o.MaxLen is shrunk in steps until it fits: the hidden
-// findings block goes first, then the suggestions' explanations and fixes,
-// then the suggestions and dismissed findings, then the passed and n/a
-// checks, then the check tables (keeping the count line), then the file lists
-// are cut to a count. Blocking findings and
-// failures are never dropped; if they alone are over the limit, the comment
-// is cut at the limit with a note.
+// findings block goes first, then the suggestions' explanations and fixes
+// (their titles stay), then the suggestions and dismissed findings, then the
+// passed and n/a checks, then the failed checks table (the meta line keeps
+// the counts), then the file list is cut to 20 paths and then to a count.
+// Blocking findings and failures are never dropped; if they alone are over the
+// limit, the comment is cut at the limit with a note.
 func Comment(skills []Skill, o Options) string {
 	out := render(skills, o, layout{listLimit: -1})
 	if o.MaxLen <= 0 || len(out) <= o.MaxLen {
@@ -252,21 +255,10 @@ func render(skills []Skill, o Options, l layout) string {
 	writeHeader(&b, skills, o)
 	writeFindings(&b, skills, o, l)
 	writeDismissedList(&b, skills, l)
-	for _, s := range skills {
-		writeSkillDetails(&b, s, l)
-	}
-	if len(o.ChangedFiles) > 0 {
-		fmt.Fprintf(&b, "<details><summary>Files changed (%d)</summary>\n\n", len(o.ChangedFiles))
-		lines := make([]string, len(o.ChangedFiles))
-		for i, f := range o.ChangedFiles {
-			lines[i] = codeSpan(f)
-		}
-		writeList(&b, lines, l.listLimit)
-		b.WriteString("\n</details>\n\n")
-	}
-	if o.Footer != "" {
-		b.WriteString(o.Footer + "\n\n")
-	}
+	writeChecks(&b, skills, l)
+	writeNotes(&b, skills)
+	writeFiles(&b, skills, o, l)
+	writeFooter(&b, o)
 
 	out := neutralizeQuickActions(b.String())
 	if l.noHidden {
@@ -367,44 +359,6 @@ func writeFailure(b *strings.Builder, f Failure) {
 	fmt.Fprintf(b, "%s %s\n", failedPrefix, neutralizeComments(line))
 }
 
-// writeSkillDetails writes what is left of a skill's section once the headline,
-// findings and dismissed list are written: its checks, reviewed and skipped
-// files and notes.
-func writeSkillDetails(b *strings.Builder, r Skill, l layout) {
-	writeChecks(b, r, l)
-	if len(r.Reviewed) > 0 {
-		fmt.Fprintf(b, "<details><summary>Reviewed files (%d)</summary>\n\n", len(r.Reviewed))
-		lines := make([]string, len(r.Reviewed))
-		for i, p := range r.Reviewed {
-			lines[i] = codeSpan(p)
-		}
-		writeList(b, lines, l.listLimit)
-		b.WriteString("\n</details>\n\n")
-	}
-	if len(r.Skipped) > 0 {
-		fmt.Fprintf(b, "<details><summary>Skipped files (%d)</summary>\n\n", len(r.Skipped))
-		lines := make([]string, len(r.Skipped))
-		for i, s := range r.Skipped {
-			lines[i] = fmt.Sprintf("%s — %s", codeSpan(s.Path), neutralizeComments(oneLine(s.Rule)))
-		}
-		writeList(b, lines, l.listLimit)
-		b.WriteString("\n</details>\n\n")
-	}
-	var notes []string
-	for _, n := range r.Notes {
-		if len(r.Checks) > 0 && isVerificationDropNote(n) {
-			continue // shown next to the checks
-		}
-		notes = append(notes, n)
-	}
-	for _, n := range notes {
-		fmt.Fprintf(b, "> %s\n", neutralizeComments(oneLine(n)))
-	}
-	if len(notes) > 0 {
-		b.WriteString("\n")
-	}
-}
-
 // dismissedBlocking counts the dismissed findings that would have blocked.
 func dismissedBlocking(ds []DismissedFinding) int {
 	n := 0
@@ -436,171 +390,6 @@ func writeDismissed(b *strings.Builder, d DismissedFinding) {
 		fmt.Fprintf(b, " — dismissed: %s\n", reason)
 	default:
 		b.WriteString(" — dismissed\n")
-	}
-}
-
-// verificationDropPrefix starts the note the verification pass leaves when it
-// drops findings; with checks, it is shown next to them, since a dropped
-// finding can leave a failed check behind.
-const verificationDropPrefix = "Verification dropped "
-
-func isVerificationDropNote(n string) bool {
-	return strings.HasPrefix(n, verificationDropPrefix)
-}
-
-var checkIcons = map[string]string{
-	CheckPass: "✅",
-	CheckFail: "❌",
-	CheckNA:   "➖",
-}
-
-// checkCounts counts checks by status.
-type checkCounts struct{ pass, fail, na int }
-
-func countChecks(cs []Check) checkCounts {
-	var c checkCounts
-	for _, ch := range cs {
-		switch ch.Status {
-		case CheckPass:
-			c.pass++
-		case CheckFail:
-			c.fail++
-		case CheckNA:
-			c.na++
-		}
-	}
-	return c
-}
-
-func (c checkCounts) add(o checkCounts) checkCounts {
-	return checkCounts{c.pass + o.pass, c.fail + o.fail, c.na + o.na}
-}
-
-// text lists the non-zero counts, e.g. "14 passed, 1 failed".
-func (c checkCounts) text(sep string) string {
-	var parts []string
-	if c.pass > 0 {
-		parts = append(parts, fmt.Sprintf("%d passed", c.pass))
-	}
-	if c.fail > 0 {
-		parts = append(parts, fmt.Sprintf("%d failed", c.fail))
-	}
-	if c.na > 0 {
-		parts = append(parts, fmt.Sprintf("%d n/a", c.na))
-	}
-	return strings.Join(parts, sep)
-}
-
-// writeChecks writes the skill's checklist results: a count line, then the
-// checks as one table per section. A single-batch skill shows the tables
-// inline; otherwise each batch's tables go in a collapsed block that starts
-// open when the batch has a failed check. Notes about failed checks without
-// findings, checks over the limit, and findings verification dropped follow.
-func writeChecks(b *strings.Builder, r Skill, l layout) {
-	if len(r.Checks) == 0 {
-		return
-	}
-	var total checkCounts
-	unmatched, dropped := 0, 0
-	for _, bc := range r.Checks {
-		c := countChecks(bc.Checks)
-		total = total.add(c)
-		if bc.Findings == 0 {
-			unmatched += c.fail
-		}
-		dropped += bc.Dropped
-	}
-	if counts := total.text(" · "); counts != "" {
-		fmt.Fprintf(b, "**Checks:** %s\n\n", counts)
-	}
-
-	switch {
-	case l.noCheckTables:
-		b.WriteString(checkTablesDroppedNote + "\n\n")
-	case r.Batches <= 1 && len(r.Checks) == 1:
-		writeCheckTables(b, shownChecks(r.Checks[0].Checks, l))
-	default:
-		for _, bc := range r.Checks {
-			c := countChecks(bc.Checks)
-			shown := shownChecks(bc.Checks, l)
-			if len(shown) == 0 {
-				continue
-			}
-			open := ""
-			if c.fail > 0 {
-				open = " open"
-			}
-			fmt.Fprintf(b, "<details%s><summary>Checks — batch %d of %d (%s)</summary>\n\n", open, bc.Batch, r.Batches, c.text(", "))
-			writeCheckTables(b, shown)
-			b.WriteString("</details>\n\n")
-		}
-	}
-	if l.checksFailOnly && !l.noCheckTables && total.pass+total.na > 0 {
-		b.WriteString(passedChecksDroppedNote + "\n\n")
-	}
-
-	var notes []string
-	if unmatched == 1 {
-		notes = append(notes, "1 failed check has no matching finding; the verdict is based on findings.")
-	} else if unmatched > 1 {
-		notes = append(notes, fmt.Sprintf("%d failed checks have no matching finding; the verdict is based on findings.", unmatched))
-	}
-	if dropped == 1 {
-		notes = append(notes, "1 check beyond the first 60 per answer was not shown.")
-	} else if dropped > 1 {
-		notes = append(notes, fmt.Sprintf("%d checks beyond the first 60 per answer were not shown.", dropped))
-	}
-	for _, n := range r.Notes {
-		if isVerificationDropNote(n) {
-			notes = append(notes, n)
-		}
-	}
-	for _, n := range notes {
-		fmt.Fprintf(b, "> %s\n", neutralizeComments(oneLine(n)))
-	}
-	if len(notes) > 0 {
-		b.WriteString("\n")
-	}
-}
-
-// shownChecks returns the checks the layout keeps: all of them, or only the
-// failed ones once the comment had to shrink.
-func shownChecks(cs []Check, l layout) []Check {
-	if !l.checksFailOnly {
-		return cs
-	}
-	var failed []Check
-	for _, c := range cs {
-		if c.Status == CheckFail {
-			failed = append(failed, c)
-		}
-	}
-	return failed
-}
-
-// writeCheckTables writes checks as one table per section, sections in order
-// of first appearance and checks without a section last, with no heading.
-func writeCheckTables(b *strings.Builder, cs []Check) {
-	var order []string
-	groups := map[string][]Check{}
-	for _, c := range cs {
-		if _, seen := groups[c.Section]; !seen && c.Section != "" {
-			order = append(order, c.Section)
-		}
-		groups[c.Section] = append(groups[c.Section], c)
-	}
-	if len(groups[""]) > 0 {
-		order = append(order, "")
-	}
-	for _, section := range order {
-		if section != "" {
-			fmt.Fprintf(b, "**%s**\n\n", checkCell(section))
-		}
-		b.WriteString("| Check | Status | Detail |\n|---|---|---|\n")
-		for _, c := range groups[section] {
-			fmt.Fprintf(b, "| %s | %s | %s |\n", checkCell(c.Name), checkIcons[c.Status], checkCell(c.Detail))
-		}
-		b.WriteString("\n")
 	}
 }
 

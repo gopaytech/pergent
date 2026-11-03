@@ -49,7 +49,7 @@ func TestFormat_IDsShown(t *testing.T) {
 	if !strings.Contains(titleOnly, detailsDroppedNote) {
 		t.Fatalf("expected the title-only layout:\n%s", titleOnly)
 	}
-	for _, want := range []string{"<b>Nil deref</b> · <code>a.go:3</code> · id <code>abcdef11</code></summary>", "<b>Rename</b> · <code>b.go:9</code> · id <code>12345678</code>\n"} {
+	for _, want := range []string{"<b>Nil deref</b> · <code>a.go:3</code> · id <code>abcdef11</code></summary>", "<b>Rename</b> · <code>b.go:9</code> · id <code>12345678</code></li>\n"} {
 		if !strings.Contains(titleOnly, want) {
 			t.Errorf("title-only layout lacks %q:\n%s", want, titleOnly)
 		}

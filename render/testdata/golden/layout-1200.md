@@ -1,7 +1,7 @@
 <!-- pergent -->
 ### ❌ 3 blocking issues
 
-<sub>2 files · 3 blocking · 1 suggestion · 1 skill failed</sub>
+<sub>4 files · 3 blocking · 1 suggestion · 1 skill failed</sub>
 
 | Skill | Verdict | Findings |
 |---|---|---|

@@ -1,7 +1,7 @@
 <!-- pergent -->
 ### ❌ 1 blocking issue
 
-<sub>2 files · 1 blocking · 2 suggestions</sub>
+<sub>3 files · 1 blocking · 2 suggestions</sub>
 
 | Skill | Verdict | Findings |
 |---|---|---|
@@ -54,19 +54,14 @@ still open
 
 </details>
 
-<details><summary>Skipped files (1)</summary>
+> `second`: note with &lt;!-- comment --> and newline
+> `second`: token [REDACTED]
 
-- `` x`y.go `` — rule &lt;/details>
+<details><summary>Files (3)</summary>
 
-</details>
-
-> note with &lt;!-- comment --> and newline
-> token [REDACTED]
-
-<details><summary>Files changed (2)</summary>
-
-- `` we`ird.go ``
-- `[REDACTED].txt`
+- `` we`ird.go `` — not reviewed
+- `[REDACTED].txt` — not reviewed
+- `` x`y.go `` — skipped by `second` (rule &lt;/details>)
 
 </details>
 

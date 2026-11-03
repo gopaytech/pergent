@@ -48,10 +48,10 @@ It is real.
 
 </details>
 
-<details><summary>Files changed (2)</summary>
+<details><summary>Files (2)</summary>
 
-- `a.go`
-- `b.go`
+- `a.go` — not reviewed
+- `b.go` — not reviewed
 
 </details>
 

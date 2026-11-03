@@ -35,32 +35,12 @@ The name is unclear.
 
 </details>
 
-<details><summary>Reviewed files (2)</summary>
+<details><summary>Files (4)</summary>
 
-- `main.go`
-- `util.go`
-
-</details>
-
-<details><summary>Reviewed files (2)</summary>
-
-- `main.go`
-- `util.go`
-
-</details>
-
-<details><summary>Skipped files (1)</summary>
-
-- `gen/api.pb.go` — generated
-
-</details>
-
-<details><summary>Files changed (4)</summary>
-
-- `main.go`
-- `util.go`
-- `gen/api.pb.go`
-- `README.md`
+- `main.go` — reviewed by `code-review`, `security`
+- `util.go` — reviewed by `code-review`, `security`
+- `gen/api.pb.go` — skipped by `security` (generated)
+- `README.md` — not reviewed
 
 </details>
 

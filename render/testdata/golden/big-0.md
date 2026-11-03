@@ -824,213 +824,108 @@ Detail eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 
 </details>
 
-<details><summary>Skipped files (100)</summary>
+<details><summary>Files (100)</summary>
 
-- `vendor/module/path/generated000.go` — vendored
-- `vendor/module/path/generated001.go` — vendored
-- `vendor/module/path/generated002.go` — vendored
-- `vendor/module/path/generated003.go` — vendored
-- `vendor/module/path/generated004.go` — vendored
-- `vendor/module/path/generated005.go` — vendored
-- `vendor/module/path/generated006.go` — vendored
-- `vendor/module/path/generated007.go` — vendored
-- `vendor/module/path/generated008.go` — vendored
-- `vendor/module/path/generated009.go` — vendored
-- `vendor/module/path/generated010.go` — vendored
-- `vendor/module/path/generated011.go` — vendored
-- `vendor/module/path/generated012.go` — vendored
-- `vendor/module/path/generated013.go` — vendored
-- `vendor/module/path/generated014.go` — vendored
-- `vendor/module/path/generated015.go` — vendored
-- `vendor/module/path/generated016.go` — vendored
-- `vendor/module/path/generated017.go` — vendored
-- `vendor/module/path/generated018.go` — vendored
-- `vendor/module/path/generated019.go` — vendored
-- `vendor/module/path/generated020.go` — vendored
-- `vendor/module/path/generated021.go` — vendored
-- `vendor/module/path/generated022.go` — vendored
-- `vendor/module/path/generated023.go` — vendored
-- `vendor/module/path/generated024.go` — vendored
-- `vendor/module/path/generated025.go` — vendored
-- `vendor/module/path/generated026.go` — vendored
-- `vendor/module/path/generated027.go` — vendored
-- `vendor/module/path/generated028.go` — vendored
-- `vendor/module/path/generated029.go` — vendored
-- `vendor/module/path/generated030.go` — vendored
-- `vendor/module/path/generated031.go` — vendored
-- `vendor/module/path/generated032.go` — vendored
-- `vendor/module/path/generated033.go` — vendored
-- `vendor/module/path/generated034.go` — vendored
-- `vendor/module/path/generated035.go` — vendored
-- `vendor/module/path/generated036.go` — vendored
-- `vendor/module/path/generated037.go` — vendored
-- `vendor/module/path/generated038.go` — vendored
-- `vendor/module/path/generated039.go` — vendored
-- `vendor/module/path/generated040.go` — vendored
-- `vendor/module/path/generated041.go` — vendored
-- `vendor/module/path/generated042.go` — vendored
-- `vendor/module/path/generated043.go` — vendored
-- `vendor/module/path/generated044.go` — vendored
-- `vendor/module/path/generated045.go` — vendored
-- `vendor/module/path/generated046.go` — vendored
-- `vendor/module/path/generated047.go` — vendored
-- `vendor/module/path/generated048.go` — vendored
-- `vendor/module/path/generated049.go` — vendored
-- `vendor/module/path/generated050.go` — vendored
-- `vendor/module/path/generated051.go` — vendored
-- `vendor/module/path/generated052.go` — vendored
-- `vendor/module/path/generated053.go` — vendored
-- `vendor/module/path/generated054.go` — vendored
-- `vendor/module/path/generated055.go` — vendored
-- `vendor/module/path/generated056.go` — vendored
-- `vendor/module/path/generated057.go` — vendored
-- `vendor/module/path/generated058.go` — vendored
-- `vendor/module/path/generated059.go` — vendored
-- `vendor/module/path/generated060.go` — vendored
-- `vendor/module/path/generated061.go` — vendored
-- `vendor/module/path/generated062.go` — vendored
-- `vendor/module/path/generated063.go` — vendored
-- `vendor/module/path/generated064.go` — vendored
-- `vendor/module/path/generated065.go` — vendored
-- `vendor/module/path/generated066.go` — vendored
-- `vendor/module/path/generated067.go` — vendored
-- `vendor/module/path/generated068.go` — vendored
-- `vendor/module/path/generated069.go` — vendored
-- `vendor/module/path/generated070.go` — vendored
-- `vendor/module/path/generated071.go` — vendored
-- `vendor/module/path/generated072.go` — vendored
-- `vendor/module/path/generated073.go` — vendored
-- `vendor/module/path/generated074.go` — vendored
-- `vendor/module/path/generated075.go` — vendored
-- `vendor/module/path/generated076.go` — vendored
-- `vendor/module/path/generated077.go` — vendored
-- `vendor/module/path/generated078.go` — vendored
-- `vendor/module/path/generated079.go` — vendored
-- `vendor/module/path/generated080.go` — vendored
-- `vendor/module/path/generated081.go` — vendored
-- `vendor/module/path/generated082.go` — vendored
-- `vendor/module/path/generated083.go` — vendored
-- `vendor/module/path/generated084.go` — vendored
-- `vendor/module/path/generated085.go` — vendored
-- `vendor/module/path/generated086.go` — vendored
-- `vendor/module/path/generated087.go` — vendored
-- `vendor/module/path/generated088.go` — vendored
-- `vendor/module/path/generated089.go` — vendored
-- `vendor/module/path/generated090.go` — vendored
-- `vendor/module/path/generated091.go` — vendored
-- `vendor/module/path/generated092.go` — vendored
-- `vendor/module/path/generated093.go` — vendored
-- `vendor/module/path/generated094.go` — vendored
-- `vendor/module/path/generated095.go` — vendored
-- `vendor/module/path/generated096.go` — vendored
-- `vendor/module/path/generated097.go` — vendored
-- `vendor/module/path/generated098.go` — vendored
-- `vendor/module/path/generated099.go` — vendored
-
-</details>
-
-<details><summary>Files changed (100)</summary>
-
-- `vendor/module/path/generated000.go`
-- `vendor/module/path/generated001.go`
-- `vendor/module/path/generated002.go`
-- `vendor/module/path/generated003.go`
-- `vendor/module/path/generated004.go`
-- `vendor/module/path/generated005.go`
-- `vendor/module/path/generated006.go`
-- `vendor/module/path/generated007.go`
-- `vendor/module/path/generated008.go`
-- `vendor/module/path/generated009.go`
-- `vendor/module/path/generated010.go`
-- `vendor/module/path/generated011.go`
-- `vendor/module/path/generated012.go`
-- `vendor/module/path/generated013.go`
-- `vendor/module/path/generated014.go`
-- `vendor/module/path/generated015.go`
-- `vendor/module/path/generated016.go`
-- `vendor/module/path/generated017.go`
-- `vendor/module/path/generated018.go`
-- `vendor/module/path/generated019.go`
-- `vendor/module/path/generated020.go`
-- `vendor/module/path/generated021.go`
-- `vendor/module/path/generated022.go`
-- `vendor/module/path/generated023.go`
-- `vendor/module/path/generated024.go`
-- `vendor/module/path/generated025.go`
-- `vendor/module/path/generated026.go`
-- `vendor/module/path/generated027.go`
-- `vendor/module/path/generated028.go`
-- `vendor/module/path/generated029.go`
-- `vendor/module/path/generated030.go`
-- `vendor/module/path/generated031.go`
-- `vendor/module/path/generated032.go`
-- `vendor/module/path/generated033.go`
-- `vendor/module/path/generated034.go`
-- `vendor/module/path/generated035.go`
-- `vendor/module/path/generated036.go`
-- `vendor/module/path/generated037.go`
-- `vendor/module/path/generated038.go`
-- `vendor/module/path/generated039.go`
-- `vendor/module/path/generated040.go`
-- `vendor/module/path/generated041.go`
-- `vendor/module/path/generated042.go`
-- `vendor/module/path/generated043.go`
-- `vendor/module/path/generated044.go`
-- `vendor/module/path/generated045.go`
-- `vendor/module/path/generated046.go`
-- `vendor/module/path/generated047.go`
-- `vendor/module/path/generated048.go`
-- `vendor/module/path/generated049.go`
-- `vendor/module/path/generated050.go`
-- `vendor/module/path/generated051.go`
-- `vendor/module/path/generated052.go`
-- `vendor/module/path/generated053.go`
-- `vendor/module/path/generated054.go`
-- `vendor/module/path/generated055.go`
-- `vendor/module/path/generated056.go`
-- `vendor/module/path/generated057.go`
-- `vendor/module/path/generated058.go`
-- `vendor/module/path/generated059.go`
-- `vendor/module/path/generated060.go`
-- `vendor/module/path/generated061.go`
-- `vendor/module/path/generated062.go`
-- `vendor/module/path/generated063.go`
-- `vendor/module/path/generated064.go`
-- `vendor/module/path/generated065.go`
-- `vendor/module/path/generated066.go`
-- `vendor/module/path/generated067.go`
-- `vendor/module/path/generated068.go`
-- `vendor/module/path/generated069.go`
-- `vendor/module/path/generated070.go`
-- `vendor/module/path/generated071.go`
-- `vendor/module/path/generated072.go`
-- `vendor/module/path/generated073.go`
-- `vendor/module/path/generated074.go`
-- `vendor/module/path/generated075.go`
-- `vendor/module/path/generated076.go`
-- `vendor/module/path/generated077.go`
-- `vendor/module/path/generated078.go`
-- `vendor/module/path/generated079.go`
-- `vendor/module/path/generated080.go`
-- `vendor/module/path/generated081.go`
-- `vendor/module/path/generated082.go`
-- `vendor/module/path/generated083.go`
-- `vendor/module/path/generated084.go`
-- `vendor/module/path/generated085.go`
-- `vendor/module/path/generated086.go`
-- `vendor/module/path/generated087.go`
-- `vendor/module/path/generated088.go`
-- `vendor/module/path/generated089.go`
-- `vendor/module/path/generated090.go`
-- `vendor/module/path/generated091.go`
-- `vendor/module/path/generated092.go`
-- `vendor/module/path/generated093.go`
-- `vendor/module/path/generated094.go`
-- `vendor/module/path/generated095.go`
-- `vendor/module/path/generated096.go`
-- `vendor/module/path/generated097.go`
-- `vendor/module/path/generated098.go`
-- `vendor/module/path/generated099.go`
+- `vendor/module/path/generated000.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated001.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated002.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated003.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated004.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated005.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated006.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated007.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated008.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated009.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated010.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated011.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated012.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated013.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated014.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated015.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated016.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated017.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated018.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated019.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated020.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated021.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated022.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated023.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated024.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated025.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated026.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated027.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated028.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated029.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated030.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated031.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated032.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated033.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated034.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated035.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated036.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated037.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated038.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated039.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated040.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated041.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated042.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated043.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated044.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated045.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated046.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated047.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated048.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated049.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated050.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated051.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated052.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated053.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated054.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated055.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated056.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated057.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated058.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated059.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated060.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated061.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated062.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated063.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated064.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated065.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated066.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated067.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated068.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated069.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated070.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated071.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated072.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated073.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated074.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated075.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated076.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated077.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated078.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated079.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated080.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated081.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated082.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated083.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated084.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated085.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated086.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated087.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated088.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated089.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated090.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated091.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated092.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated093.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated094.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated095.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated096.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated097.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated098.go` — skipped by `code-review` (vendored)
+- `vendor/module/path/generated099.go` — skipped by `code-review` (vendored)
 
 </details>
 

@@ -1,7 +1,7 @@
 <!-- pergent -->
 ### ❌ 3 blocking issues
 
-<sub>2 files · 3 blocking · 1 suggestion · 1 skill failed</sub>
+<sub>4 files · 3 blocking · 1 suggestion · 1 skill failed</sub>
 
 | Skill | Verdict | Findings |
 |---|---|---|
@@ -49,26 +49,14 @@ foo()
 
 </details>
 
-<details><summary>Reviewed files (2)</summary>
+> `code-review`: batch 2 was small
 
-- `main.go`
-- `util.go`
+<details><summary>Files (4)</summary>
 
-</details>
-
-<details><summary>Skipped files (2)</summary>
-
-- `go.sum` — lockfile
-- `gen/<!--x.go` — generated file
-
-</details>
-
-> batch 2 was small
-
-<details><summary>Files changed (2)</summary>
-
-- `main.go`
-- `util.go`
+- `main.go` — reviewed by `code-review`
+- `util.go` — reviewed by `code-review`
+- `go.sum` — skipped by `code-review` (lockfile)
+- `gen/<!--x.go` — skipped by `code-review` (generated file)
 
 </details>
 
