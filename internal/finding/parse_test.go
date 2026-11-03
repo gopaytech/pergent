@@ -212,3 +212,79 @@ func TestParseAnswer_SummaryRedactedBeforeCap(t *testing.T) {
 		t.Errorf("summary leaks part of the secret: %q", a.Summary[len(a.Summary)-20:])
 	}
 }
+
+func TestParseAnswer_Confidence(t *testing.T) {
+	for _, c := range []struct {
+		raw        string
+		want       int
+		wantReason string
+	}{
+		{`4`, 4, "Looks fine."},
+		{`4.0`, 4, "Looks fine."},
+		{`1`, 1, "Looks fine."},
+		{`5`, 5, "Looks fine."},
+		{`0`, 0, ""},
+		{`6`, 0, ""},
+		{`4.5`, 0, ""},
+		{`"4"`, 0, ""},
+		{`null`, 0, ""},
+	} {
+		text := "```json\n{\"confidence\": " + c.raw + ", \"confidence_reason\": \"Looks  fine.\", \"findings\": []}\n```"
+		a, err := ParseAnswer(text)
+		if err != nil {
+			t.Fatalf("%s: unexpected error %v", c.raw, err)
+		}
+		if a.Confidence != c.want || a.ConfidenceReason != c.wantReason {
+			t.Errorf("%s: got (%d, %q), want (%d, %q)", c.raw, a.Confidence, a.ConfidenceReason, c.want, c.wantReason)
+		}
+	}
+	a, err := ParseAnswer("```json\n{\"findings\": []}\n```")
+	if err != nil || a.Confidence != 0 {
+		t.Errorf("missing confidence: got (%d, %v), want (0, nil)", a.Confidence, err)
+	}
+}
+
+func TestParseAnswer_ConfidenceReasonCappedAndRedacted(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "ghp_secretvalue123")
+	long := strings.Repeat("x", 400)
+	a, err := ParseAnswer("```json\n{\"confidence\": 3, \"confidence_reason\": \"ghp_secretvalue123 " + long + "\", \"findings\": []}\n```")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(a.ConfidenceReason, "ghp_secretvalue123") {
+		t.Error("reason not redacted")
+	}
+	if n := len([]rune(a.ConfidenceReason)); n != 300 {
+		t.Errorf("reason is %d runes, want 300", n)
+	}
+}
+
+func TestParseAnswer_EndLineAndSuggestion(t *testing.T) {
+	for _, c := range []struct {
+		name, fields   string
+		wantEnd        int
+		wantSuggestion string
+	}{
+		{"both valid", `"line": 42, "end_line": 43, "suggestion": "a := 1\nb := 2\n"`, 43, "a := 1\nb := 2"},
+		{"single line", `"line": 42, "suggestion": "x"`, 0, "x"},
+		{"ten lines", `"line": 1, "end_line": 10, "suggestion": "x"`, 10, "x"},
+		{"eleven lines", `"line": 1, "end_line": 11, "suggestion": "x"`, 11, ""},
+		{"end before line", `"line": 42, "end_line": 41, "suggestion": "x"`, 0, "x"},
+		{"no line", `"suggestion": "x"`, 0, ""},
+		{"end_line string", `"line": 42, "end_line": "43", "suggestion": "x"`, 0, "x"},
+		{"suggestion number", `"line": 42, "suggestion": 123`, 0, ""},
+		{"empty suggestion", `"line": 42, "suggestion": ""`, 0, ""},
+		{"crlf and indentation kept", `"line": 42, "end_line": 43, "suggestion": "\tif x {\r\n\t\ty()\r\n"`, 43, "\tif x {\n\t\ty()"},
+		{"end_line fraction", `"line": 42, "end_line": 43.5, "suggestion": "x"`, 0, "x"},
+	} {
+		text := "```json\n{\"findings\": [{\"file\": \"a.go\", \"severity\": \"suggestion\", \"title\": \"T\", \"explanation\": \"E\", " + c.fields + "}]}\n```"
+		a, err := ParseAnswer(text)
+		if err != nil {
+			t.Fatalf("%s: unexpected error %v", c.name, err)
+		}
+		f := a.Findings[0]
+		if f.EndLine != c.wantEnd || f.Suggestion != c.wantSuggestion {
+			t.Errorf("%s: got (%d, %q), want (%d, %q)", c.name, f.EndLine, f.Suggestion, c.wantEnd, c.wantSuggestion)
+		}
+	}
+}

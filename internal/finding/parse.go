@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"strings"
 
@@ -56,6 +57,9 @@ const (
 	maxCheckSection = 80
 )
 
+// maxConfidenceReason caps an answer's confidence reason, in runes.
+const maxConfidenceReason = 300
+
 // CheckStatus is the outcome of one checklist item.
 type CheckStatus string
 
@@ -82,15 +86,32 @@ type Answer struct {
 	// them; ChecksDropped counts the valid ones beyond that.
 	Checks        []Check
 	ChecksDropped int
-	Findings      []Finding
+	// Confidence is the model's confidence in the review, 1 (low) to 5
+	// (high); 0 when it gave none or gave a value outside that range.
+	Confidence int
+	// ConfidenceReason is the one-line reason for it; empty when Confidence
+	// is 0.
+	ConfidenceReason string
+	Findings         []Finding
 }
 
 type answer struct {
 	// Summary and Checks are decoded loosely: an unexpected shape must not
 	// cost the answer its findings.
-	Summary  json.RawMessage `json:"summary"`
-	Checks   json.RawMessage `json:"checks"`
-	Findings *[]Finding      `json:"findings"`
+	Summary          json.RawMessage `json:"summary"`
+	Checks           json.RawMessage `json:"checks"`
+	Confidence       json.RawMessage `json:"confidence"`
+	ConfidenceReason json.RawMessage `json:"confidence_reason"`
+	Findings         *[]rawFinding   `json:"findings"`
+}
+
+// rawFinding is a Finding whose end_line and suggestion are decoded loosely
+// (the two fields shadow Finding's own), so a wrong type costs the finding
+// that field, not the block.
+type rawFinding struct {
+	Finding
+	EndLine    json.RawMessage `json:"end_line"`
+	Suggestion json.RawMessage `json:"suggestion"`
 }
 
 type rawCheck struct {
@@ -133,18 +154,72 @@ func parseBlock(block JSONBlock) (Answer, error) {
 	if a.Findings == nil {
 		return Answer{}, errors.New(`json block has no "findings" key`)
 	}
-	for i, f := range *a.Findings {
-		if err := validate(f); err != nil {
+	findings := make([]Finding, 0, len(*a.Findings))
+	for i, rf := range *a.Findings {
+		if err := validate(rf.Finding); err != nil {
 			return Answer{}, fmt.Errorf("finding %d: %w", i, err)
 		}
+		findings = append(findings, rf.finding())
 	}
 	checks, dropped := parseChecks(a.Checks)
+	confidence := parseConfidence(a.Confidence)
+	reason := ""
+	if confidence > 0 {
+		reason = cleanText(stringValue(a.ConfidenceReason), maxConfidenceReason)
+	}
 	return Answer{
-		Summary:       cleanText(summaryText(a.Summary), maxSummaryLen),
-		Checks:        checks,
-		ChecksDropped: dropped,
-		Findings:      *a.Findings,
+		Summary:          cleanText(summaryText(a.Summary), maxSummaryLen),
+		Checks:           checks,
+		ChecksDropped:    dropped,
+		Confidence:       confidence,
+		ConfidenceReason: reason,
+		Findings:         findings,
 	}, nil
+}
+
+// finding returns the Finding with its end line and suggestion read from the
+// loose fields. The end line is kept only when it is an integer at or after
+// the line. The suggestion is kept only when the finding has a line and the
+// range it replaces is at most MaxSuggestionLines.
+func (rf rawFinding) finding() Finding {
+	f := rf.Finding
+	f.EndLine, f.Suggestion = 0, ""
+	if end, ok := intValue(rf.EndLine); ok && f.Line > 0 && end >= f.Line {
+		f.EndLine = end
+	}
+	last := f.Line
+	if f.EndLine > 0 {
+		last = f.EndLine
+	}
+	if f.Line > 0 && last-f.Line+1 <= MaxSuggestionLines {
+		// Only the trailing newline goes: indentation is part of the fix.
+		s := strings.ReplaceAll(stringValue(rf.Suggestion), "\r\n", "\n")
+		f.Suggestion = strings.TrimSuffix(s, "\n")
+	}
+	return f
+}
+
+// parseConfidence reads a confidence: a JSON number with an integer value
+// from 1 to 5. Anything else counts as not scored (0).
+func parseConfidence(raw json.RawMessage) int {
+	n, ok := intValue(raw)
+	if !ok || n < 1 || n > 5 {
+		return 0
+	}
+	return n
+}
+
+// intValue reads raw as a JSON number with an integer value (4 and 4.0 both
+// count). Strings, null, fractions and absurdly large numbers do not.
+func intValue(raw json.RawMessage) (int, bool) {
+	var f float64
+	if len(raw) == 0 || raw[0] == 'n' || json.Unmarshal(raw, &f) != nil {
+		return 0, false
+	}
+	if f != math.Trunc(f) || math.Abs(f) > math.MaxInt32 {
+		return 0, false
+	}
+	return int(f), true
 }
 
 // parseChecks reads the checks list, dropping entries that aren't objects or

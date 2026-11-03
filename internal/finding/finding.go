@@ -25,8 +25,17 @@ type Finding struct {
 	Title        string   `json:"title"`
 	Explanation  string   `json:"explanation"`
 	SuggestedFix string   `json:"suggested_fix,omitempty"`
-	Fingerprint  string   `json:"fingerprint,omitempty"`
+	// EndLine ends the range that starts at Line; 0 means a single line.
+	EndLine int `json:"end_line,omitempty"`
+	// Suggestion is the exact replacement for lines Line..EndLine (or Line),
+	// at most MaxSuggestionLines of them; empty when there is none.
+	Suggestion  string `json:"suggestion,omitempty"`
+	Fingerprint string `json:"fingerprint,omitempty"`
 }
+
+// MaxSuggestionLines is the most lines a Suggestion may replace; a longer
+// range keeps its finding but loses the suggestion.
+const MaxSuggestionLines = 10
 
 // normalize lowercases s, collapses whitespace runs to one space, and trims.
 func normalize(s string) string {
