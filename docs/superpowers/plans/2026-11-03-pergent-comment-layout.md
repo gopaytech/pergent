@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go (stdlib only), golden tests in `render/testdata/golden` (rewritten in this release on purpose).
 
-**Spec:** `../pergent.sh/docs/superpowers/specs/2026-11-03-inline-findings-design.md` in the pergent.sh repository, §4 "The comment layout", Goal 6 and the Decisions rows "Dismiss hint", "Finding ID" and "Comment layout". pergent.sh's own use of the new options (titles, footer, inline threads) gets its own plan.
+**Spec:** `../pergent.sh/docs/superpowers/specs/2026-11-03-inline-findings-design.md` in the pergent.sh repository, §4 "The comment layout", Goal 6 and the Decisions rows "Dismiss hint", "Finding ID" and "Comment layout". pergent.sh 0.5.3 (the move to v0.3.0, the dismiss command and the footer) and 0.6.0 (inline threads) get their own plans.
 
 ## Global Constraints
 
@@ -27,7 +27,7 @@
 1. A file path with a space, `#`, `?`, `%` or non-ASCII characters must still link to the right file: each path segment is escaped with `url.PathEscape`, and the visible label stays the raw path (HTML-escaped). Test in Task 1.
 2. A finding title containing `</summary>`, `</details>`, `<a href=…>`, `&` or backticks must not break out of its row or inject a link: the summary line shows it as text. Test in Task 2.
 3. A file-level finding (`Line` 0) gets a link without a line anchor and a label without `:line`; `EndLine` equal to `Line` shows a single line. Test in Task 1.
-4. A comment over the size limit with many blocking findings still fits through the new shrink steps, keeps every blocking finding's body, and the first blocking row stays open. Test in Task 3 (the `big` golden and one unit test).
+4. A comment over the size limit with many blocking findings still fits through the new shrink steps, keeps every blocking finding's body, and every blocking row stays open. Test in Task 3 (the `big` golden and one unit test).
 5. A review where no skill gave a model score (older answers, failed runs) must not mention confidence at all: the headline is the verdict alone and a single-skill review shows no table. Test in Task 2.
 
 ---
@@ -89,7 +89,7 @@
      </details>
 
      ```
-     Icon `❌` blocking, `💡` suggestion. ` open` only on the first blocking row. SKILL only with more than one skill. `id` only when the finding has an ID and `DismissCommand` is empty; the dismiss line only when both are set, the command through `codeSpan`. NOTE from `FindingNote[fingerprint]` through `summaryText`, italic. TITLE, LOC and SKILL through `html.EscapeString(oneLine(…))`; URL through `html.EscapeString`. A multi-line FIX keeps today's blank-line rule.
+     Icon `❌` blocking, `💡` suggestion. ` open` on every blocking row; suggestion rows are collapsed. SKILL only with more than one skill. `id` only when the finding has an ID and `DismissCommand` is empty; the dismiss line only when both are set, the command through `codeSpan`. NOTE from `FindingNote[fingerprint]` through `summaryText`, italic. TITLE, LOC and SKILL through `html.EscapeString(oneLine(…))`; URL through `html.EscapeString`. A multi-line FIX keeps today's blank-line rule.
   8. **Dismissed** as today (`<details><summary>Dismissed (N)</summary>`), once across skills.
   - Summaries are no longer written. Checks, file lists and notes are still written per skill by today's helpers, after the dismissed block and without a per-skill heading (Task 3 replaces them).
 
@@ -98,7 +98,7 @@
   - `TestHeadlineWithoutScoresHasNoConfidence` (Review Focus 5): one skill, `Confidence` 0, one suggestion → the comment contains no `Confidence` and no `| Skill |`.
   - `TestMetaLine`: `Options{Commit: "a1b2c3d4e5", ChangedFiles: 11 paths}`, 5 passed checks, 3 suggestions → contains the line `<sub>Commit ` + a code span `a1b2c3d` + ` · 11 files · 5 of 5 checks passed · 3 suggestions</sub>` followed by a blank line.
   - `TestReasonLine`: single skill reason `"Safe @alice"` → `"> Safe @‍alice\n\n"`; two skills → the line starts `` "> `b`: " `` for the lower one.
-  - `TestFindingRowsOrderAndOpen`: two skills; suggestion `b.go:1`, blocking `z.go:9`, blocking `a.go:5` → rows in order `a.go:5`, `z.go:9`, `b.go:1`; only the `a.go:5` row is `<details open>`; each row shows `<code>skillname</code>`.
+  - `TestFindingRowsOrderAndOpen`: two skills; suggestion `b.go:1`, blocking `z.go:9`, blocking `a.go:5` → rows in order `a.go:5`, `z.go:9`, `b.go:1`; both blocking rows are `<details open>` and the suggestion row is `<details>`; each row shows `<code>skillname</code>`.
   - `TestFindingRowLinkAndDismiss`: `Options{FileURL: GitHubFileURL("https://github.com/o/r","sha1"), DismissCommand: "@bot dismiss"}`, finding ID `d9461c`, lines 17–19 → contains `<a href="https://github.com/o/r/blob/sha1/role.yaml#L17-L19"><code>role.yaml:17–19</code></a>` and ``"Not a real problem? Reply `@bot dismiss d9461c <reason>`"``; no `id <code>`.
   - `TestFindingRowIDWithoutDismiss`: ID set, no `DismissCommand` → summary ends `· id <code>d9461c</code></summary>`, no "Not a real problem".
   - `TestFindingTitleIsEscapedInSummary` (Review Focus 2): title `` "x</summary></details><a href=\"https://e.vil\">&`y`" `` → the row's summary line contains `x&lt;/summary&gt;&lt;/details&gt;&lt;a href=&#34;https://e.vil&#34;&gt;&amp;` and the comment has exactly as many `</details>` as `<details` openings.
@@ -121,21 +121,21 @@
 - Produces, after the dismissed block:
   1. **Failed checks** across all skills, when any: `**Failed checks (N)**` + blank line + one table.
   2. **Other checks**: `<details><summary>Checks: P of T passed[, K n/a]</summary>` + blank line + one table of every passed and n/a check + `</details>`; nothing when there are none. T = passed + failed, as in the meta line.
-  3. Tables: `| Area | Check | Status | Detail |`, with a leading `Skill` column when more than one skill. Area is `Check.Section` (may be empty). When the skill had more than one batch, the Check cell ends ` (batch N)`. Cells through `checkCell`; status through `checkIcons`.
+  3. Tables: `| Area | Check | Status | Detail |`, with a leading `Skill` column when more than one skill. Area is `Check.Section` (may be empty). A check that several batches of one skill answered is one row, keyed by (skill, section, name): its status is the worst one (failed beats n/a beats passed) and its detail comes from the first batch with that worst status. The failed-check notes count merged rows. Cells through `checkCell`; status through `checkIcons`.
   4. The check notes (unmatched failed checks, dropped checks, verification drops), then the other skill notes, as `> ` lines, prefixed `` `skill`: `` when more than one skill.
-  5. **Files**: `Files reviewed (N)` and `Skipped files (N)` blocks as today, titled "Files reviewed by" + the skill as a code span + " (N)" / "Skipped by" + the skill as a code span + " (N)" with more than one skill; then `Files changed (N)` from `ChangedFiles` (moved here from the top).
+  5. **Files**: one `<details><summary>Files (N)</summary>` block, N = the distinct paths in `ChangedFiles` plus every skill's `Reviewed` and `Skipped`, in `ChangedFiles` order then first appearance. One list item per path: the path as a code span, then nothing when every skill reviewed it (or the review has one skill and reviewed it); ` — skipped: <rule>` when the only skill skipped it; with more than one skill, ` — reviewed by `a`, `b`; skipped by `c` (lockfile)` naming only the skills that touched it, and ` — not reviewed` for a changed path no skill reviewed or skipped. Rules through `neutralizeComments(oneLine(…))`; `listLimit` caps the list as today. This replaces today's "Files changed", "Reviewed files" and "Skipped files" blocks.
   6. **Footer**: when `Footer` or `Version` is set, `<sub>FOOTER · pergent VERSION</sub>` + blank line (either part alone without the separator), before the hidden block.
   - `layout` loses `noSummaries`; `summariesDroppedNote` goes. Shrink order in `Comment`: full → `noHidden` → `+suggestionTitles` → `+noSuggestions` → `+checksFailOnly` (the "Checks:" details block goes, replaced by `passedChecksDroppedNote`; the failed table stays) → `+noCheckTables` (the failed table goes too, replaced by `checkTablesDroppedNote`; the meta line keeps the counts) → `listLimit: 20` → `listLimit: 0` → cut with `truncatedNote` as today. Update `Comment`'s doc comment to this order.
 
 - [ ] **Step 1: Write the failing tests** in `render/layout_test.go`:
   - `TestChecksFailedAboveCollapsed`: one skill, checks pass/fail/n/a → `"**Failed checks (1)**"` appears before `"<details><summary>Checks: 1 of 2 passed, 1 n/a</summary>"`, and the failed check's row is not inside the details block.
-  - `TestChecksMultiSkillAndBatch`: two skills, skill `a` with 2 batches → header `| Skill | Area | Check | Status | Detail |` and a Check cell ending ` (batch 2)`.
-  - `TestFilesAtBottom`: `ChangedFiles` given → `"Files changed (2)"` comes after the findings and after the checks; two skills → "Files reviewed by" + code span `a` + " (1)".
+  - `TestChecksMultiSkillAndBatch`: two skills, skill `a` with 2 batches that both answer check "Tests" (batch 1 passed with detail "ok", batch 2 failed with detail "missing") → header `| Skill | Area | Check | Status | Detail |`, exactly one "Tests" row for `a`, in the failed table, with detail "missing".
+  - `TestFilesBlock`: one skill, `ChangedFiles` [`a.go`, `go.sum`, `x.md`], reviewed `a.go`, skipped `go.sum` (lockfile) → `"<details><summary>Files (3)</summary>"` after the checks, items `` "- `a.go`\n" ``, `` "- `go.sum` — skipped: lockfile\n" ``, `` "- `x.md` — not reviewed\n" ``. Two skills `a` (reviewed `a.go`) and `b` (skipped `a.go`, generated) → `` "- `a.go` — reviewed by `a`; skipped by `b` (generated)\n" ``.
   - `TestFooter`: `Footer` = "Run again: " + code span `@bot review`, `Version: "v0.3.0"` → `<sub>` + that footer + ` · pergent v0.3.0</sub>` and a blank line right before the hidden block; `Version` alone → `"<sub>pergent v0.3.0</sub>"`.
-  - `TestShrinkKeepsBlockingBodies` (Review Focus 4): 30 blocking findings with 200-byte explanations and 30 suggestions, `MaxLen` set so the suggestions can't fit → result ≤ MaxLen, every blocking explanation present, the first row `<details open>`, and `"30 suggestions omitted"` present.
-- [ ] **Step 2: Run** `go test ./render -run 'Checks|FilesAtBottom|Footer|Shrink'` — expect FAIL.
+  - `TestShrinkKeepsBlockingBodies` (Review Focus 4): 30 blocking findings with 200-byte explanations and 30 suggestions, `MaxLen` set so the suggestions can't fit → result ≤ MaxLen, every blocking explanation present, every blocking row `<details open>`, and `"30 suggestions omitted"` present.
+- [ ] **Step 2: Run** `go test ./render -run 'Checks|FilesBlock|Footer|Shrink'` — expect FAIL.
 - [ ] **Step 3: Implement** as listed under Interfaces.
-- [ ] **Step 4: Update old-layout assertions** (checks per batch, "Checks — batch", "**Checks:**" count line, summaries shrink step) as in Task 2 Step 4; `TestDismissedShrink` keeps its intent.
+- [ ] **Step 4: Update old-layout assertions** (checks per batch, "Checks — batch", the three file blocks, "**Checks:**" count line, summaries shrink step) as in Task 2 Step 4; `TestDismissedShrink` keeps its intent.
 - [ ] **Step 5: Regenerate goldens** as in Task 2 Step 5; the size-limit goldens (`big-*`, `checks-big-*`, `failures-*`) must show the new steps; `go test ./...` PASS; `go vet ./...` and `gofmt -l .` clean.
 - [ ] **Step 6: Commit** `feat(render): one checks block, file lists last, footer and new shrink order`.
 
