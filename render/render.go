@@ -171,7 +171,6 @@ const noCauseMessage = "The run ended without a review and without a reported ca
 const (
 	hiddenDroppedNote       = "> Findings were too large to store for the next run; --previous-review will treat the next run as a first review."
 	detailsDroppedNote      = "> Suggestion details omitted to fit the comment size limit."
-	summariesDroppedNote    = "> Summaries omitted to fit the comment size limit."
 	passedChecksDroppedNote = "> Passed and n/a checks omitted to fit the comment size limit."
 	checkTablesDroppedNote  = "> Check tables omitted to fit the comment size limit."
 	truncatedNote           = "\n\n> Comment truncated to fit the comment size limit.\n"
@@ -182,24 +181,26 @@ type layout struct {
 	noHidden         bool
 	suggestionTitles bool // suggestions without their explanation and fix
 	noSuggestions    bool // also leaves out the dismissed findings
-	noSummaries      bool
 	checksFailOnly   bool // check tables keep only failed checks
 	noCheckTables    bool // only the checks count line is kept
 	// listLimit caps the changed-files and skipped-files lists; -1 means no cap.
 	listLimit int
 }
 
-// Comment renders the skills as one markdown comment. When any skill has a
-// model score it starts with a confidence line and a skills table, which every
-// shrink step below keeps. Then for each skill a verdict line, the blocking
-// findings in full, then collapsed suggestions, dismissed findings and skipped
-// files. A hidden last line carries the findings for the next run.
+// Comment renders the skills as one markdown comment: a headline with the
+// verdict over all skills (and the confidence score, when a skill has one), a
+// meta line, the reason for the score, a skills table when there are several
+// skills, the failures, then one list of findings across all skills, blocking
+// ones first and open, then the dismissed findings, then each skill's checks,
+// reviewed and skipped files. A hidden last line carries the findings for the
+// next run. The headline, meta line, reason, table and failures are kept by
+// every shrink step below.
 //
 // A comment over o.MaxLen is shrunk in steps until it fits: the hidden
 // findings block goes first, then the suggestions' explanations and fixes,
 // then the suggestions and dismissed findings, then the passed and n/a
-// checks, then the check tables (keeping the count line), then the review
-// summaries, then the file lists are cut to a count. Blocking findings and
+// checks, then the check tables (keeping the count line), then the file lists
+// are cut to a count. Blocking findings and
 // failures are never dropped; if they alone are over the limit, the comment
 // is cut at the limit with a note.
 func Comment(skills []Skill, o Options) string {
@@ -213,9 +214,8 @@ func Comment(skills []Skill, o Options) string {
 		{noHidden: true, noSuggestions: true, listLimit: -1},
 		{noHidden: true, noSuggestions: true, checksFailOnly: true, listLimit: -1},
 		{noHidden: true, noSuggestions: true, checksFailOnly: true, noCheckTables: true, listLimit: -1},
-		{noHidden: true, noSuggestions: true, checksFailOnly: true, noCheckTables: true, noSummaries: true, listLimit: -1},
-		{noHidden: true, noSuggestions: true, checksFailOnly: true, noCheckTables: true, noSummaries: true, listLimit: 20},
-		{noHidden: true, noSuggestions: true, checksFailOnly: true, noCheckTables: true, noSummaries: true, listLimit: 0},
+		{noHidden: true, noSuggestions: true, checksFailOnly: true, noCheckTables: true, listLimit: 20},
+		{noHidden: true, noSuggestions: true, checksFailOnly: true, noCheckTables: true, listLimit: 0},
 	} {
 		out = render(skills, o, l)
 		if len(out) <= o.MaxLen {
@@ -246,25 +246,23 @@ func cutBytes(s string, n int) string {
 }
 
 func render(skills []Skill, o Options, l layout) string {
-	changedFiles := o.ChangedFiles
 	var b strings.Builder
 
 	b.WriteString(Marker + "\n")
-	b.WriteString("## pergent review\n\n")
-	writeConfidence(&b, skills)
-
-	if len(changedFiles) > 0 {
-		fmt.Fprintf(&b, "<details><summary>Files changed (%d)</summary>\n\n", len(changedFiles))
-		lines := make([]string, len(changedFiles))
-		for i, f := range changedFiles {
+	writeHeader(&b, skills, o)
+	writeFindings(&b, skills, o, l)
+	writeDismissedList(&b, skills, l)
+	for _, s := range skills {
+		writeSkillDetails(&b, s, l)
+	}
+	if len(o.ChangedFiles) > 0 {
+		fmt.Fprintf(&b, "<details><summary>Files changed (%d)</summary>\n\n", len(o.ChangedFiles))
+		lines := make([]string, len(o.ChangedFiles))
+		for i, f := range o.ChangedFiles {
 			lines[i] = codeSpan(f)
 		}
 		writeList(&b, lines, l.listLimit)
 		b.WriteString("\n</details>\n\n")
-	}
-
-	for _, s := range skills {
-		writeSkill(&b, s, o.Inline, l)
 	}
 	if o.Footer != "" {
 		b.WriteString(o.Footer + "\n\n")
@@ -369,99 +367,11 @@ func writeFailure(b *strings.Builder, f Failure) {
 	fmt.Fprintf(b, "%s %s\n", failedPrefix, neutralizeComments(line))
 }
 
-func writeSkill(b *strings.Builder, r Skill, inline map[string]bool, l layout) {
-	fmt.Fprintf(b, "<!-- pergent:%s -->\n", r.Name)
-	fmt.Fprintf(b, "### %s\n\n", r.Name)
-
-	// The verdict line counts every finding; the lists leave out the inline ones.
-	var blocking, suggestions, shownBlocking, shownSuggestions []Finding
-	inlineCount := 0
-	for _, f := range r.Findings {
-		isInline := f.Fingerprint != "" && inline[f.Fingerprint]
-		if isInline {
-			inlineCount++
-		}
-		if f.Severity == Suggestion {
-			suggestions = append(suggestions, f)
-			if !isInline {
-				shownSuggestions = append(shownSuggestions, f)
-			}
-		} else {
-			blocking = append(blocking, f)
-			if !isInline {
-				shownBlocking = append(shownBlocking, f)
-			}
-		}
-	}
-
-	switch {
-	case len(r.Failures) > 0:
-		for _, f := range r.Failures {
-			b.WriteString("⚠️ ")
-			// Name the files when the reader can't tell which ones failed: the
-			// skill had several batches or there are several failures.
-			if len(f.Files) > 0 && (r.Batches > 1 || len(r.Failures) > 1) {
-				quoted := make([]string, len(f.Files))
-				for i, file := range f.Files {
-					quoted[i] = codeSpan(file)
-				}
-				fmt.Fprintf(b, "Files %s: ", strings.Join(quoted, ", "))
-			}
-			writeFailure(b, f)
-			b.WriteString("\n")
-		}
-	case r.Verdict == VerdictFailed:
-		b.WriteString("⚠️ ")
-		writeFailure(b, Failure{})
-		b.WriteString("\n")
-	}
-
-	switch {
-	case len(blocking) == 1:
-		b.WriteString("❌ **1 blocking issue**\n\n")
-	case len(blocking) > 1:
-		fmt.Fprintf(b, "❌ **%d blocking issues**\n\n", len(blocking))
-	case r.Verdict == VerdictNoBlockingIssues:
-		b.WriteString("✅ **No blocking issues**")
-		if n := dismissedBlocking(r.Dismissed); n > 0 {
-			fmt.Fprintf(b, " (%d dismissed)", n)
-		}
-		b.WriteString("\n\n")
-	}
-	if inlineCount > 0 {
-		fmt.Fprintf(b, "> %s posted as inline comments on the diff.\n\n", plural(inlineCount, "finding"))
-	}
-
-	writeSummaries(b, r, l)
+// writeSkillDetails writes what is left of a skill's section once the headline,
+// findings and dismissed list are written: its checks, reviewed and skipped
+// files and notes.
+func writeSkillDetails(b *strings.Builder, r Skill, l layout) {
 	writeChecks(b, r, l)
-	for _, f := range shownBlocking {
-		writeFinding(b, f, false)
-	}
-	switch {
-	case len(shownSuggestions) == 0:
-	case l.noSuggestions:
-		fmt.Fprintf(b, "> %s omitted to fit the comment size limit.\n\n", plural(len(shownSuggestions), "suggestion"))
-	default:
-		fmt.Fprintf(b, "<details><summary>Suggestions (%d)</summary>\n\n", len(shownSuggestions))
-		if l.suggestionTitles {
-			b.WriteString(detailsDroppedNote + "\n\n")
-		}
-		for _, f := range shownSuggestions {
-			writeFinding(b, f, l.suggestionTitles)
-		}
-		b.WriteString("</details>\n\n")
-	}
-	switch {
-	case len(r.Dismissed) == 0:
-	case l.noSuggestions:
-		fmt.Fprintf(b, "> %s omitted to fit the comment size limit.\n\n", plural(len(r.Dismissed), "dismissed finding"))
-	default:
-		fmt.Fprintf(b, "<details><summary>Dismissed (%d)</summary>\n\n", len(r.Dismissed))
-		for _, d := range r.Dismissed {
-			writeDismissed(b, d)
-		}
-		b.WriteString("\n</details>\n\n")
-	}
 	if len(r.Reviewed) > 0 {
 		fmt.Fprintf(b, "<details><summary>Reviewed files (%d)</summary>\n\n", len(r.Reviewed))
 		lines := make([]string, len(r.Reviewed))
@@ -493,8 +403,6 @@ func writeSkill(b *strings.Builder, r Skill, inline map[string]bool, l layout) {
 	if len(notes) > 0 {
 		b.WriteString("\n")
 	}
-
-	fmt.Fprintf(b, "<!-- /pergent:%s -->\n\n", r.Name)
 }
 
 // dismissedBlocking counts the dismissed findings that would have blocked.
@@ -516,7 +424,7 @@ func dismissedBlocking(ds []DismissedFinding) int {
 func writeDismissed(b *strings.Builder, d DismissedFinding) {
 	fmt.Fprintf(b, "- **%s**", neutralizeComments(oneLine(d.Finding.Title)))
 	if d.Finding.ID != "" {
-		fmt.Fprintf(b, " %s", codeSpan(d.Finding.ID))
+		fmt.Fprintf(b, " id %s", codeSpan(d.Finding.ID))
 	}
 	by, reason := mentionSafe(d.By), mentionSafe(d.Reason)
 	switch {
@@ -529,26 +437,6 @@ func writeDismissed(b *strings.Builder, d DismissedFinding) {
 	default:
 		b.WriteString(" — dismissed\n")
 	}
-}
-
-// writeSummaries writes the model's summaries under the verdict: one
-// paragraph for a single-batch skill, one bullet per batch otherwise.
-func writeSummaries(b *strings.Builder, r Skill, l layout) {
-	if len(r.Summaries) == 0 {
-		return
-	}
-	if l.noSummaries {
-		b.WriteString(summariesDroppedNote + "\n\n")
-		return
-	}
-	if r.Batches <= 1 && len(r.Summaries) == 1 {
-		fmt.Fprintf(b, "**Summary:** %s\n\n", summaryText(r.Summaries[0].Text))
-		return
-	}
-	for _, sum := range r.Summaries {
-		fmt.Fprintf(b, "- **Batch %d of %d:** %s\n", sum.Batch, r.Batches, summaryText(sum.Text))
-	}
-	b.WriteString("\n")
 }
 
 // verificationDropPrefix starts the note the verification pass leaves when it
@@ -746,48 +634,6 @@ func plural(n int, word string) string {
 		return "1 " + word
 	}
 	return fmt.Sprintf("%d %ss", n, word)
-}
-
-// writeFinding writes a finding; titleOnly leaves out its explanation,
-// suggested fix and suggested change. A finding with an ID shows it after the title.
-// The suggested change is display text: "<!--", "<details" and "<summary" are
-// escaped and a line starting with "/" gets a zero-width space, so a caller
-// that needs the exact text to apply it must use Finding.Suggestion itself.
-func writeFinding(b *strings.Builder, f Finding, titleOnly bool) {
-	where := f.File
-	if f.Line > 0 {
-		where = fmt.Sprintf("%s:%d", f.File, f.Line)
-	}
-	idText := ""
-	if f.ID != "" {
-		idText = " " + codeSpan(f.ID)
-	}
-	fmt.Fprintf(b, "**%s** — **%s**%s\n\n", codeSpan(where), neutralizeComments(oneLine(f.Title)), idText)
-	if titleOnly {
-		return
-	}
-	if f.Explanation != "" {
-		fmt.Fprintf(b, "%s\n\n", modelText(f.Explanation))
-	}
-	if f.SuggestedFix != "" {
-		fix := modelText(f.SuggestedFix)
-		sep := " "
-		if strings.Contains(fix, "\n") {
-			sep = "\n\n"
-		}
-		fmt.Fprintf(b, "_Suggested fix:_%s%s\n\n", sep, fix)
-	}
-	if f.Suggestion != "" {
-		lines := fmt.Sprintf("line %d", f.Line)
-		if f.EndLine > 0 && f.EndLine != f.Line {
-			lines = fmt.Sprintf("lines %d–%d", f.Line, f.EndLine)
-		}
-		// "\r" goes first: neutralizeQuickActions removes it later and could join
-		// two backtick runs into one longer than the fence.
-		text := neutralizeComments(strings.ReplaceAll(f.Suggestion, "\r", ""))
-		fence := strings.Repeat("`", max(3, longestBacktickRun(text)+1))
-		fmt.Fprintf(b, "_Suggested change, replacing %s:_\n\n%s\n%s\n%s\n\n", lines, fence, text, fence)
-	}
 }
 
 // longestBacktickRun returns the length of the longest run of backticks in s.

@@ -1,52 +1,17 @@
 <!-- pergent -->
-## pergent review
+### ❌ 1 blocking issue
 
-<details><summary>Files changed (2)</summary>
+<sub>2 files · 1 blocking · 2 suggestions</sub>
 
-- `` we`ird.go ``
-- `[REDACTED].txt`
+| Skill | Verdict | Findings |
+|---|---|---|
+| `first` | ✅ No blocking issues | 2 suggestions |
+| `second` | ❌ Has blocking issues | 1 blocking |
+| `sk&lt;!--ill` | ✅ No blocking issues | none |
 
-</details>
+#### Findings (3)
 
-<!-- pergent:first -->
-### first
-
-✅ **No blocking issues**
-
-<details><summary>Suggestions (2)</summary>
-
-**`b.go:2`** — **Second**
-
-fine
-````
-still open
-````
-
-**`a.go:1`** — **Bad `name` ``` second line**
-
-Closes early &lt;/details> and &lt;DETAILS> and &lt;/summary>.
-```go
-func main() {
-```
-
-_Suggested fix:_
-
-~~~
-unbalanced
-~~~
-
-</details>
-
-<!-- /pergent:first -->
-
-<!-- pergent:second -->
-### second
-
-❌ **1 blocking issue**
-
-**Summary:** fine /unapprove
-
-**`a.go:1`** — **Bad [REDACTED]**
+<details open><summary>❌ <b>Bad [REDACTED]</b> · <code>a.go:1</code> · <code>second</code></summary>
 
 ok
 ​/approve
@@ -55,13 +20,39 @@ x
 ​/merge
 [REDACTED] and Bearer [REDACTED]
 
-_Suggested fix:_
+**Fix:**
 
 ```go
 ​/label ~bug
     // keep this comment
 ```
 https://x.example/?key=[REDACTED]&token=[REDACTED]
+
+</details>
+
+<details><summary>💡 <b>Bad `name` ``` second line</b> · <code>a.go:1</code> · <code>first</code></summary>
+
+Closes early &lt;/details> and &lt;DETAILS> and &lt;/summary>.
+```go
+func main() {
+```
+
+**Fix:**
+
+~~~
+unbalanced
+~~~
+
+</details>
+
+<details><summary>💡 <b>Second</b> · <code>b.go:2</code> · <code>first</code></summary>
+
+fine
+````
+still open
+````
+
+</details>
 
 <details><summary>Skipped files (1)</summary>
 
@@ -72,13 +63,11 @@ https://x.example/?key=[REDACTED]&token=[REDACTED]
 > note with &lt;!-- comment --> and newline
 > token [REDACTED]
 
-<!-- /pergent:second -->
+<details><summary>Files changed (2)</summary>
 
-<!-- pergent:sk<!--ill -->
-### sk<!--ill
+- `` we`ird.go ``
+- `[REDACTED].txt`
 
-✅ **No blocking issues**
-
-<!-- /pergent:sk<!--ill -->
+</details>
 
 <!-- pergent:findings eyJ2ZXJzaW9uIjoxLCJza2lsbHMiOnsiZmlyc3QiOlt7ImZpbGUiOiJiLmdvIiwibGluZSI6Miwic2V2ZXJpdHkiOiJzdWdnZXN0aW9uIiwidGl0bGUiOiJTZWNvbmQiLCJleHBsYW5hdGlvbiI6ImZpbmVcbmBgYGBcbnN0aWxsIG9wZW4iLCJmaW5nZXJwcmludCI6ImZwLTIifSx7ImZpbGUiOiJhLmdvIiwibGluZSI6MSwic2V2ZXJpdHkiOiJzdWdnZXN0aW9uIiwidGl0bGUiOiJCYWQgYG5hbWVgXG5gYGBcbnNlY29uZCBsaW5lIiwiZXhwbGFuYXRpb24iOiJDbG9zZXMgZWFybHkgXHUwMDNjL2RldGFpbHNcdTAwM2UgYW5kIFx1MDAzY0RFVEFJTFNcdTAwM2UgYW5kIFx1MDAzYy9zdW1tYXJ5XHUwMDNlLlxuYGBgZ29cbmZ1bmMgbWFpbigpIHsiLCJzdWdnZXN0ZWRfZml4Ijoifn5+XG51bmJhbGFuY2VkIiwiZmluZ2VycHJpbnQiOiJmcC0xIn1dLCJzZWNvbmQiOlt7ImZpbGUiOiJhLmdvIiwibGluZSI6MSwic2V2ZXJpdHkiOiJibG9ja2luZyIsInRpdGxlIjoiQmFkIFtSRURBQ1RFRF0iLCJleHBsYW5hdGlvbiI6Im9rXG4vYXBwcm92ZVxuXHIvY2xvc2VcbnhcclxuL21lcmdlXG5bUkVEQUNURURdIGFuZCBCZWFyZXIgW1JFREFDVEVEXSIsInN1Z2dlc3RlZF9maXgiOiJgYGBnb1xuL2xhYmVsIH5idWdcbiAgICAvLyBrZWVwIHRoaXMgY29tbWVudFxuYGBgXG5odHRwczovL3guZXhhbXBsZS8/a2V5PVtSRURBQ1RFRF1cdTAwMjZ0b2tlbj1bUkVEQUNURURdIiwiZmluZ2VycHJpbnQiOiJmcC0zIn1dLCJza1x1MDAzYyEtLWlsbCI6W119fQ== -->

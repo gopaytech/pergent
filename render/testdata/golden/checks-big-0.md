@@ -1,12 +1,15 @@
 <!-- pergent -->
-## pergent review
+### ❌ 1 blocking issue
 
-<!-- pergent:s -->
-### s
+<sub>60 of 61 checks passed · 1 blocking</sub>
 
-❌ **1 blocking issue**
+#### Findings (1)
 
-**Summary:** Sum.
+<details open><summary>❌ <b>Broken</b> · <code>x.go:1</code></summary>
+
+e
+
+</details>
 
 **Checks:** 60 passed · 1 failed
 
@@ -75,11 +78,5 @@
 | pass check 58 | ✅ | pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp |
 | pass check 59 | ✅ | pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp |
 | the failing one | ❌ | ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff |
-
-**`x.go:1`** — **Broken**
-
-e
-
-<!-- /pergent:s -->
 
 <!-- pergent:findings eyJ2ZXJzaW9uIjoxLCJza2lsbHMiOnsicyI6W3siZmlsZSI6InguZ28iLCJsaW5lIjoxLCJzZXZlcml0eSI6ImJsb2NraW5nIiwidGl0bGUiOiJCcm9rZW4iLCJleHBsYW5hdGlvbiI6ImUifV19fQ== -->

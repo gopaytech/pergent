@@ -1,12 +1,15 @@
 <!-- pergent -->
-## pergent review
+### ❌ 1 blocking issue
 
-<!-- pergent:s -->
-### s
+<sub>60 of 61 checks passed · 1 blocking</sub>
 
-❌ **1 blocking issue**
+#### Findings (1)
 
-**Summary:** Sum.
+<details open><summary>❌ <b>Broken</b> · <code>x.go:1</code></summary>
+
+e
+
+</details>
 
 **Checks:** 60 passed · 1 failed
 
@@ -17,11 +20,5 @@
 | the failing one | ❌ | ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff |
 
 > Passed and n/a checks omitted to fit the comment size limit.
-
-**`x.go:1`** — **Broken**
-
-e
-
-<!-- /pergent:s -->
 
 > Findings were too large to store for the next run; --previous-review will treat the next run as a first review.

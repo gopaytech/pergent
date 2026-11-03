@@ -1,25 +1,24 @@
 <!-- pergent -->
-## pergent review
+### ❌ 1 blocking issue
 
-<!-- pergent:code-review -->
-### code-review
+<sub>1 blocking · 2 suggestions</sub>
 
-❌ **1 blocking issue**
+#### Findings (3)
 
-**`a.go:3`** — **Nil deref** `` a`b c ``
+<details open><summary>❌ <b>Nil deref</b> · <code>a.go:3</code> · id <code>a`b c</code></summary>
 
 boom
 
-<details><summary>Suggestions (2)</summary>
+</details>
 
-**`b.go:9`** — **Rename**
+<details><summary>💡 <b>Rename</b> · <code>b.go:9</code></summary>
 
 nit
 
-**`c.go`** — **No id**
-
 </details>
 
-<!-- /pergent:code-review -->
+<details><summary>💡 <b>No id</b> · <code>c.go</code></summary>
+
+</details>
 
 <!-- pergent:findings eyJ2ZXJzaW9uIjoxLCJza2lsbHMiOnsiY29kZS1yZXZpZXciOlt7ImZpbGUiOiJhLmdvIiwibGluZSI6Mywic2V2ZXJpdHkiOiJibG9ja2luZyIsInRpdGxlIjoiTmlsIGRlcmVmIiwiZXhwbGFuYXRpb24iOiJib29tIiwiZmluZ2VycHJpbnQiOiJmcC1ibG9ja2luZyJ9LHsiZmlsZSI6ImIuZ28iLCJsaW5lIjo5LCJzZXZlcml0eSI6InN1Z2dlc3Rpb24iLCJ0aXRsZSI6IlJlbmFtZSIsImV4cGxhbmF0aW9uIjoibml0IiwiZmluZ2VycHJpbnQiOiJmcC1zdWdnZXN0aW9uIn0seyJmaWxlIjoiYy5nbyIsInNldmVyaXR5Ijoic3VnZ2VzdGlvbiIsInRpdGxlIjoiTm8gaWQiLCJleHBsYW5hdGlvbiI6IiIsImZpbmdlcnByaW50IjoiZnAtdW5rbm93biJ9XX19 -->

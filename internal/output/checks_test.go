@@ -38,13 +38,16 @@ func TestFormatReview_ChecksSingleBatch(t *testing.T) {
 		Findings: []finding.Finding{{File: "x.go", Line: 1, Severity: finding.Blocking, Title: "Broken thing", Explanation: "e"}},
 	}}, nil)
 
+	// The findings list comes before the checks.
 	inOrder(t, got,
-		"**Summary:** Sum.",
+		"Broken thing",
 		"**Checks:** 1 passed · 1 failed · 1 n/a",
 		"**A**", "| Check | Status | Detail |", "| a1 | ✅ | d1 |", "| a2 | ➖ | d2 |",
 		"**B**", "| Check | Status | Detail |", "| b1 | ❌ |",
-		"Broken thing",
 	)
+	if strings.Contains(got, "Sum.") {
+		t.Errorf("the summary is shown:\n%s", got)
+	}
 }
 
 func TestFormatReview_ChecksCountOmitsZeros(t *testing.T) {
@@ -86,7 +89,7 @@ func TestFormatReview_FailedCheckWithoutFinding(t *testing.T) {
 		Checks: []review.BatchChecks{{Batch: 1, Findings: 0, Checks: []finding.Check{check("", "a", finding.CheckFail, "")}}},
 	}}, nil)
 	inOrder(t, got,
-		"✅ **No blocking issues**",
+		"### ✅ No blocking issues",
 		"| a | ❌ |",
 		"> 1 failed check has no matching finding; the verdict is based on findings.",
 	)
@@ -149,7 +152,7 @@ func TestFormatReview_NoChecksUnchanged(t *testing.T) {
 	if strings.Contains(got, "**Checks:**") || strings.Contains(got, "| Check |") {
 		t.Errorf("checks shown without checks:\n%s", got)
 	}
-	if !strings.Contains(got, "**Summary:** Sum.\n\n<details><summary>Reviewed files") {
+	if strings.Contains(got, "Sum.") || !strings.Contains(got, "<details><summary>Reviewed files") {
 		t.Errorf("layout changed for a result without checks:\n%s", got)
 	}
 }
@@ -168,7 +171,7 @@ func bigChecksResult() []review.SkillResult {
 	}}
 }
 
-func TestFormatReviewWithin_ChecksShrinkBeforeSummaries(t *testing.T) {
+func TestFormatReviewWithin_ChecksShrinkInSteps(t *testing.T) {
 	results := bigChecksResult()
 	const passedNote = "> Passed and n/a checks omitted to fit the comment size limit."
 	const tablesNote = "> Check tables omitted to fit the comment size limit."
@@ -177,7 +180,7 @@ func TestFormatReviewWithin_ChecksShrinkBeforeSummaries(t *testing.T) {
 	if len(failOnly) > 3000 {
 		t.Fatalf("len = %d, want at most 3000", len(failOnly))
 	}
-	for _, want := range []string{"| the failing one | \u274c |", "**Summary:** Sum.", "**Checks:** 60 passed \u00b7 1 failed", passedNote} {
+	for _, want := range []string{"| the failing one | \u274c |", "**Checks:** 60 passed \u00b7 1 failed", passedNote} {
 		if !strings.Contains(failOnly, want) {
 			t.Errorf("fail-only step missing %q:\n%s", want, failOnly)
 		}
@@ -191,7 +194,7 @@ func TestFormatReviewWithin_ChecksShrinkBeforeSummaries(t *testing.T) {
 	if len(countOnly) > maxLen {
 		t.Fatalf("len = %d, want at most %d", len(countOnly), maxLen)
 	}
-	for _, want := range []string{"**Summary:** Sum.", "**Checks:** 60 passed \u00b7 1 failed", tablesNote, "Broken"} {
+	for _, want := range []string{"**Checks:** 60 passed \u00b7 1 failed", tablesNote, "Broken"} {
 		if !strings.Contains(countOnly, want) {
 			t.Errorf("count-only step missing %q:\n%s", want, countOnly)
 		}

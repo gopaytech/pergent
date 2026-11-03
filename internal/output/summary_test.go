@@ -1,7 +1,6 @@
 package output
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 
@@ -9,31 +8,20 @@ import (
 	"github.com/gopaytech/pergent/internal/review"
 )
 
-func TestFormatReview_SummaryUnderVerdict(t *testing.T) {
-	got := FormatReview([]review.SkillResult{{
-		Skill: "s", Verdict: review.NoBlockingIssues, Batches: 1, BatchesFinished: 1,
-		Summaries: []review.BatchSummary{{Batch: 1, Text: "Checked a."}},
-		Reviewed:  []string{"a.go"},
-	}}, nil)
-
-	verdict := strings.Index(got, "✅ **No blocking issues**")
-	summary := strings.Index(got, "Checked a.")
-	details := strings.Index(got, "<details>")
-	if verdict < 0 || summary < verdict || details < summary {
-		t.Errorf("want verdict, then summary, then the first <details> block:\n%s", got)
-	}
-}
-
-func TestFormatReview_MultiBatchSummaries(t *testing.T) {
+// The model's summaries are no longer drawn in the comment.
+func TestFormatReview_SummariesNotShown(t *testing.T) {
 	got := FormatReview([]review.SkillResult{{
 		Skill: "s", Verdict: review.NoBlockingIssues, Batches: 3, BatchesFinished: 3,
-		Summaries: []review.BatchSummary{{Batch: 1, Text: "First."}, {Batch: 3, Text: "Third."}},
+		Summaries: []review.BatchSummary{{Batch: 1, Text: "Checked a."}, {Batch: 3, Text: "Third."}},
+		Reviewed:  []string{"a.go"},
 	}}, nil)
-
-	first := strings.Index(got, "- **Batch 1 of 3:** First.")
-	third := strings.Index(got, "- **Batch 3 of 3:** Third.")
-	if first < 0 || third < first {
-		t.Errorf("want batch 1 then batch 3 as bullets:\n%s", got)
+	for _, text := range []string{"Checked a.", "Third.", "Summary", "Batch 1 of 3"} {
+		if strings.Contains(got, text) {
+			t.Errorf("summary text %q is shown:\n%s", text, got)
+		}
+	}
+	if !strings.HasPrefix(got, "<!-- pergent -->\n### ✅ No blocking issues\n") {
+		t.Errorf("headline missing:\n%s", got)
 	}
 }
 
@@ -73,8 +61,8 @@ func TestFormatReview_SummaryCannotBreakLayout(t *testing.T) {
 		t.Fatalf("no hidden line:\n%s", got)
 	}
 	visible := got[:idx]
-	if o, c := strings.Count(visible, "<details>"), strings.Count(visible, "</details>"); o != c {
-		t.Errorf("%d <details> but %d </details>:\n%s", o, c, got)
+	if o, c := strings.Count(visible, "<details"), strings.Count(visible, "</details>"); o != c {
+		t.Errorf("%d <details but %d </details>:\n%s", o, c, got)
 	}
 	if strings.Contains(strings.ToLower(visible), "<summary>x") {
 		t.Errorf("summary tag from model text not neutralised:\n%s", got)
@@ -96,58 +84,7 @@ func TestFormatReview_SummaryCannotBreakLayout(t *testing.T) {
 	if strings.Contains(got, "glpat-secretvalue") {
 		t.Errorf("secret leaked:\n%s", got)
 	}
-	if !strings.Contains(visible, "✅ **No blocking issues**") || !strings.Contains(visible, "### second") {
+	if !strings.Contains(visible, "### ✅ No blocking issues") || !strings.Contains(visible, "| `second` | ✅ No blocking issues | none |") {
 		t.Errorf("layout broken:\n%s", got)
-	}
-}
-
-func TestFormatReviewWithin_DropsSummariesBeforeLists(t *testing.T) {
-	var summaries []review.BatchSummary
-	for i := range 20 {
-		summaries = append(summaries, review.BatchSummary{Batch: i + 1, Text: fmt.Sprintf("Summary %02d %s", i, strings.Repeat("s", 560))})
-	}
-	base := review.SkillResult{
-		Skill: "s", Verdict: review.NoBlockingIssues, Batches: 20, BatchesFinished: 20,
-		Reviewed: []string{"a.go", "b.go"},
-	}
-	withSummaries := base
-	withSummaries.Summaries = summaries
-
-	maxLen := len(FormatReview([]review.SkillResult{base}, nil)) + 300
-	got := FormatReviewWithin([]review.SkillResult{withSummaries}, nil, maxLen)
-	if len(got) > maxLen {
-		t.Errorf("len = %d, want at most %d", len(got), maxLen)
-	}
-	if strings.Contains(got, "Summary 00") {
-		t.Errorf("summaries kept:\n%s", got)
-	}
-	if !strings.Contains(got, "> Summaries omitted to fit the comment size limit.") {
-		t.Errorf("no note about omitted summaries:\n%s", got)
-	}
-	if !strings.Contains(got, "- `a.go`\n- `b.go`\n") {
-		t.Errorf("reviewed files should still be listed:\n%s", got)
-	}
-}
-
-func TestFormatReview_SummaryStaysVisibleText(t *testing.T) {
-	for _, text := range []string{"```go Checked a.go: fine.", "<pre> Checked a.go: fine.", "# Checked a.go: fine."} {
-		got := FormatReview([]review.SkillResult{{
-			Skill: "s", Verdict: review.NoBlockingIssues, Batches: 1, BatchesFinished: 1,
-			Summaries: []review.BatchSummary{{Batch: 1, Text: text}},
-			Reviewed:  []string{"a.go"},
-		}}, nil)
-		for _, line := range strings.Split(got, "\n") {
-			if strings.Contains(line, "Checked a.go: fine.") {
-				if strings.HasPrefix(line, "```") || strings.HasPrefix(line, "<") || strings.HasPrefix(line, "#") {
-					t.Errorf("summary %q starts a markdown block: %q", text, line)
-				}
-			}
-		}
-		if strings.Contains(got, "<pre>") {
-			t.Errorf("raw <pre> reached the comment:\n%s", got)
-		}
-		if !strings.Contains(got, "Checked a.go: fine.") {
-			t.Errorf("summary text missing:\n%s", got)
-		}
 	}
 }

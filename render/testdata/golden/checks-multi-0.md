@@ -1,10 +1,12 @@
 <!-- pergent -->
-## pergent review
+### ✅ No blocking issues
 
-<!-- pergent:multi -->
-### multi
+<sub>1 file · 3 of 6 checks passed · no findings</sub>
 
-✅ **No blocking issues**
+| Skill | Verdict | Findings |
+|---|---|---|
+| `multi` | ✅ No blocking issues | none |
+| `single` | ✅ No blocking issues | none |
 
 **Checks:** 2 passed · 2 failed · 1 n/a
 
@@ -51,15 +53,6 @@
 
 > another note
 
-<!-- /pergent:multi -->
-
-<!-- pergent:single -->
-### single
-
-✅ **No blocking issues**
-
-**Summary:** Sum.
-
 **Checks:** 1 passed · 1 failed
 
 **Sec\|tion**
@@ -68,7 +61,5 @@
 |---|---|---|
 | a\|b c \`x | ✅ | &lt;/details> &lt;summary>y [REDACTED] |
 | fail | ❌ |  |
-
-<!-- /pergent:single -->
 
 <!-- pergent:findings eyJ2ZXJzaW9uIjoxLCJza2lsbHMiOnsibXVsdGkiOltdLCJzaW5nbGUiOltdfX0= -->

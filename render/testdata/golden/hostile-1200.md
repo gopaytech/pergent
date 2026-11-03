@@ -1,38 +1,17 @@
 <!-- pergent -->
-## pergent review
+### ❌ 1 blocking issue
 
-<details><summary>Files changed (2)</summary>
+<sub>2 files · 1 blocking · 2 suggestions</sub>
 
-- `` we`ird.go ``
-- `[REDACTED].txt`
+| Skill | Verdict | Findings |
+|---|---|---|
+| `first` | ✅ No blocking issues | 2 suggestions |
+| `second` | ❌ Has blocking issues | 1 blocking |
+| `sk&lt;!--ill` | ✅ No blocking issues | none |
 
-</details>
+#### Findings (3)
 
-<!-- pergent:first -->
-### first
-
-✅ **No blocking issues**
-
-<details><summary>Suggestions (2)</summary>
-
-> Suggestion details omitted to fit the comment size limit.
-
-**`b.go:2`** — **Second**
-
-**`a.go:1`** — **Bad `name` ``` second line**
-
-</details>
-
-<!-- /pergent:first -->
-
-<!-- pergent:second -->
-### second
-
-❌ **1 blocking issue**
-
-**Summary:** fine /unapprove
-
-**`a.go:1`** — **Bad [REDACTED]**
+<details open><summary>❌ <b>Bad [REDACTED]</b> · <code>a.go:1</code> · <code>second</code></summary>
 
 ok
 ​/approve
@@ -41,13 +20,20 @@ x
 ​/merge
 [REDACTED] and Bearer [REDACTED]
 
-_Suggested fix:_
+**Fix:**
 
 ```go
 ​/label ~bug
     // keep this comment
 ```
 https://x.example/?key=[REDACTED]&token=[REDACTED]
+
+</details>
+
+> Suggestion details omitted to fit the comment size limit.
+
+- 💡 <b>Bad `name` ``` second line</b> · <code>a.go:1</code>
+- 💡 <b>Second</b> · <code>b.go:2</code>
 
 <details><summary>Skipped files (1)</summary>
 
@@ -58,13 +44,11 @@ https://x.example/?key=[REDACTED]&token=[REDACTED]
 > note with &lt;!-- comment --> and newline
 > token [REDACTED]
 
-<!-- /pergent:second -->
+<details><summary>Files changed (2)</summary>
 
-<!-- pergent:sk<!--ill -->
-### sk<!--ill
+- `` we`ird.go ``
+- `[REDACTED].txt`
 
-✅ **No blocking issues**
-
-<!-- /pergent:sk<!--ill -->
+</details>
 
 > Findings were too large to store for the next run; --previous-review will treat the next run as a first review.
