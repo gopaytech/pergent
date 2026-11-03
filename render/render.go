@@ -762,7 +762,9 @@ func writeFinding(b *strings.Builder, f Finding, titleOnly bool) {
 		if f.EndLine > 0 && f.EndLine != f.Line {
 			lines = fmt.Sprintf("lines %d–%d", f.Line, f.EndLine)
 		}
-		text := neutralizeComments(f.Suggestion)
+		// "\r" goes first: neutralizeQuickActions removes it later and could join
+		// two backtick runs into one longer than the fence.
+		text := neutralizeComments(strings.ReplaceAll(f.Suggestion, "\r", ""))
 		fence := strings.Repeat("`", max(3, longestBacktickRun(text)+1))
 		fmt.Fprintf(b, "_Suggested change, replacing %s:_\n\n%s\n%s\n%s\n\n", lines, fence, text, fence)
 	}

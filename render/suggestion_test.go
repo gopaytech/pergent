@@ -156,3 +156,15 @@ func TestComment_NoFooterNoInlineChangesNothing(t *testing.T) {
 		t.Error("empty Inline and Footer changed the comment")
 	}
 }
+
+func TestComment_SuggestionCarriageReturnCannotJoinBackticks(t *testing.T) {
+	f := Finding{File: "a.go", Line: 1, Severity: Blocking, Title: "T", Suggestion: "``\r``\nX"}
+	skills := []Skill{{Name: "s", Verdict: VerdictHasBlockingIssues, Findings: []Finding{f}}}
+	out := Comment(skills, Options{})
+	if !strings.Contains(out, "\n`````\n````\nX\n`````\n\n") {
+		t.Errorf("the fence must be longer than the backtick run left once \\r is removed:\n%s", out)
+	}
+	if !strings.HasSuffix(out, FindingsBlock(skills)) {
+		t.Error("the hidden block is no longer the last line")
+	}
+}
