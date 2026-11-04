@@ -488,3 +488,22 @@ func TestRunAgent_GeneratedFileReviewed(t *testing.T) {
 		t.Errorf("skills = %+v, want gen.go reviewed", r.Skills)
 	}
 }
+
+func TestRunAgent_CarriedFilesInResult(t *testing.T) {
+	sandboxEnv(t)
+	dir, base, head := agentRepo(t, func(dir string) {
+		writeFile(t, dir, "b.go", "package a\n")
+	})
+	carried := filepath.Join(t.TempDir(), "carried.json")
+	writeFile(t, filepath.Dir(carried), "carried.json", `{"review": ["a.go"]}`)
+	var stdout, stderr bytes.Buffer
+
+	code := runAgent(context.Background(), agentArgs(dir, base, head, oneSkill(t), "--carried", carried), agentEnv(nil), &stdout, &stderr, answerRun(t))
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr:\n%s", code, stderr.String())
+	}
+	r := decodeOnly(t, stdout.Bytes())
+	if len(r.Skills) != 1 || !slices.Equal(r.Skills[0].Files.Carried, []string{"a.go"}) || !slices.Equal(r.Skills[0].Files.Reviewed, []string{"b.go"}) {
+		t.Errorf("skills = %+v, want a.go carried and b.go reviewed", r.Skills)
+	}
+}

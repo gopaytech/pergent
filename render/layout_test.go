@@ -100,7 +100,6 @@ func TestMetaNote(t *testing.T) {
 	s := Skill{Name: "s", Verdict: VerdictNoBlockingIssues, Reviewed: []string{"a.go", "b.go"},
 		Findings: []Finding{{File: "a.go", Severity: Suggestion, Title: "A"}}}
 	base := Options{Commit: "a1b2c3d4e5", ChangedFiles: []string{"a.go", "b.go"}}
-	without := Comment([]Skill{s}, base)
 
 	const note = "Re-reviewed 2 files · 28 carried over from `abc1234`"
 	base.MetaNote = note
@@ -109,9 +108,11 @@ func TestMetaNote(t *testing.T) {
 		t.Errorf("meta line missing %q:\n%s", want, head(got))
 	}
 
-	base.MetaNote = ""
-	if got := Comment([]Skill{s}, base); got != without {
-		t.Errorf("an empty MetaNote changed the comment:\n%s", head(got))
+	// Line breaks in the note collapse: the line stays one <sub> line.
+	base.MetaNote = "Re-reviewed 2 files\n\n28 carried over"
+	got = Comment([]Skill{s}, base)
+	if want := "<sub>Commit `a1b2c3d` · 2 files · 1 suggestion · Re-reviewed 2 files 28 carried over</sub>\n\n"; !strings.Contains(got, want) {
+		t.Errorf("meta line missing %q:\n%s", want, head(got))
 	}
 
 	// With no other part, the note makes the line.

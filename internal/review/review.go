@@ -320,13 +320,21 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillRes
 
 	prev, hasPrev := r.req.Previous[s.Name]
 	if len(res.Carried) > 0 {
+		// Only the files this skill reviews and carried; any other carried
+		// path is ignored.
+		left := make(map[string]bool, len(res.Carried))
+		for _, p := range res.Carried {
+			left[p] = true
+		}
 		kept := prev[:0:0]
 		for _, f := range prev {
-			if !carried[f.File] {
+			if !left[f.File] {
 				kept = append(kept, f)
 			}
 		}
 		prev = kept
+		// Nothing left to attach: no empty list, no previous-review message.
+		hasPrev = len(prev) > 0
 	}
 	outcomes := make([]batchOutcome, len(batches))
 	var wg sync.WaitGroup

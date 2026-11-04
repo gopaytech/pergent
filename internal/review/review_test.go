@@ -581,6 +581,55 @@ func TestPreviousDropsCarriedFindings(t *testing.T) {
 	}
 }
 
+func TestPreviousCarriedFindingsEdgeCases(t *testing.T) {
+	at := func(file string) finding.Finding {
+		return finding.Finding{File: file, Line: 1, Severity: finding.Suggestion, Title: "On " + file, Explanation: "e", Fingerprint: "fp-" + file}
+	}
+	attached := func(t *testing.T, c call) []finding.Finding {
+		t.Helper()
+		var got struct {
+			Findings []finding.Finding `json:"findings"`
+		}
+		if len(c.contents) != 3 {
+			t.Fatalf("Files = %q, want the previous findings attached", c.opts.Files)
+		}
+		if err := json.Unmarshal([]byte(c.contents[2]), &got); err != nil {
+			t.Fatal(err)
+		}
+		return got.Findings
+	}
+
+	t.Run("out-of-scope carried path keeps its findings", func(t *testing.T) {
+		f := &fake{}
+		f.respond = func(int, call) runner.RunResult { return completed(answer(t)) }
+		req := newRequest(t, f, patch("a.go", "x")+patch("b.go", "y")+patch("c.md", "z"), skill.Skill{Name: "s", Paths: []string{"**/*.go"}})
+		req.Carried = map[string][]string{"s": {"b.go", "c.md"}}
+		req.Previous = map[string][]finding.Finding{"s": {at("a.go"), at("b.go"), at("c.md")}}
+
+		Run(context.Background(), req)
+		if got, want := attached(t, f.calls[0]), []finding.Finding{at("a.go"), at("c.md")}; !slices.Equal(got, want) {
+			t.Errorf("previous findings = %+v, want only b.go's dropped", got)
+		}
+	})
+
+	t.Run("nothing left attaches nothing", func(t *testing.T) {
+		f := &fake{}
+		f.respond = func(int, call) runner.RunResult { return completed(answer(t)) }
+		req := newRequest(t, f, patch("a.go", "x")+patch("b.go", "y"))
+		req.Carried = map[string][]string{"s": {"b.go"}}
+		req.Previous = map[string][]finding.Finding{"s": {at("b.go")}}
+
+		Run(context.Background(), req)
+		c := f.calls[0]
+		if len(c.opts.Files) != 2 {
+			t.Errorf("Files = %q, want only the diff and the file list", c.opts.Files)
+		}
+		if strings.Contains(c.opts.Message, "previous review") {
+			t.Errorf("Message = %q, want no previous-review message", c.opts.Message)
+		}
+	})
+}
+
 func TestRun_ResultsInSkillOrder(t *testing.T) {
 	f := &fake{}
 	f.respond = func(int, call) runner.RunResult { return completed(answer(t)) }
