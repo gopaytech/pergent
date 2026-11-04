@@ -1,9 +1,10 @@
 package render
 
 import (
-	"regexp"
+	"html"
 	"strings"
 	"testing"
+	"unicode"
 )
 
 func lastLine(s string) string {
@@ -152,8 +153,33 @@ func TestInlineMarkerRoundTrip(t *testing.T) {
 	}
 }
 
-// liveSuggestionFence matches what a platform treats as a suggestion fence.
-var liveSuggestionFence = regexp.MustCompile("(?i)(`{3,}|~{3,})[ \\t]*suggestion")
+// liveSuggestionFences counts the fences in body a platform renders as a
+// suggestion: a run of 3 or more backticks or tildes whose info string, after
+// decoding entities and trimming white space, starts with "suggestion". It is
+// written differently from the implementation on purpose.
+func liveSuggestionFences(body string) int {
+	n := 0
+	for _, line := range strings.Split(body, "\n") {
+		for i := 0; i < len(line); {
+			if line[i] != '`' && line[i] != '~' {
+				i++
+				continue
+			}
+			j := i
+			for j < len(line) && line[j] == line[i] {
+				j++
+			}
+			if j-i >= 3 {
+				info := strings.ToLower(strings.TrimLeftFunc(html.UnescapeString(line[j:]), unicode.IsSpace))
+				if strings.HasPrefix(info, "suggestion") {
+					n++
+				}
+			}
+			i = j
+		}
+	}
+	return n
+}
 
 func TestInlineCommentModelSuggestionFencesDefused(t *testing.T) {
 	fences := []string{
@@ -161,26 +187,47 @@ func TestInlineCommentModelSuggestionFencesDefused(t *testing.T) {
 		"```Suggestion", "``` suggestion", "   ```suggestion:-0+3",
 		"> ```suggestion:-20+20", "- ```suggestion:-20+20", "1. x\n\n    ```suggestion:-20+20",
 		"> > ~~~suggestion", "text ```suggestion:-0+3",
+		"```&#115;uggestion:-20+20", "```&#x73;uggestion", "```sugg&#x65;stion", "~~~&#83;uggestion",
+		"```&#83;UGGESTION", "```\vsuggestion", "```\fsuggestion", "```\tsuggestion", "````  suggestion",
+		"> ```&#115;uggestion:-20+20", "> ```\vsuggestion", "- ~~~&#x73;uggestion", "```&#32;suggestion",
 	}
+	harmless := []string{"```&amp;suggestion", "```&amp;#115;uggestion", "```sugg estion", "```text"}
 	for _, info := range []string{"", "suggestion", "suggestion:-0+2"} {
 		want := 0
 		if info != "" {
 			want = 1 // the one built from Finding.Suggestion
+		}
+		for _, fence := range append(append([]string{}, fences...), harmless...) {
+			f := inlineFinding()
+			f.Explanation = "see\n" + fence + "\nrm -rf everything\n```"
+			f.SuggestedFix = "or\n" + fence + "\nrm -rf everything\n```"
+			body := InlineComment(f, InlineOptions{SuggestionInfo: info})
+			if got := liveSuggestionFences(body); got != want {
+				t.Errorf("info %q fence %q: %d live suggestion fences, want %d:\n%s", info, fence, got, want, body)
+			}
+			if info != "" && !strings.Contains(body, "```"+info+"\n"+f.Suggestion+"\n```") {
+				t.Errorf("info %q fence %q: real suggestion block missing:\n%s", info, fence, body)
+			}
 		}
 		for _, fence := range fences {
 			f := inlineFinding()
 			f.Explanation = "see\n" + fence + "\nrm -rf everything\n```"
 			f.SuggestedFix = "or\n" + fence + "\nrm -rf everything\n```"
 			body := InlineComment(f, InlineOptions{SuggestionInfo: info})
-			if got := len(liveSuggestionFence.FindAllString(body, -1)); got != want {
-				t.Errorf("info %q fence %q: %d live suggestion fences, want %d:\n%s", info, fence, got, want, body)
-			}
-			if info != "" && !strings.Contains(body, "```"+info+"\n"+f.Suggestion+"\n```") {
-				t.Errorf("info %q fence %q: real suggestion block missing:\n%s", info, fence, body)
-			}
 			if got := strings.Count(body, "text-"); got < 2 {
 				t.Errorf("info %q fence %q: %d renamed, want at least 2:\n%s", info, fence, got, body)
 			}
+		}
+	}
+}
+
+func TestLiveSuggestionFencesCounter(t *testing.T) {
+	for body, want := range map[string]int{
+		"```suggestion": 1, "> ~~~&#83;UGGESTION": 1, "```\vsuggestion": 1, "```text-suggestion": 0,
+		"``suggestion": 0, "```&amp;suggestion": 0, "``` ```suggestion": 1,
+	} {
+		if got := liveSuggestionFences(body); got != want {
+			t.Errorf("%q: got %d, want %d", body, got, want)
 		}
 	}
 }

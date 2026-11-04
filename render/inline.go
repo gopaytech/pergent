@@ -2,6 +2,7 @@ package render
 
 import (
 	"fmt"
+	"html"
 	"regexp"
 	"strings"
 )
@@ -49,20 +50,36 @@ func InlineFingerprint(body string) (string, bool) {
 	return m[1], true
 }
 
-// suggestionFenceRe matches a run of 3 or more backticks or tildes followed by
-// "suggestion", wherever it is on a line.
-var suggestionFenceRe = regexp.MustCompile("(?i)((?:`{3,}|~{3,})[ \\t]*)(suggestion)")
+// fenceRunRe matches a run of 3 or more backticks or tildes.
+var fenceRunRe = regexp.MustCompile("`{3,}|~{3,}")
 
-// defuseSuggestionFences puts "text-" in front of every "suggestion" that
-// follows a run of 3 or more backticks or tildes, so "```suggestion:-0+3"
-// becomes "```text-suggestion:-0+3". The platform offers to apply a fence
-// named suggestion, and in an inline thread only the one InlineComment builds
-// from Finding.Suggestion may be one. It matches anywhere on a line, not only
-// at a fence opening: a fence inside a blockquote, a list item or an indented
-// block is a suggestion too. It also changes inline prose that happens to
-// contain such a run, which is fine.
+// defuseSuggestionFences keeps a fence in model text from being a suggestion.
+// The platform offers to apply a fence whose rendered info string starts with
+// "suggestion", and in an inline thread only the one InlineComment builds from
+// Finding.Suggestion may be one. For every run of 3 or more backticks or
+// tildes, anywhere on a line (a fence inside a blockquote, a list item or an
+// indented block counts too), it decodes the rest of the line the way the
+// renderers do (entity and numeric references, leading ASCII whitespace
+// dropped, case ignored); if that starts with "suggestion", it puts "text-"
+// right after the run, so the rendered info string starts with "text-" however
+// it was spelled: "```&#115;uggestion" becomes "```text-&#115;uggestion". It
+// also changes inline prose that happens to contain such a run, which is fine.
 func defuseSuggestionFences(s string) string {
-	return suggestionFenceRe.ReplaceAllString(s, "${1}text-${2}")
+	var b strings.Builder
+	last := 0
+	for _, m := range fenceRunRe.FindAllStringIndex(s, -1) {
+		rest := s[m[1]:]
+		if i := strings.IndexByte(rest, '\n'); i >= 0 {
+			rest = rest[:i]
+		}
+		rest = strings.ToLower(strings.TrimLeft(html.UnescapeString(rest), " \t\n\v\f\r"))
+		if strings.HasPrefix(rest, "suggestion") {
+			b.WriteString(s[last:m[1]] + "text-")
+			last = m[1]
+		}
+	}
+	b.WriteString(s[last:])
+	return b.String()
 }
 
 // inlineText prepares multi-line model text for an inline comment: comments
