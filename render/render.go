@@ -158,6 +158,10 @@ type Options struct {
 	// DismissCommand is the command prefix that dismisses a finding, such as
 	// "@pergent-review dismiss"; empty means no dismiss line.
 	DismissCommand string
+	// MetaNote is the last part of the meta line, such as how many files this
+	// review covered. The caller formats it; its whitespace, line breaks
+	// included, is collapsed to single spaces. Empty adds nothing.
+	MetaNote string
 	// Version is shown in the footer after "pergent ".
 	Version string
 	// FindingsTitle replaces the "Findings" heading when non-empty.
