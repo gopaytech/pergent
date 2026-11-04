@@ -28,7 +28,8 @@ const (
 var inlineMarkerRe = regexp.MustCompile(`^<!-- pergent:finding ([0-9a-zA-Z:_-]{1,128}) -->$`)
 
 // InlineMarker returns the hidden marker that ends an inline comment and
-// identifies the finding it was posted for.
+// identifies the finding it was posted for. The fingerprint must match
+// [0-9a-zA-Z:_-]{1,128}, or InlineFingerprint won't recognise the marker.
 func InlineMarker(fingerprint string) string {
 	return inlineMarkerPrefix + fingerprint + inlineMarkerSuffix
 }
@@ -48,22 +49,52 @@ func InlineFingerprint(body string) (string, bool) {
 	return m[1], true
 }
 
+// defuseSuggestionFences renames every code fence opening whose info string
+// starts with "suggestion" (any case, up to 3 spaces of indentation, backticks
+// or tildes) by putting "text-" in front of it, so "```suggestion:-0+3" becomes
+// "```text-suggestion:-0+3". The platform only offers to apply a fence named
+// suggestion, and in an inline thread only the one InlineComment builds from
+// Finding.Suggestion may be one.
+func defuseSuggestionFences(s string) string {
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		if ch, _, _ := fenceLine(line); ch == 0 {
+			continue
+		}
+		trimmed := strings.TrimLeft(line, " ")
+		indent := line[:len(line)-len(trimmed)]
+		run := trimmed[:len(trimmed)-len(strings.TrimLeft(trimmed, trimmed[:1]))]
+		info := strings.TrimLeft(trimmed[len(run):], " \t")
+		if len(info) >= len("suggestion") && strings.EqualFold(info[:len("suggestion")], "suggestion") {
+			lines[i] = indent + run + "text-" + info
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
 // inlineText prepares multi-line model text for an inline comment: comments
-// and fences neutralised, mentions broken and quick actions defused.
+// and fences neutralised, suggestion fences renamed, mentions broken and
+// quick actions defused.
 func inlineText(s string) string {
-	s = modelText(s)
+	s = defuseSuggestionFences(modelText(s))
 	s = strings.ReplaceAll(s, "@", "@‍")
 	return neutralizeQuickActions(s)
 }
 
 // InlineComment renders one finding as the body of an inline review thread.
-// It ends with InlineMarker(f.Fingerprint) on its own line.
+// It ends with InlineMarker(f.Fingerprint) on its own line; the fingerprint
+// must match [0-9a-zA-Z:_-]{1,128}, or InlineFingerprint won't recognise it.
 //
 // Title, explanation and fix are made safe like the summary comment's. The
 // suggestion is not: it is written byte for byte inside a fence longer than
 // any backtick run in it, because escaping would change what the platform
 // applies. A suggestion with a carriage return is left out, as the platform
-// would apply it differently from what is shown; the fix stays in words.
+// would apply it differently from what is shown. It is also left out when it
+// has a line starting with a code fence and a line starting with "/": GitLab
+// finds code blocks with a regular expression, so a fence line inside the
+// suggestion can end its code region early and run the later "/" line as a
+// quick action. In both cases the fix stays in words. Suggestion fences in the
+// explanation and fix are renamed (see defuseSuggestionFences).
 func InlineComment(f Finding, o InlineOptions) string {
 	var b strings.Builder
 	label := "**❌ Blocking: "
@@ -85,7 +116,7 @@ func InlineComment(f Finding, o InlineOptions) string {
 		fmt.Fprintf(&b, "**Fix:**%s%s\n\n", sep, fix)
 	}
 
-	if o.SuggestionInfo != "" && f.Suggestion != "" && !strings.Contains(f.Suggestion, "\r") {
+	if o.SuggestionInfo != "" && f.Suggestion != "" && safeSuggestion(f.Suggestion) {
 		fence := strings.Repeat("`", max(3, longestBacktickRun(f.Suggestion)+1))
 		fmt.Fprintf(&b, "%s%s\n%s\n%s\n\n", fence, oneLine(o.SuggestionInfo), f.Suggestion, fence)
 	}
@@ -106,4 +137,24 @@ func InlineComment(f Finding, o InlineOptions) string {
 	}
 	b.WriteString(InlineMarker(f.Fingerprint))
 	return b.String()
+}
+
+// safeSuggestion reports whether s can be shown byte for byte in a suggestion
+// fence: it has no "\r", and no way to end the code region early (a line
+// starting with a fence) before a line starting with "/".
+func safeSuggestion(s string) bool {
+	if strings.Contains(s, "\r") {
+		return false
+	}
+	fence, slash := false, false
+	for _, line := range strings.Split(s, "\n") {
+		trimmed := strings.TrimLeft(line, " ")
+		if len(line)-len(trimmed) <= 3 && (strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~")) {
+			fence = true
+		}
+		if strings.HasPrefix(line, "/") {
+			slash = true
+		}
+	}
+	return !(fence && slash)
 }
