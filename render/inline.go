@@ -72,6 +72,9 @@ func defuseSuggestionFences(s string) string {
 		if i := strings.IndexByte(rest, '\n'); i >= 0 {
 			rest = rest[:i]
 		}
+		// The ASCII white space set is deliberate: it is what CommonMark
+		// renderers trim. A non-ASCII space such as NBSP doesn't make the
+		// fence's language "suggestion", so it needs no defusing.
 		rest = strings.ToLower(strings.TrimLeft(html.UnescapeString(rest), " \t\n\v\f\r"))
 		if strings.HasPrefix(rest, "suggestion") {
 			b.WriteString(s[last:m[1]] + "text-")

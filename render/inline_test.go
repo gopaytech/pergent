@@ -4,7 +4,6 @@ import (
 	"html"
 	"strings"
 	"testing"
-	"unicode"
 )
 
 func lastLine(s string) string {
@@ -155,7 +154,7 @@ func TestInlineMarkerRoundTrip(t *testing.T) {
 
 // liveSuggestionFences counts the fences in body a platform renders as a
 // suggestion: a run of 3 or more backticks or tildes whose info string, after
-// decoding entities and trimming white space, starts with "suggestion". It is
+// decoding entities and trimming ASCII white space, starts with "suggestion". It is
 // written differently from the implementation on purpose.
 func liveSuggestionFences(body string) int {
 	n := 0
@@ -170,7 +169,9 @@ func liveSuggestionFences(body string) int {
 				j++
 			}
 			if j-i >= 3 {
-				info := strings.ToLower(strings.TrimLeftFunc(html.UnescapeString(line[j:]), unicode.IsSpace))
+				// ASCII white space only, as CommonMark renderers trim it: a
+				// non-ASCII space such as NBSP doesn't make the language "suggestion".
+				info := strings.ToLower(strings.TrimLeft(html.UnescapeString(line[j:]), " \t\n\v\f\r"))
 				if strings.HasPrefix(info, "suggestion") {
 					n++
 				}
@@ -191,7 +192,7 @@ func TestInlineCommentModelSuggestionFencesDefused(t *testing.T) {
 		"```&#83;UGGESTION", "```\vsuggestion", "```\fsuggestion", "```\tsuggestion", "````  suggestion",
 		"> ```&#115;uggestion:-20+20", "> ```\vsuggestion", "- ~~~&#x73;uggestion", "```&#32;suggestion",
 	}
-	harmless := []string{"```&amp;suggestion", "```&amp;#115;uggestion", "```sugg estion", "```text"}
+	harmless := []string{"```\u00a0suggestion", "```&amp;suggestion", "```&amp;#115;uggestion", "```sugg estion", "```text"}
 	for _, info := range []string{"", "suggestion", "suggestion:-0+2"} {
 		want := 0
 		if info != "" {
@@ -221,10 +222,22 @@ func TestInlineCommentModelSuggestionFencesDefused(t *testing.T) {
 	}
 }
 
+func TestInlineCommentNBSPFenceLeftAsIs(t *testing.T) {
+	f := inlineFinding()
+	f.Explanation = "```\u00a0suggestion\nx\n```"
+	body := InlineComment(f, InlineOptions{})
+	if !strings.Contains(body, "```\u00a0suggestion\nx\n```") || strings.Contains(body, "text-") {
+		t.Errorf("NBSP fence changed:\n%s", body)
+	}
+	if got := liveSuggestionFences(body); got != 0 {
+		t.Errorf("%d live suggestion fences, want 0", got)
+	}
+}
+
 func TestLiveSuggestionFencesCounter(t *testing.T) {
 	for body, want := range map[string]int{
 		"```suggestion": 1, "> ~~~&#83;UGGESTION": 1, "```\vsuggestion": 1, "```text-suggestion": 0,
-		"``suggestion": 0, "```&amp;suggestion": 0, "``` ```suggestion": 1,
+		"``suggestion": 0, "```\u00a0suggestion": 0, "```&amp;suggestion": 0, "``` ```suggestion": 1,
 	} {
 		if got := liveSuggestionFences(body); got != want {
 			t.Errorf("%q: got %d, want %d", body, got, want)
