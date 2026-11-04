@@ -45,6 +45,10 @@ type Request struct {
 	// Previous holds each skill's findings from the previous review, by
 	// skill name.
 	Previous map[string][]finding.Finding
+	// Carried holds each skill's files that an earlier review covers, by skill
+	// name. They are left out of the skill's batches and reported in
+	// SkillResult.Carried; a path the skill does not review is ignored.
+	Carried map[string][]string
 	// Run runs opencode; nil means runner.Run.
 	Run RunFunc
 	// Classifier decides the default exclusions; nil means
@@ -94,6 +98,9 @@ type SkillResult struct {
 	Summaries []BatchSummary
 	// Reviewed lists the files of the batches that finished, in batch order.
 	Reviewed []string
+	// Carried lists the files left out because the request carried them, in
+	// diff order.
+	Carried []string
 	// Checks are the checklist results of the batches that finished, in
 	// batch order. Batches that reported no checks are left out.
 	Checks []BatchChecks
@@ -135,6 +142,7 @@ const (
 	noFilesNote         = "no files in scope"
 	singleBatchMessage  = "Review the attached diff."
 	multiBatchMessage   = "Review the attached diff. It is batch %d of %d of this change; the attached list shows every changed file. Review only the files in this batch's diff, and read any file in the repository you need."
+	carriedMessage      = "The other files of this change were reviewed earlier and are not in this diff. Read them if this change affects them."
 	previousMessage     = "Also attached are the findings from your previous review of an earlier revision, as JSON. Stay consistent with them: focus on what changed since, don't re-litigate unchanged code, drop findings the new changes resolve, and reuse a finding's fingerprint when it still applies."
 	repairMessage       = "The attached review is not in the required output format (%s). Rewrite it in the required format without changing its findings."
 	repairFailedPrefix  = "The model's answer was not in the required format (%v), and the repair run failed:"
@@ -263,6 +271,28 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillRes
 		return res
 	}
 
+	// Carried files were reviewed earlier: they stay in the changed-file list
+	// but are not batched.
+	carried := make(map[string]bool, len(r.req.Carried[s.Name]))
+	for _, p := range r.req.Carried[s.Name] {
+		carried[p] = true
+	}
+	if len(carried) > 0 {
+		rest := in[:0:0]
+		for _, f := range in {
+			if carried[f.Path] {
+				res.Carried = append(res.Carried, f.Path)
+				continue
+			}
+			rest = append(rest, f)
+		}
+		in = rest
+	}
+	if len(in) == 0 {
+		res.Verdict = NoBlockingIssues
+		return res
+	}
+
 	// A file the platform returned no diff for is not reviewed; the others
 	// are batched as usual.
 	reviewable := in[:0:0]
@@ -289,13 +319,22 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillRes
 	}
 
 	prev, hasPrev := r.req.Previous[s.Name]
+	if len(res.Carried) > 0 {
+		kept := prev[:0:0]
+		for _, f := range prev {
+			if !carried[f.File] {
+				kept = append(kept, f)
+			}
+		}
+		prev = kept
+	}
 	outcomes := make([]batchOutcome, len(batches))
 	var wg sync.WaitGroup
 	for i, b := range batches {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			outcomes[i] = r.reviewBatch(ctx, s, b, i+1, len(batches), prev, hasPrev)
+			outcomes[i] = r.reviewBatch(ctx, s, b, i+1, len(batches), prev, hasPrev, len(res.Carried) > 0)
 		}()
 	}
 	wg.Wait()
@@ -358,7 +397,7 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillRes
 // reviewBatch runs the review of one batch, and one repair run when the
 // answer is not in the required format. It returns the batch's findings, why
 // the batch was not reviewed, or that its run never started.
-func (r *reviewer) reviewBatch(ctx context.Context, s skill.Skill, batch []diff.FileDiff, n, total int, prev []finding.Finding, hasPrev bool) (o batchOutcome) {
+func (r *reviewer) reviewBatch(ctx context.Context, s skill.Skill, batch []diff.FileDiff, n, total int, prev []finding.Finding, hasPrev, hasCarried bool) (o batchOutcome) {
 	var usage runner.Usage
 	defer func() { o.usage = usage }()
 	label := fmt.Sprintf("%d/%d", n, total)
@@ -385,6 +424,9 @@ func (r *reviewer) reviewBatch(ctx context.Context, s skill.Skill, batch []diff.
 	message := singleBatchMessage
 	if total > 1 {
 		message = fmt.Sprintf(multiBatchMessage, n, total)
+	}
+	if hasCarried {
+		message += " " + carriedMessage
 	}
 	type attachment struct{ name, content string }
 	attachments := []attachment{

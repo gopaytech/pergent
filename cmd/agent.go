@@ -35,7 +35,8 @@ import (
 
 // agentInputs is everything `pergent agent` reviews with. parseAgent fills
 // the flags; prepareAgent loads the skills and fills the checkout-derived
-// fields (Diff, Files, Classifier, Previous).
+// fields (Diff, Files, Classifier, Previous, Carried). Carried holds, per
+// skill name, the paths a previous review covers: this review leaves them out.
 type agentInputs struct {
 	RepoPath, Base, Head string
 	Skills               []skill.Skill
@@ -43,6 +44,7 @@ type agentInputs struct {
 	// gets: --instructions, or none. Never discovered in the checkout.
 	Instructions   []string
 	Previous       map[string][]finding.Finding
+	Carried        map[string][]string
 	MaxCommentSize int
 	Target         result.Target
 	Diff           string
@@ -54,6 +56,7 @@ type agentInputs struct {
 	skillsDir    string
 	skillValues  []string
 	previousPath string
+	carriedPath  string
 	scrub        bool
 	// $HOME and $XDG_CONFIG_HOME, where opencode finds its global config.
 	home, configHome string
@@ -225,6 +228,7 @@ func runAgent(ctx context.Context, args []string, getenv func(string) string, st
 		MaxTurns:     in.Review.MaxTurns,
 		ContextLimit: in.Review.ContextLimit,
 		Previous:     in.Previous,
+		Carried:      in.Carried,
 		Run:          run,
 		Classifier:   &in.Classifier,
 		Sandbox: review.Sandbox{
@@ -293,6 +297,7 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 	flags.Var(&skills, "skill", "Preset name or path to skill .md file (repeatable)")
 	flags.StringVar(&instructions, "instructions", "", "File passed to the agent as project instructions")
 	flags.StringVar(&in.previousPath, "previous", "", "A previous agent result whose findings are attached per skill")
+	flags.StringVar(&in.carriedPath, "carried", "", "A JSON file {\"<skill>\": [\"path\", ...]} of files a previous review covers, left out of this review")
 	flags.BoolVar(&in.scrub, "scrub-instructions", false, "Delete every AGENTS.md, CLAUDE.md and CONTEXT.md in --repo-path before reviewing")
 	flags.IntVar(&in.MaxCommentSize, "max-comment-size", 0, "Byte limit for the rendered comment (0: no limit)")
 	flags.StringVar(&resultPath, "result", "", "Write the result JSON to this file, or - for stdout")
@@ -465,6 +470,9 @@ func prepareAgent(in *agentInputs, logger *log.Logger) *result.Error {
 	if in.previousPath != "" {
 		in.Previous = readPrevious(in.previousPath, logger)
 	}
+	if in.carriedPath != "" {
+		in.Carried = readCarried(in.carriedPath, logger)
+	}
 	return nil
 }
 
@@ -483,7 +491,7 @@ func gitVersionError(version string, major, minor int, err error) *result.Error 
 }
 
 // trustedInputsOutside refuses a trusted input (--instructions, --skills-dir,
-// a path --skill, --previous) that resolves to somewhere inside the checkout:
+// a path --skill, --previous, --carried) that resolves to somewhere inside the checkout:
 // the change under review could have written it. A --skills-dir above the
 // checkout is refused too, since LoadDir would read the checkout's top-level
 // files as skills. So are a --result file in the checkout, where the change
@@ -514,6 +522,9 @@ func trustedInputsOutside(root string, in *agentInputs) *result.Error {
 	}
 	if in.previousPath != "" {
 		inputs = append(inputs, input{"--previous", in.previousPath})
+	}
+	if in.carriedPath != "" {
+		inputs = append(inputs, input{"--carried", in.carriedPath})
 	}
 	if in.home != "" {
 		inputs = append(inputs, input{"$HOME", in.home})
@@ -852,6 +863,22 @@ func readPrevious(path string, logger *log.Logger) map[string][]finding.Finding 
 		}
 	}
 	return previous
+}
+
+// readCarried reads the files a previous review covers, per skill name. An
+// unreadable or malformed file carries nothing, so every file is reviewed.
+func readCarried(path string, logger *log.Logger) map[string][]string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		logger.Printf("warning: ignoring --carried: %v", err)
+		return nil
+	}
+	var carried map[string][]string
+	if err := json.Unmarshal(data, &carried); err != nil {
+		logger.Printf("warning: ignoring --carried %s: %v", path, err)
+		return nil
+	}
+	return carried
 }
 
 // git runs git in repo with explicit arguments and returns its stdout. The

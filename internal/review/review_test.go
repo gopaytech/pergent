@@ -499,6 +499,88 @@ func TestRun_PreviousFindingsAttached(t *testing.T) {
 	assertRemoved(t, allFiles(f.calls))
 }
 
+func TestCarriedFilesLeftOut(t *testing.T) {
+	f := &fake{}
+	f.respond = func(int, call) runner.RunResult { return completed(answer(t)) }
+	req := newRequest(t, f, patch("a.go", "x")+patch("b.go", "y"))
+	req.Carried = map[string][]string{"s": {"b.go"}}
+
+	r := Run(context.Background(), req)[0]
+	if len(f.calls) != 1 {
+		t.Fatalf("runner called %d times, want 1", len(f.calls))
+	}
+	c := f.calls[0]
+	if c.contents[0] != patch("a.go", "x") {
+		t.Errorf("diff.patch = %q, want a.go only", c.contents[0])
+	}
+	if c.contents[1] != "- a.go\n- b.go\n" {
+		t.Errorf("changed-files.md = %q, want both files listed", c.contents[1])
+	}
+	if !strings.Contains(c.opts.Message, carriedMessage) {
+		t.Errorf("Message = %q, want it to contain the carried message", c.opts.Message)
+	}
+	if !slices.Equal(r.Carried, []string{"b.go"}) || !slices.Equal(r.Reviewed, []string{"a.go"}) {
+		t.Errorf("Carried = %q, Reviewed = %q, want [b.go] and [a.go]", r.Carried, r.Reviewed)
+	}
+	assertRemoved(t, allFiles(f.calls))
+}
+
+func TestAllCarriedStartsNoRun(t *testing.T) {
+	f := &fake{respond: func(int, call) runner.RunResult { return completed("") }}
+	req := newRequest(t, f, patch("a.go", "x")+patch("b.go", "y"))
+	req.Carried = map[string][]string{"s": {"a.go", "b.go"}}
+
+	r := Run(context.Background(), req)[0]
+	if len(f.calls) != 0 {
+		t.Errorf("runner called %d times, want 0", len(f.calls))
+	}
+	if r.Verdict != NoBlockingIssues || len(r.Reviewed) != 0 || !slices.Equal(r.Carried, []string{"a.go", "b.go"}) {
+		t.Errorf("result = %+v, want no blocking issues, nothing reviewed and both files carried", r)
+	}
+	if slices.Contains(r.Notes, noFilesNote) {
+		t.Errorf("Notes = %q, want no %q note when files were carried", r.Notes, noFilesNote)
+	}
+}
+
+func TestCarriedPathOutOfScopeIgnored(t *testing.T) {
+	f := &fake{}
+	f.respond = func(int, call) runner.RunResult { return completed(answer(t)) }
+	req := newRequest(t, f, patch("a.go", "x")+patch("b.md", "y"), skill.Skill{Name: "s", Paths: []string{"**/*.go"}})
+	req.Carried = map[string][]string{"s": {"b.md", "gone.go"}}
+
+	r := Run(context.Background(), req)[0]
+	if len(r.Carried) != 0 {
+		t.Errorf("Carried = %q, want none: neither path is a file the skill reviews", r.Carried)
+	}
+	if strings.Contains(f.calls[0].opts.Message, carriedMessage) {
+		t.Errorf("Message = %q, want no carried message", f.calls[0].opts.Message)
+	}
+	if !slices.Equal(r.Reviewed, []string{"a.go"}) {
+		t.Errorf("Reviewed = %q, want [a.go]", r.Reviewed)
+	}
+}
+
+func TestPreviousDropsCarriedFindings(t *testing.T) {
+	onA := finding.Finding{File: "a.go", Line: 1, Severity: finding.Suggestion, Title: "On a", Explanation: "e", Fingerprint: "aaaaaaaaaaaa"}
+	onB := finding.Finding{File: "b.go", Line: 1, Severity: finding.Suggestion, Title: "On b", Explanation: "e", Fingerprint: "bbbbbbbbbbbb"}
+	f := &fake{}
+	f.respond = func(int, call) runner.RunResult { return completed(answer(t)) }
+	req := newRequest(t, f, patch("a.go", "x")+patch("b.go", "y"))
+	req.Carried = map[string][]string{"s": {"b.go"}}
+	req.Previous = map[string][]finding.Finding{"s": {onA, onB}}
+
+	Run(context.Background(), req)
+	if len(f.calls) != 1 || len(f.calls[0].contents) != 3 {
+		t.Fatalf("calls = %+v, want one run with the previous findings attached", f.calls)
+	}
+	var got struct {
+		Findings []finding.Finding `json:"findings"`
+	}
+	if err := json.Unmarshal([]byte(f.calls[0].contents[2]), &got); err != nil || !slices.Equal(got.Findings, []finding.Finding{onA}) {
+		t.Errorf("previous findings = %q (err %v), want only the one on a.go", f.calls[0].contents[2], err)
+	}
+}
+
 func TestRun_ResultsInSkillOrder(t *testing.T) {
 	f := &fake{}
 	f.respond = func(int, call) runner.RunResult { return completed(answer(t)) }

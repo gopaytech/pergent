@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -333,7 +334,7 @@ func TestPrepareAgent_Codes(t *testing.T) {
 			t.Errorf("prepareAgent() error = %+v, want %s", e, result.CodeSkillsInvalid)
 		}
 	})
-	for _, flag := range []string{"--skills-dir", "--skill", "--instructions", "--previous"} {
+	for _, flag := range []string{"--skills-dir", "--skill", "--instructions", "--previous", "--carried"} {
 		t.Run("usage for "+flag+" inside the checkout", func(t *testing.T) {
 			writeFile(t, repo, "inside/s.md", "---\nname: inside\n---\nBody.\n")
 			defer os.RemoveAll(filepath.Join(repo, "inside"))
@@ -718,6 +719,43 @@ func TestPrepareAgent_PreviousBadVersion(t *testing.T) {
 			}
 			if in.Previous != nil {
 				t.Errorf("Previous = %+v, want nil", in.Previous)
+			}
+			if !strings.Contains(logs.String(), "warning") {
+				t.Errorf("no warning logged: %q", logs.String())
+			}
+		})
+	}
+}
+
+func TestPrepareAgent_Carried(t *testing.T) {
+	repo, base, head := agentRepo(t, nil)
+	path := filepath.Join(t.TempDir(), "carried.json")
+	writeFile(t, filepath.Dir(path), "carried.json", `{"review": ["b.go", "c/d.go"], "quiet": []}`)
+
+	in := mustParse(t, agentArgs(repo, base, head, oneSkill(t), "--carried", path))
+	if e := prepareAgent(&in, quietLog); e != nil {
+		t.Fatalf("prepareAgent() error: %+v", e)
+	}
+	if got := in.Carried["review"]; !slices.Equal(got, []string{"b.go", "c/d.go"}) {
+		t.Errorf("Carried[review] = %q, want [b.go c/d.go]", got)
+	}
+}
+
+func TestPrepareAgent_CarriedBad(t *testing.T) {
+	repo, base, head := agentRepo(t, nil)
+	dir := t.TempDir()
+	writeFile(t, dir, "bad.json", `{not json`)
+	writeFile(t, dir, "list.json", `["b.go"]`)
+
+	for _, path := range []string{filepath.Join(dir, "bad.json"), filepath.Join(dir, "list.json"), filepath.Join(dir, "missing.json")} {
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			logger, logs := bufferLog()
+			in := mustParse(t, agentArgs(repo, base, head, oneSkill(t), "--carried", path))
+			if e := prepareAgent(&in, logger); e != nil {
+				t.Fatalf("prepareAgent() error: %+v, want the review to carry nothing", e)
+			}
+			if in.Carried != nil {
+				t.Errorf("Carried = %+v, want nil", in.Carried)
 			}
 			if !strings.Contains(logs.String(), "warning") {
 				t.Errorf("no warning logged: %q", logs.String())

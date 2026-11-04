@@ -483,3 +483,35 @@ func TestEncode_RedactsConfidenceReasonAndSuggestion(t *testing.T) {
 		t.Errorf("token leaked: %s", b)
 	}
 }
+
+func TestBuild_CarriedOmittedWhenEmpty(t *testing.T) {
+	files := func(carried []string) map[string]any {
+		r := Build(testMeta(), []review.SkillResult{{Skill: "s", Verdict: review.NoBlockingIssues, Carried: carried}})
+		b, err := Encode(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		skills := decode(t, b)["skills"].([]any)
+		return skills[0].(map[string]any)["files"].(map[string]any)
+	}
+	if _, ok := files(nil)["carried"]; ok {
+		t.Error("files.carried present for a skill that carried nothing")
+	}
+	got, ok := files([]string{"b.go"})["carried"].([]any)
+	if !ok || len(got) != 1 || got[0] != "b.go" {
+		t.Errorf("files.carried = %v, want [b.go]", got)
+	}
+}
+
+func TestRedact_CarriedPaths(t *testing.T) {
+	const secret = "s3cr3t-tok3n-value"
+	t.Setenv("GITHUB_TOKEN", secret)
+	r := Build(testMeta(), []review.SkillResult{{Skill: "s", Carried: []string{"dir/" + secret + ".go"}}})
+	b, err := Encode(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), secret) {
+		t.Errorf("the encoded result holds the token: %s", b)
+	}
+}

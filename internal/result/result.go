@@ -109,6 +109,7 @@ type Check struct {
 // Files says which files a skill reviewed, skipped and could not review.
 type Files struct {
 	Reviewed    []string      `json:"reviewed"`
+	Carried     []string      `json:"carried,omitempty"`
 	Skipped     []Skipped     `json:"skipped"`
 	NotReviewed []NotReviewed `json:"not_reviewed"`
 }
@@ -207,7 +208,7 @@ func buildSkill(s review.SkillResult, ids map[string]string) Skill {
 		Confidence:       s.Confidence,
 		ConfidenceReason: s.ConfidenceReason,
 		Findings:         make([]Finding, 0, len(s.Findings)),
-		Files:            Files{Reviewed: nonNil(s.Reviewed), Skipped: []Skipped{}, NotReviewed: []NotReviewed{}},
+		Files:            Files{Reviewed: nonNil(s.Reviewed), Carried: s.Carried, Skipped: []Skipped{}, NotReviewed: []NotReviewed{}},
 		Failures:         []Failure{},
 		Notes:            nonNil(s.Notes),
 		Batches:          s.Batches,
@@ -392,6 +393,9 @@ func redactSkill(s Skill) Skill {
 	}
 
 	s.Files.Reviewed = redactStrings(s.Files.Reviewed)
+	if s.Files.Carried != nil {
+		s.Files.Carried = redactStrings(s.Files.Carried)
+	}
 	skipped := make([]Skipped, len(s.Files.Skipped))
 	for i, x := range s.Files.Skipped {
 		skipped[i] = Skipped{Path: redact.String(x.Path), Rule: x.Rule}

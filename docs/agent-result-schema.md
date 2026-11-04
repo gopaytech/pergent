@@ -183,6 +183,7 @@ Each entry of `skills`:
 | `summaries` | array | `{batch, text}`: the model's summary of each batch. Omitted when empty. |
 | `checks` | array | One entry per batch that reported a checklist: `batch`, `dropped` (valid checks beyond the per-answer limit), `findings` (the number of findings in that batch) and `checks`, a list of `{section, name, status, detail}` where `status` is `pass`, `fail` or `n/a`. Omitted when no batch reported checks. |
 | `files.reviewed` | array | Paths the skill reviewed. The verdict covers these files and nothing else. |
+| `files.carried` | array | Paths the caller's previous review covers; not reviewed in this run. Omitted when empty. |
 | `files.skipped` | array | `{path, rule}`: files left out, the machine-readable record of what was not reviewed. `rule` is one of the values in [What a verdict covers](#what-a-verdict-covers). |
 | `files.not_reviewed` | array | `{path, cause}`: in-scope files whose batch failed. `cause` is plain one-line text. |
 | `failures` | array | One entry per batch that did not finish: `files`, `message` (plain one-line text: the failure's own message, if any, followed by the cause's message) and, when known, `cause` with `kind` and `message`. `kind` is `context_overflow`, `timeout`, `opencode_error`, `step_limit`, `exit_error` or `no_answer`. |
