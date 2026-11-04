@@ -49,27 +49,20 @@ func InlineFingerprint(body string) (string, bool) {
 	return m[1], true
 }
 
-// defuseSuggestionFences renames every code fence opening whose info string
-// starts with "suggestion" (any case, up to 3 spaces of indentation, backticks
-// or tildes) by putting "text-" in front of it, so "```suggestion:-0+3" becomes
-// "```text-suggestion:-0+3". The platform only offers to apply a fence named
-// suggestion, and in an inline thread only the one InlineComment builds from
-// Finding.Suggestion may be one.
+// suggestionFenceRe matches a run of 3 or more backticks or tildes followed by
+// "suggestion", wherever it is on a line.
+var suggestionFenceRe = regexp.MustCompile("(?i)((?:`{3,}|~{3,})[ \\t]*)(suggestion)")
+
+// defuseSuggestionFences puts "text-" in front of every "suggestion" that
+// follows a run of 3 or more backticks or tildes, so "```suggestion:-0+3"
+// becomes "```text-suggestion:-0+3". The platform offers to apply a fence
+// named suggestion, and in an inline thread only the one InlineComment builds
+// from Finding.Suggestion may be one. It matches anywhere on a line, not only
+// at a fence opening: a fence inside a blockquote, a list item or an indented
+// block is a suggestion too. It also changes inline prose that happens to
+// contain such a run, which is fine.
 func defuseSuggestionFences(s string) string {
-	lines := strings.Split(s, "\n")
-	for i, line := range lines {
-		if ch, _, _ := fenceLine(line); ch == 0 {
-			continue
-		}
-		trimmed := strings.TrimLeft(line, " ")
-		indent := line[:len(line)-len(trimmed)]
-		run := trimmed[:len(trimmed)-len(strings.TrimLeft(trimmed, trimmed[:1]))]
-		info := strings.TrimLeft(trimmed[len(run):], " \t")
-		if len(info) >= len("suggestion") && strings.EqualFold(info[:len("suggestion")], "suggestion") {
-			lines[i] = indent + run + "text-" + info
-		}
-	}
-	return strings.Join(lines, "\n")
+	return suggestionFenceRe.ReplaceAllString(s, "${1}text-${2}")
 }
 
 // inlineText prepares multi-line model text for an inline comment: comments
@@ -89,11 +82,12 @@ func inlineText(s string) string {
 // suggestion is not: it is written byte for byte inside a fence longer than
 // any backtick run in it, because escaping would change what the platform
 // applies. A suggestion with a carriage return is left out, as the platform
-// would apply it differently from what is shown. It is also left out when it
-// has a line starting with a code fence and a line starting with "/": GitLab
-// finds code blocks with a regular expression, so a fence line inside the
-// suggestion can end its code region early and run the later "/" line as a
-// quick action. In both cases the fix stays in words. Suggestion fences in the
+// would apply it differently from what is shown. It is also left out when any
+// of its lines starts with "/" in column 0: GitLab runs such a line as a quick
+// action unless it finds it inside a code block, and its code block detection
+// (a regular expression, not a Markdown parser) can be fooled by fences, HTML
+// and quote regions in the suggestion. The suggestion can't be escaped, so it
+// is shown only as advice in words, in the fix. Suggestion fences in the
 // explanation and fix are renamed (see defuseSuggestionFences).
 func InlineComment(f Finding, o InlineOptions) string {
 	var b strings.Builder
@@ -140,21 +134,15 @@ func InlineComment(f Finding, o InlineOptions) string {
 }
 
 // safeSuggestion reports whether s can be shown byte for byte in a suggestion
-// fence: it has no "\r", and no way to end the code region early (a line
-// starting with a fence) before a line starting with "/".
+// fence: it has no "\r" and no line starting with "/" in column 0.
 func safeSuggestion(s string) bool {
 	if strings.Contains(s, "\r") {
 		return false
 	}
-	fence, slash := false, false
 	for _, line := range strings.Split(s, "\n") {
-		trimmed := strings.TrimLeft(line, " ")
-		if len(line)-len(trimmed) <= 3 && (strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~")) {
-			fence = true
-		}
 		if strings.HasPrefix(line, "/") {
-			slash = true
+			return false
 		}
 	}
-	return !(fence && slash)
+	return true
 }

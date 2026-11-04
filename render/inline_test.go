@@ -1,6 +1,7 @@
 package render
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -151,30 +152,34 @@ func TestInlineMarkerRoundTrip(t *testing.T) {
 	}
 }
 
+// liveSuggestionFence matches what a platform treats as a suggestion fence.
+var liveSuggestionFence = regexp.MustCompile("(?i)(`{3,}|~{3,})[ \\t]*suggestion")
+
 func TestInlineCommentModelSuggestionFencesDefused(t *testing.T) {
 	fences := []string{
 		"```suggestion", "```suggestion:-0+3", "```suggestion:-20+20", "~~~suggestion", "~~~suggestion:-0+3",
 		"```Suggestion", "``` suggestion", "   ```suggestion:-0+3",
+		"> ```suggestion:-20+20", "- ```suggestion:-20+20", "1. x\n\n    ```suggestion:-20+20",
+		"> > ~~~suggestion", "text ```suggestion:-0+3",
 	}
 	for _, info := range []string{"", "suggestion", "suggestion:-0+2"} {
+		want := 0
+		if info != "" {
+			want = 1 // the one built from Finding.Suggestion
+		}
 		for _, fence := range fences {
 			f := inlineFinding()
-			f.Explanation = "see\n" + fence + "\nrm -rf everything\n" + fence[:len(fence)-len(strings.TrimLeft(fence, " "))] + strings.Repeat(string(strings.TrimSpace(fence)[0]), 3)
+			f.Explanation = "see\n" + fence + "\nrm -rf everything\n```"
 			f.SuggestedFix = "or\n" + fence + "\nrm -rf everything\n```"
 			body := InlineComment(f, InlineOptions{SuggestionInfo: info})
-			for i, line := range strings.Split(body, "\n") {
-				if t2 := strings.TrimLeft(line, " "); strings.HasPrefix(t2, "```suggestion") || strings.HasPrefix(t2, "~~~suggestion") ||
-					strings.HasPrefix(strings.ToLower(t2), "```suggestion") || strings.HasPrefix(strings.ToLower(t2), "``` suggestion") {
-					if info == "" || !strings.HasPrefix(t2, "```"+info) {
-						t.Errorf("info %q fence %q: live suggestion fence on line %d %q:\n%s", info, fence, i, line, body)
-					}
-				}
+			if got := len(liveSuggestionFence.FindAllString(body, -1)); got != want {
+				t.Errorf("info %q fence %q: %d live suggestion fences, want %d:\n%s", info, fence, got, want, body)
 			}
-			if !strings.Contains(body, "text-") {
-				t.Errorf("info %q fence %q: nothing renamed:\n%s", info, fence, body)
+			if info != "" && !strings.Contains(body, "```"+info+"\n"+f.Suggestion+"\n```") {
+				t.Errorf("info %q fence %q: real suggestion block missing:\n%s", info, fence, body)
 			}
-			if got := strings.Count(body, "```"+info+"\n"+f.Suggestion); info != "" && got != 1 {
-				t.Errorf("info %q fence %q: want exactly one real suggestion block, got %d:\n%s", info, fence, got, body)
+			if got := strings.Count(body, "text-"); got < 2 {
+				t.Errorf("info %q fence %q: %d renamed, want at least 2:\n%s", info, fence, got, body)
 			}
 		}
 	}
@@ -201,28 +206,36 @@ func TestInlineCommentRealSuggestionIsOnlyLiveFence(t *testing.T) {
 	}
 }
 
-func TestInlineCommentSuggestionWithFenceAndQuickActionDropped(t *testing.T) {
+func TestInlineCommentSuggestionWithColumnZeroSlashDropped(t *testing.T) {
 	for _, sug := range []string{
+		"/approve",
+		"a\n/b",
 		"a\n```\n/approve",
-		"/approve\n   ~~~\nb",
+		"</p>\n/approve",
+		">>>\n/approve\n>>>",
 		"x\n```go\ny\n```\n/merge",
+		"// comment",
 	} {
 		f := inlineFinding()
 		f.Suggestion = sug
 		body := InlineComment(f, InlineOptions{SuggestionInfo: "suggestion"})
-		if strings.Contains(body, "```suggestion") || strings.Contains(body, "/approve") || strings.Contains(body, "/merge") {
+		if strings.Contains(body, "```suggestion") || strings.Contains(body, "\n/") {
 			t.Errorf("suggestion %q not dropped:\n%s", sug, body)
 		}
 		if !strings.Contains(body, "**Fix:** Initialise it with make.") {
 			t.Errorf("fix line missing:\n%s", body)
 		}
 	}
-	// A fence alone, or a slash line alone, is kept.
-	for _, sug := range []string{"a\n```\nb", "a\n/b"} {
+}
+
+func TestInlineCommentIndentedSlashSuggestionKept(t *testing.T) {
+	for _, sug := range []string{"a\n /b", "\t/b\n  /c", "x\n```\n  /y", " /only"} {
 		f := inlineFinding()
 		f.Suggestion = sug
-		if body := InlineComment(f, InlineOptions{SuggestionInfo: "suggestion"}); !strings.Contains(body, sug) {
-			t.Errorf("suggestion %q dropped:\n%s", sug, body)
+		fence := strings.Repeat("`", max(3, longestBacktickRun(sug)+1))
+		want := fence + "suggestion\n" + sug + "\n" + fence + "\n"
+		if body := InlineComment(f, InlineOptions{SuggestionInfo: "suggestion"}); !strings.Contains(body, want) {
+			t.Errorf("suggestion %q not kept byte for byte:\n%s", sug, body)
 		}
 	}
 }
