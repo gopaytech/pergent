@@ -164,7 +164,7 @@ func writeNotes(b *strings.Builder, skills []Skill) {
 		if len(skills) > 1 {
 			prefix = skillRef(s.Name) + ": "
 		}
-		notes = append(notes, prefix+neutralizeComments(oneLine(n)))
+		notes = append(notes, prefix+noteText(n))
 	}
 	for _, s := range skills {
 		if len(s.Checks) == 0 {
@@ -209,6 +209,32 @@ func writeNotes(b *strings.Builder, skills []Skill) {
 	if len(notes) > 0 {
 		b.WriteString("\n")
 	}
+}
+
+// noteTextReplacer makes model text in a note inert by putting a zero-width
+// joiner inside every sequence that does something: "@" and "&" (a mention,
+// also as "&#64;" or "&commat;"), "<" (HTML), "![" (an image), "](" (a link)
+// and "[[" (a wiki link on GitLab). A joiner, not an entity or a backslash,
+// because those show up literally inside a code span; backticks stay, so a
+// plain note may use code spans. ">" is inert once "<" is broken.
+var noteTextReplacer = strings.NewReplacer(
+	"@", "@\u200d",
+	"&", "&\u200d",
+	"<", "<\u200d",
+	"![", "!\u200d[",
+	"](", "]\u200d(",
+)
+
+// noteText renders a note on one line as text only. The caller puts a fixed
+// pergent prefix before it (a quote marker, and the skill name with several
+// skills), so it never starts a block.
+func noteText(n string) string {
+	n = noteTextReplacer.Replace(oneLine(n))
+	// A replacer pass doesn't overlap, so "[[[" keeps a "[[" after one pass.
+	for strings.Contains(n, "[[") {
+		n = strings.ReplaceAll(n, "[[", "[\u200d[")
+	}
+	return n
 }
 
 // fileRow is a path of the review and what each skill did with it.

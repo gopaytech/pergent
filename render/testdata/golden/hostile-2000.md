@@ -54,7 +54,7 @@ still open
 
 </details>
 
-> `second`: note with &lt;!-- comment --> and newline
+> `second`: note with <‍!-- comment --> and newline
 > `second`: token [REDACTED]
 
 <details><summary>Files (3)</summary>

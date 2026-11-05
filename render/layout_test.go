@@ -611,3 +611,65 @@ func TestUntrustedFileURLWithWhitespaceIsNoLink(t *testing.T) {
 		}
 	}
 }
+
+func TestNoteTextNeutralizesModelText(t *testing.T) {
+	const j = "\u200d" // the zero-width joiner noteText puts inside live sequences
+	cases := []struct {
+		name, note string
+		want       string   // the note as it appears in the comment
+		banned     []string // must not appear anywhere in the comment
+	}{
+		{"mention", "Missing @bob", "Missing @" + j + "bob", []string{"@bob"}},
+		{"decimal entity", "ping &#64;bob", "ping &" + j + "#64;bob", []string{"&#64;"}},
+		{"hex entity", "ping &#x40;bob", "ping &" + j + "#x40;bob", []string{"&#x40;"}},
+		{"named entity", "ping &commat;bob", "ping &" + j + "commat;bob", []string{"&commat;"}},
+		{"image", "see ![x](http://e/x.png)", "see !" + j + "[x]" + j + "(http://e/x.png)", []string{"![", "](", "<img"}},
+		{"link", "[click](http://e)", "[click]" + j + "(http://e)", []string{"](http://e)"}},
+		{"wiki link", "[[click|http://e]]", "[" + j + "[click|http://e]]", []string{"[[click"}},
+		{"wiki link run", "[[[click|http://e]]]", "[" + j + "[" + j + "[click|http://e]]]", []string{"[[click", "[[["}},
+		{"image wiki link", "![[click|http://e]]", "!" + j + "[" + j + "[click|http://e]]", []string{"![", "[[click"}},
+		{"html", "<img src=x>", "<" + j + "img src=x>", []string{"<img"}},
+		{"comment", "<!-- x", "<" + j + "!-- x", []string{"<!-- x"}},
+		{"details", "</details>", "<" + j + "/details>", []string{"</details>"}},
+		{"newlines", "line one\n\n# line two", "line one # line two", []string{"\n# line two"}},
+		{"plain", "Dropped `Foo.bar` (not real)", "Dropped `Foo.bar` (not real)", nil},
+		// Code spans show the joiner as nothing, not an entity or a backslash.
+		{"code angle", "Dropped `Map<String, Foo>`", "Dropped `Map<" + j + "String, Foo>`", []string{"&lt;", "&gt;", "Map<String"}},
+		{"code call", "Dropped `handlers[i](ctx)`", "Dropped `handlers[i]" + j + "(ctx)`", []string{`\(`, "](ctx)"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := Skill{Name: "a", Verdict: VerdictNoBlockingIssues, Notes: []string{tc.note}}
+			got := Comment([]Skill{s}, Options{})
+			if want := "> " + tc.want + "\n"; !strings.Contains(got, want) {
+				t.Errorf("lacks %q:\n%s", want, got)
+			}
+			for _, banned := range tc.banned {
+				if strings.Contains(got, banned) {
+					t.Errorf("live %q in:\n%s", banned, got)
+				}
+			}
+			// Apart from the joiner the note reads as written.
+			if line := noteLine(got); strings.ReplaceAll(line, j, "") != oneLine(tc.note) {
+				t.Errorf("note changed beyond the joiner: %q", line)
+			}
+		})
+	}
+
+	// With several skills the prefix is added outside the escaping.
+	a := Skill{Name: "a", Verdict: VerdictNoBlockingIssues, Notes: []string{"ping @bob <b>"}}
+	got := Comment([]Skill{a, cleanSkill("b", 0)}, Options{})
+	if want := "> `a`: ping @" + j + "bob <" + j + "b>\n"; !strings.Contains(got, want) {
+		t.Errorf("lacks %q:\n%s", want, got)
+	}
+}
+
+// noteLine returns the text of the comment's first quote line.
+func noteLine(comment string) string {
+	for _, l := range strings.Split(comment, "\n") {
+		if strings.HasPrefix(l, "> ") {
+			return strings.TrimPrefix(l, "> ")
+		}
+	}
+	return ""
+}
