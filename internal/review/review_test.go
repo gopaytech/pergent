@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -758,5 +759,185 @@ func TestRun_OversizeMessageNamesTheFile(t *testing.T) {
 	}
 	if r.Batches != 0 || len(f.calls) != 0 {
 		t.Errorf("Batches = %d, calls = %d, want no batch and no run", r.Batches, len(f.calls))
+	}
+}
+
+var rejectedBoth = []finding.Rejected{
+	{File: "a/x.go", Title: "Missing nil check", Severity: "blocking", Reason: "The caller never passes nil."},
+	{File: "a/y.go", Title: "Rename this variable", Severity: "suggestion", Reason: "Matches the package style."},
+}
+
+// rejectedContents returns the rejected-findings.json a run was given.
+func rejectedContents(t *testing.T, c call) (rejected []finding.Rejected, ok bool) {
+	t.Helper()
+	for i, p := range c.opts.Files {
+		if filepath.Base(p) != rejectedFile {
+			continue
+		}
+		var got struct {
+			Rejected []finding.Rejected `json:"rejected"`
+		}
+		if err := json.Unmarshal([]byte(c.contents[i]), &got); err != nil {
+			t.Fatalf("%s = %q: %v", rejectedFile, c.contents[i], err)
+		}
+		return got.Rejected, true
+	}
+	return nil, false
+}
+
+func TestDismissalsAttachedToBatch(t *testing.T) {
+	f := &fake{}
+	f.respond = func(int, call) runner.RunResult { return completed(answer(t)) }
+	req := newRequest(t, f, patch("a/x.go", "x"))
+	req.Dismissals = map[string][]finding.Rejected{"s": rejectedBoth}
+
+	Run(context.Background(), req)
+	if len(f.calls) != 1 {
+		t.Fatalf("runner called %d times, want 1", len(f.calls))
+	}
+	c := f.calls[0]
+	got, ok := rejectedContents(t, c)
+	if !ok || !slices.Equal(got, rejectedBoth) {
+		t.Errorf("rejected = %+v (attached %v), want %+v", got, ok, rejectedBoth)
+	}
+	if !strings.Contains(c.opts.Message, rejectedMessage) {
+		t.Errorf("Message = %q, want it to contain the rejected message", c.opts.Message)
+	}
+	assertRemoved(t, allFiles(f.calls))
+}
+
+func TestNoDismissalsNoAttachment(t *testing.T) {
+	cases := map[string]map[string][]finding.Rejected{
+		"nil":            nil,
+		"empty list":     {"s": {}},
+		"other skill":    {"other": rejectedBoth},
+		"other and none": {"other": rejectedBoth, "s": nil},
+	}
+	for name, dismissals := range cases {
+		t.Run(name, func(t *testing.T) {
+			f := &fake{}
+			f.respond = func(int, call) runner.RunResult { return completed(answer(t)) }
+			req := newRequest(t, f, patch("a/x.go", "x"))
+			req.Dismissals = dismissals
+
+			Run(context.Background(), req)
+			if len(f.calls) != 1 {
+				t.Fatalf("runner called %d times, want 1", len(f.calls))
+			}
+			c := f.calls[0]
+			if _, ok := rejectedContents(t, c); ok || len(c.opts.Files) != 2 {
+				t.Errorf("Files = %q, want only the diff and the file list", c.opts.Files)
+			}
+			if c.opts.Message != singleBatchMessage {
+				t.Errorf("Message = %q, want %q", c.opts.Message, singleBatchMessage)
+			}
+		})
+	}
+}
+
+func TestDismissalsAttachedToCrossBatch(t *testing.T) {
+	f := &fake{}
+	f.respond = func(int, call) runner.RunResult { return completed(answer(t)) }
+	req, _ := crossBatchRequest(t, f, true)
+	req.Dismissals = map[string][]finding.Rejected{"s": rejectedBoth}
+
+	Run(context.Background(), req)
+	var cross []call
+	for _, c := range f.calls {
+		if isCrossBatchCall(c) {
+			cross = append(cross, c)
+		}
+	}
+	if len(cross) != 1 {
+		t.Fatalf("%d cross-batch calls, want 1", len(cross))
+	}
+	got, ok := rejectedContents(t, cross[0])
+	if !ok || !slices.Equal(got, rejectedBoth) {
+		t.Errorf("rejected = %+v (attached %v), want %+v", got, ok, rejectedBoth)
+	}
+	if want := wantCrossBatchMessage(3) + " " + rejectedMessage; cross[0].opts.Message != want {
+		t.Errorf("Message = %q, want %q", cross[0].opts.Message, want)
+	}
+	assertRemoved(t, allFiles(f.calls))
+}
+
+// isVerifyRun reports whether the run was the verification run, with or
+// without the rejected-findings text.
+func isVerifyRun(c call) bool { return strings.HasPrefix(c.opts.Message, verifyMessage) }
+
+func verifyDismissalsRun(t *testing.T, rejected []finding.Rejected) call {
+	t.Helper()
+	f := &fake{}
+	f.respond = func(_ int, c call) runner.RunResult {
+		if isVerifyRun(c) {
+			return completed(verifyAnswer(t))
+		}
+		return completed(answer(t, blockingTwoAndSuggestion()...))
+	}
+	req := newRequest(t, f, patch("a/x.go", "x"))
+	req.Budget = 5 * time.Minute
+	req.Dismissals = map[string][]finding.Rejected{"s": rejected}
+
+	Run(context.Background(), req)
+	for _, c := range f.calls {
+		if isVerifyRun(c) {
+			return c
+		}
+	}
+	t.Fatal("verification did not run")
+	return call{}
+}
+
+func TestVerificationGetsOnlyBlockingDismissals(t *testing.T) {
+	c := verifyDismissalsRun(t, rejectedBoth)
+
+	got, ok := rejectedContents(t, c)
+	if want := rejectedBoth[:1]; !ok || !slices.Equal(got, want) {
+		t.Errorf("rejected = %+v (attached %v), want %+v", got, ok, want)
+	}
+	if want := verifyMessage + " " + rejectedVerifyMessage; c.opts.Message != want {
+		t.Errorf("Message = %q, want %q", c.opts.Message, want)
+	}
+	if len(c.opts.Files) != 2 {
+		t.Errorf("Files = %q, want the findings and the rejected findings", c.opts.Files)
+	}
+}
+
+func TestVerificationSkipsSuggestionOnlyDismissals(t *testing.T) {
+	// Any severity other than exactly "blocking" is not blocking.
+	c := verifyDismissalsRun(t, []finding.Rejected{
+		rejectedBoth[1],
+		{File: "a/x.go", Title: "Odd", Severity: "Blocking", Reason: "r"},
+		{File: "a/x.go", Title: "Odder", Severity: "", Reason: "r"},
+	})
+
+	if _, ok := rejectedContents(t, c); ok || len(c.opts.Files) != 1 {
+		t.Errorf("Files = %q, want only the findings", c.opts.Files)
+	}
+	if c.opts.Message != verifyMessage {
+		t.Errorf("Message = %q, want %q", c.opts.Message, verifyMessage)
+	}
+}
+
+func TestRepairGetsNoDismissals(t *testing.T) {
+	f := &fake{}
+	f.respond = func(n int, _ call) runner.RunResult {
+		if n == 1 {
+			return completed("The code looks fine.")
+		}
+		return completed(answer(t))
+	}
+	req := newRequest(t, f, patch("a/x.go", "x"), skill.Skill{Name: "s", Body: "Review it."})
+	req.Dismissals = map[string][]finding.Rejected{"s": rejectedBoth}
+
+	Run(context.Background(), req)
+	if len(f.calls) != 2 {
+		t.Fatalf("runner called %d times, want 2 (review and repair)", len(f.calls))
+	}
+	if _, ok := rejectedContents(t, f.calls[1]); ok || len(f.calls[1].opts.Files) != 1 {
+		t.Errorf("repair Files = %q, want only the bad answer", f.calls[1].opts.Files)
+	}
+	if strings.Contains(f.calls[1].opts.Message, "rejected") {
+		t.Errorf("repair Message = %q, want no mention of rejected findings", f.calls[1].opts.Message)
 	}
 }

@@ -62,7 +62,23 @@ func (r *reviewer) crossBatch(ctx context.Context, s skill.Skill, res *SkillResu
 		files = append(files, p)
 	}
 
-	out, err := r.run(ctx, s, "cross", files, fmt.Sprintf(crossBatchMessage, res.Batches))
+	message := fmt.Sprintf(crossBatchMessage, res.Batches)
+	if rejected := r.req.Dismissals[s.Name]; len(rejected) > 0 {
+		content, err := rejectedAttachment(rejected)
+		if err != nil {
+			fail("could not encode the rejected findings: %v", err)
+			return
+		}
+		p := filepath.Join(dir, rejectedFile)
+		if err := os.WriteFile(p, []byte(content), 0600); err != nil {
+			fail("could not write the check's files: %v", err)
+			return
+		}
+		files = append(files, p)
+		message += " " + rejectedMessage
+	}
+
+	out, err := r.run(ctx, s, "cross", files, message)
 	res.Usage = res.Usage.Add(out.Usage)
 	if errors.Is(err, errNotStarted) {
 		res.Notes = append(res.Notes, fmt.Sprintf("Cross-batch check skipped: %s before it could start.", r.stopReason(ctx)))

@@ -507,3 +507,30 @@ func TestRunAgent_CarriedFilesInResult(t *testing.T) {
 		t.Errorf("skills = %+v, want a.go carried and b.go reviewed", r.Skills)
 	}
 }
+
+func TestRunAgent_DismissalsLogged(t *testing.T) {
+	sandboxEnv(t)
+	dir, base, head := agentRepo(t, nil)
+	dismissals := filepath.Join(t.TempDir(), "dismissals.json")
+	writeFile(t, filepath.Dir(dismissals), "dismissals.json", `{
+  "security": [
+    {"file": "a.go", "title": "One", "severity": "blocking", "reason": "r"},
+    {"file": "a.go", "title": "Two", "severity": "suggestion", "reason": "r"}
+  ],
+  "correctness": [{"file": "a.go", "title": "Three", "severity": "blocking", "reason": "r"}],
+  "quiet": []
+}`)
+	var stdout, stderr bytes.Buffer
+
+	code := runAgent(context.Background(), agentArgs(dir, base, head, oneSkill(t), "--dismissals", dismissals), agentEnv(nil), &stdout, &stderr, answerRun(t))
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr:\n%s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "dismissals: correctness=1 security=2\n") {
+		t.Errorf("stderr = %q, want a dismissals line with skills sorted by name", stderr.String())
+	}
+	// The result has no field for them.
+	if strings.Contains(stdout.String(), "dismiss") || strings.Contains(stdout.String(), "Three") {
+		t.Errorf("result = %s, want no dismissals in it", stdout.String())
+	}
+}
