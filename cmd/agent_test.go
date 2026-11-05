@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/gopaytech/pergent/internal/diff"
+	"github.com/gopaytech/pergent/internal/finding"
 	"github.com/gopaytech/pergent/internal/platform"
 	"github.com/gopaytech/pergent/internal/result"
 )
@@ -334,7 +335,7 @@ func TestPrepareAgent_Codes(t *testing.T) {
 			t.Errorf("prepareAgent() error = %+v, want %s", e, result.CodeSkillsInvalid)
 		}
 	})
-	for _, flag := range []string{"--skills-dir", "--skill", "--instructions", "--previous", "--carried"} {
+	for _, flag := range []string{"--skills-dir", "--skill", "--instructions", "--previous", "--carried", "--dismissals"} {
 		t.Run("usage for "+flag+" inside the checkout", func(t *testing.T) {
 			writeFile(t, repo, "inside/s.md", "---\nname: inside\n---\nBody.\n")
 			defer os.RemoveAll(filepath.Join(repo, "inside"))
@@ -761,6 +762,74 @@ func TestPrepareAgent_CarriedBad(t *testing.T) {
 				t.Errorf("no warning logged: %q", logs.String())
 			}
 		})
+	}
+}
+
+const dismissalsJSON = `{"review": [
+  {"file": "a.go", "title": "Missing nil check", "severity": "blocking", "reason": "The caller never passes nil."},
+  {"file": "b.go", "title": "Rename it", "severity": "suggestion", "reason": "Matches the package style."}
+], "quiet": []}`
+
+func TestPrepareAgent_Dismissals(t *testing.T) {
+	repo, base, head := agentRepo(t, nil)
+	path := filepath.Join(t.TempDir(), "dismissals.json")
+	writeFile(t, filepath.Dir(path), "dismissals.json", dismissalsJSON)
+
+	in := mustParse(t, agentArgs(repo, base, head, oneSkill(t), "--dismissals", path))
+	if e := prepareAgent(&in, quietLog); e != nil {
+		t.Fatalf("prepareAgent() error: %+v", e)
+	}
+	want := []finding.Rejected{
+		{File: "a.go", Title: "Missing nil check", Severity: "blocking", Reason: "The caller never passes nil."},
+		{File: "b.go", Title: "Rename it", Severity: "suggestion", Reason: "Matches the package style."},
+	}
+	if got := in.Dismissals["review"]; !slices.Equal(got, want) {
+		t.Errorf("Dismissals[review] = %+v, want %+v", got, want)
+	}
+}
+
+func TestPrepareAgent_DismissalsBad(t *testing.T) {
+	repo, base, head := agentRepo(t, nil)
+	dir := t.TempDir()
+	writeFile(t, dir, "bad.json", `{not json`)
+	writeFile(t, dir, "list.json", `["b.go"]`)
+
+	for _, path := range []string{filepath.Join(dir, "bad.json"), filepath.Join(dir, "list.json"), filepath.Join(dir, "missing.json")} {
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			logger, logs := bufferLog()
+			in := mustParse(t, agentArgs(repo, base, head, oneSkill(t), "--dismissals", path))
+			if e := prepareAgent(&in, logger); e != nil {
+				t.Fatalf("prepareAgent() error: %+v, want the review to go on without dismissals", e)
+			}
+			if in.Dismissals != nil {
+				t.Errorf("Dismissals = %+v, want nil", in.Dismissals)
+			}
+			if !strings.Contains(logs.String(), "warning: ignoring --dismissals") {
+				t.Errorf("no warning logged: %q", logs.String())
+			}
+		})
+	}
+}
+
+func TestParseAgent_DismissalsFromEnv(t *testing.T) {
+	sha := strings.Repeat("a", 40)
+	args := []string{"--repo-path", "/r", "--base", sha, "--head", sha, "--skills-dir", "/s", "--result", "-"}
+	env := agentEnv(map[string]string{"PERGENT_DISMISSALS": "/env/dismissals.json"})
+
+	in, e := parseAgent(args, env)
+	if e != nil {
+		t.Fatalf("parseAgent() error: %+v", e)
+	}
+	if in.dismissalsPath != "/env/dismissals.json" {
+		t.Errorf("dismissalsPath = %q, want the PERGENT_DISMISSALS path", in.dismissalsPath)
+	}
+
+	in, e = parseAgent(append(args, "--dismissals", "/flag/dismissals.json"), env)
+	if e != nil {
+		t.Fatalf("parseAgent() error: %+v", e)
+	}
+	if in.dismissalsPath != "/flag/dismissals.json" {
+		t.Errorf("dismissalsPath = %q, want the flag to win over PERGENT_DISMISSALS", in.dismissalsPath)
 	}
 }
 

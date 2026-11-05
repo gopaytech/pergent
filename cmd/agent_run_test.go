@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -505,5 +506,81 @@ func TestRunAgent_CarriedFilesInResult(t *testing.T) {
 	r := decodeOnly(t, stdout.Bytes())
 	if len(r.Skills) != 1 || !slices.Equal(r.Skills[0].Files.Carried, []string{"a.go"}) || !slices.Equal(r.Skills[0].Files.Reviewed, []string{"b.go"}) {
 		t.Errorf("skills = %+v, want a.go carried and b.go reviewed", r.Skills)
+	}
+}
+
+func TestRunAgent_DismissalsLogged(t *testing.T) {
+	sandboxEnv(t)
+	dir, base, head := agentRepo(t, nil)
+	dismissals := filepath.Join(t.TempDir(), "dismissals.json")
+	writeFile(t, filepath.Dir(dismissals), "dismissals.json", `{
+  "security": [
+    {"file": "a.go", "title": "One", "severity": "blocking", "reason": "r"},
+    {"file": "a.go", "title": "Two", "severity": "suggestion", "reason": "r"}
+  ],
+  "review": [{"file": "a.go", "title": "Three", "severity": "blocking", "reason": "r"}],
+  "quiet": []
+}`)
+	var stdout, stderr bytes.Buffer
+
+	code := runAgent(context.Background(), agentArgs(dir, base, head, oneSkill(t), "--dismissals", dismissals), agentEnv(nil), &stdout, &stderr, answerRun(t))
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr:\n%s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "dismissals: review=1 security=2\n") {
+		t.Errorf("stderr = %q, want a dismissals line with skills sorted by name", stderr.String())
+	}
+	// The result has no field for them: not even those of the skill that ran.
+	for _, s := range []string{"dismiss", "rejected", "Three", `"r"`} {
+		if strings.Contains(stdout.String(), s) {
+			t.Errorf("result contains %q, want no dismissals in it:\n%s", s, stdout.String())
+		}
+	}
+}
+
+func TestRunAgent_DismissalsReachTheRun(t *testing.T) {
+	sandboxEnv(t)
+	dir, base, head := agentRepo(t, nil)
+	dismissals := filepath.Join(t.TempDir(), "dismissals.json")
+	writeFile(t, filepath.Dir(dismissals), "dismissals.json", `{
+  "review": [{"file": "a.go", "title": "Three", "severity": "suggestion", "reason": "Why", "actor": "someone"}],
+  "other": [{"file": "a.go", "title": "Elsewhere", "severity": "suggestion", "reason": "r"}]
+}`)
+	var stdout, stderr bytes.Buffer
+
+	// The run's files are removed once it returns, so read them inside it.
+	var attached []string
+	inner := answerRun(t)
+	run := func(ctx context.Context, opts runner.Options) runner.RunResult {
+		for _, p := range opts.Files {
+			if filepath.Base(p) == "rejected-findings.json" {
+				data, err := os.ReadFile(p)
+				if err != nil {
+					t.Error(err)
+				}
+				attached = append(attached, string(data))
+			}
+		}
+		return inner(ctx, opts)
+	}
+
+	code := runAgent(context.Background(), agentArgs(dir, base, head, oneSkill(t), "--dismissals", dismissals), agentEnv(nil), &stdout, &stderr, run)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr:\n%s", code, stderr.String())
+	}
+	if len(attached) != 1 {
+		t.Fatalf("%d runs had rejected-findings.json, want 1", len(attached))
+	}
+	var got struct {
+		Rejected []finding.Rejected `json:"rejected"`
+	}
+	if err := json.Unmarshal([]byte(attached[0]), &got); err != nil {
+		t.Fatal(err)
+	}
+	if want := []finding.Rejected{{File: "a.go", Title: "Three", Severity: "suggestion", Reason: "Why"}}; !slices.Equal(got.Rejected, want) {
+		t.Errorf("rejected = %+v, want only the running skill's entry", got.Rejected)
+	}
+	if strings.Contains(attached[0], "actor") || strings.Contains(attached[0], "someone") {
+		t.Errorf("rejected-findings.json = %s, want fields that are not part of an entry left out", attached[0])
 	}
 }

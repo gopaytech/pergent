@@ -33,6 +33,16 @@ type Finding struct {
 	Fingerprint string `json:"fingerprint,omitempty"`
 }
 
+// Rejected is a finding people rejected in an earlier review, with their
+// reason. It is attached to a run as data: a trusted input of the caller, not
+// something the model produced.
+type Rejected struct {
+	File     string `json:"file"`
+	Title    string `json:"title"`
+	Severity string `json:"severity"`
+	Reason   string `json:"reason"`
+}
+
 // MaxSuggestionLines is the most lines a Suggestion may replace; a longer
 // range keeps its finding but loses the suggestion.
 const MaxSuggestionLines = 10

@@ -1,6 +1,8 @@
 package finding
 
 import (
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -285,6 +287,71 @@ func TestParseAnswer_EndLineAndSuggestion(t *testing.T) {
 		f := a.Findings[0]
 		if f.EndLine != c.wantEnd || f.Suggestion != c.wantSuggestion {
 			t.Errorf("%s: got (%d, %q), want (%d, %q)", c.name, f.EndLine, f.Suggestion, c.wantEnd, c.wantSuggestion)
+		}
+	}
+}
+
+// leftOutAnswer wraps a left_out value in an otherwise empty answer.
+func leftOutAnswer(leftOut string) string {
+	return "```json\n{\"findings\": [], \"left_out\": " + leftOut + "}\n```"
+}
+
+func TestParseAnswer_LeftOut(t *testing.T) {
+	a, err := ParseAnswer(leftOutAnswer(`[{"title": "A", "rejected": "B"}]`))
+	if err != nil {
+		t.Fatalf("unexpected error %v", err)
+	}
+	if want := []LeftOut{{"A", "B"}}; !slices.Equal(a.LeftOut, want) {
+		t.Errorf("LeftOut = %+v, want %+v", a.LeftOut, want)
+	}
+}
+
+func TestParseAnswer_LeftOutBadValues(t *testing.T) {
+	for _, c := range []struct{ name, value string }{
+		{"string", `"A"`},
+		{"object", `{"title": "A", "rejected": "B"}`},
+		{"number", `3`},
+		{"no title", `[{"rejected": "B"}]`},
+		{"title number", `[{"title": 1}]`},
+		{"blank title", `[{"title": "  "}]`},
+	} {
+		a, err := ParseAnswer(leftOutAnswer(c.value))
+		if err != nil {
+			t.Errorf("%s: unexpected error %v", c.name, err)
+		}
+		if len(a.LeftOut) != 0 {
+			t.Errorf("%s: LeftOut = %+v, want none", c.name, a.LeftOut)
+		}
+	}
+}
+
+func TestParseAnswer_LeftOutMissingRejected(t *testing.T) {
+	a, err := ParseAnswer(leftOutAnswer(`[{"title": "A"}]`))
+	if err != nil {
+		t.Fatalf("unexpected error %v", err)
+	}
+	if want := []LeftOut{{"A", ""}}; !slices.Equal(a.LeftOut, want) {
+		t.Errorf("LeftOut = %+v, want %+v", a.LeftOut, want)
+	}
+}
+
+func TestParseAnswer_LeftOutLimit(t *testing.T) {
+	var entries []string
+	for i := 0; i < 120; i++ {
+		entries = append(entries, fmt.Sprintf(`{"title": "Title\n%d %s", "rejected": "Rejected\n%d %s"}`, i, strings.Repeat("t", 300), i, strings.Repeat("r", 300)))
+	}
+	a, err := ParseAnswer(leftOutAnswer("[" + strings.Join(entries, ",") + "]"))
+	if err != nil {
+		t.Fatalf("unexpected error %v", err)
+	}
+	if len(a.LeftOut) != 100 {
+		t.Fatalf("got %d entries, want 100", len(a.LeftOut))
+	}
+	for i, e := range a.LeftOut {
+		for _, s := range []string{e.Title, e.Rejected} {
+			if strings.Contains(s, "\n") || len([]rune(s)) != 200 {
+				t.Errorf("entry %d field %q: want one line of 200 runes, got %d", i, s, len([]rune(s)))
+			}
 		}
 	}
 }

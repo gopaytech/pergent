@@ -35,8 +35,10 @@ import (
 
 // agentInputs is everything `pergent agent` reviews with. parseAgent fills
 // the flags; prepareAgent loads the skills and fills the checkout-derived
-// fields (Diff, Files, Classifier, Previous, Carried). Carried holds, per
-// skill name, the paths a previous review covers: this review leaves them out.
+// fields (Diff, Files, Classifier, Previous, Carried, Dismissals). Carried
+// holds, per skill name, the paths a previous review covers: this review
+// leaves them out. Dismissals holds, per skill name, the findings people
+// rejected earlier: the runs get them as data.
 type agentInputs struct {
 	RepoPath, Base, Head string
 	Skills               []skill.Skill
@@ -45,6 +47,7 @@ type agentInputs struct {
 	Instructions   []string
 	Previous       map[string][]finding.Finding
 	Carried        map[string][]string
+	Dismissals     map[string][]finding.Rejected
 	MaxCommentSize int
 	Target         result.Target
 	Diff           string
@@ -57,7 +60,9 @@ type agentInputs struct {
 	skillValues  []string
 	previousPath string
 	carriedPath  string
-	scrub        bool
+	// dismissalsPath is --dismissals, or $PERGENT_DISMISSALS without the flag.
+	dismissalsPath string
+	scrub          bool
 	// $HOME and $XDG_CONFIG_HOME, where opencode finds its global config.
 	home, configHome string
 }
@@ -229,6 +234,7 @@ func runAgent(ctx context.Context, args []string, getenv func(string) string, st
 		ContextLimit: in.Review.ContextLimit,
 		Previous:     in.Previous,
 		Carried:      in.Carried,
+		Dismissals:   in.Dismissals,
 		Run:          run,
 		Classifier:   &in.Classifier,
 		Sandbox: review.Sandbox{
@@ -298,6 +304,7 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 	flags.StringVar(&instructions, "instructions", "", "File passed to the agent as project instructions")
 	flags.StringVar(&in.previousPath, "previous", "", "A previous agent result whose findings are attached per skill")
 	flags.StringVar(&in.carriedPath, "carried", "", "A JSON file {\"<skill>\": [\"path\", ...]} of files a previous review covers, left out of this review")
+	flags.StringVar(&in.dismissalsPath, "dismissals", getenv("PERGENT_DISMISSALS"), "A JSON file {\"<skill>\": [{\"file\", \"title\", \"severity\", \"reason\"}, ...]} of findings people rejected earlier, attached to the runs")
 	flags.BoolVar(&in.scrub, "scrub-instructions", false, "Delete every AGENTS.md, CLAUDE.md and CONTEXT.md in --repo-path before reviewing")
 	flags.IntVar(&in.MaxCommentSize, "max-comment-size", 0, "Byte limit for the rendered comment (0: no limit)")
 	flags.StringVar(&resultPath, "result", "", "Write the result JSON to this file, or - for stdout")
@@ -473,6 +480,10 @@ func prepareAgent(in *agentInputs, logger *log.Logger) *result.Error {
 	if in.carriedPath != "" {
 		in.Carried = readCarried(in.carriedPath, logger)
 	}
+	if in.dismissalsPath != "" {
+		in.Dismissals = readDismissals(in.dismissalsPath, logger)
+		logDismissals(in.Dismissals, logger)
+	}
 	return nil
 }
 
@@ -491,7 +502,7 @@ func gitVersionError(version string, major, minor int, err error) *result.Error 
 }
 
 // trustedInputsOutside refuses a trusted input (--instructions, --skills-dir,
-// a path --skill, --previous, --carried) that resolves to somewhere inside the checkout:
+// a path --skill, --previous, --carried, --dismissals) that resolves to somewhere inside the checkout:
 // the change under review could have written it. A --skills-dir above the
 // checkout is refused too, since LoadDir would read the checkout's top-level
 // files as skills. So are a --result file in the checkout, where the change
@@ -525,6 +536,9 @@ func trustedInputsOutside(root string, in *agentInputs) *result.Error {
 	}
 	if in.carriedPath != "" {
 		inputs = append(inputs, input{"--carried", in.carriedPath})
+	}
+	if in.dismissalsPath != "" {
+		inputs = append(inputs, input{"--dismissals", in.dismissalsPath})
 	}
 	if in.home != "" {
 		inputs = append(inputs, input{"$HOME", in.home})
@@ -879,6 +893,43 @@ func readCarried(path string, logger *log.Logger) map[string][]string {
 		return nil
 	}
 	return carried
+}
+
+// readDismissals reads the findings people rejected earlier, per skill name.
+// An unreadable or malformed file gives none, so the review goes on without
+// them.
+func readDismissals(path string, logger *log.Logger) map[string][]finding.Rejected {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		logger.Printf("warning: ignoring --dismissals: %v", err)
+		return nil
+	}
+	var dismissals map[string][]finding.Rejected
+	if err := json.Unmarshal(data, &dismissals); err != nil {
+		logger.Printf("warning: ignoring --dismissals %s: %v", path, err)
+		return nil
+	}
+	return dismissals
+}
+
+// logDismissals logs how many rejected findings each skill got, skills sorted
+// by name; nothing when there are none.
+func logDismissals(dismissals map[string][]finding.Rejected, logger *log.Logger) {
+	var names []string
+	for name, rejected := range dismissals {
+		if len(rejected) > 0 {
+			names = append(names, name)
+		}
+	}
+	if len(names) == 0 {
+		return
+	}
+	sort.Strings(names)
+	parts := make([]string, len(names))
+	for i, name := range names {
+		parts[i] = fmt.Sprintf("%s=%d", name, len(dismissals[name]))
+	}
+	logger.Printf("dismissals: %s", strings.Join(parts, " "))
 }
 
 // git runs git in repo with explicit arguments and returns its stdout. The

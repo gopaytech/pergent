@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -758,5 +760,465 @@ func TestRun_OversizeMessageNamesTheFile(t *testing.T) {
 	}
 	if r.Batches != 0 || len(f.calls) != 0 {
 		t.Errorf("Batches = %d, calls = %d, want no batch and no run", r.Batches, len(f.calls))
+	}
+}
+
+var rejectedBoth = []finding.Rejected{
+	{File: "a/x.go", Title: "Missing nil check", Severity: "blocking", Reason: "The caller never passes nil."},
+	{File: "a/y.go", Title: "Rename this variable", Severity: "suggestion", Reason: "Matches the package style."},
+}
+
+// rejectedContents returns the rejected-findings.json a run was given.
+func rejectedContents(t *testing.T, c call) (rejected []finding.Rejected, ok bool) {
+	t.Helper()
+	for i, p := range c.opts.Files {
+		if filepath.Base(p) != rejectedFile {
+			continue
+		}
+		var got struct {
+			Rejected []finding.Rejected `json:"rejected"`
+		}
+		if err := json.Unmarshal([]byte(c.contents[i]), &got); err != nil {
+			t.Fatalf("%s = %q: %v", rejectedFile, c.contents[i], err)
+		}
+		return got.Rejected, true
+	}
+	return nil, false
+}
+
+func TestDismissalsAttachedToBatch(t *testing.T) {
+	f := &fake{}
+	f.respond = func(int, call) runner.RunResult { return completed(answer(t)) }
+	req := newRequest(t, f, patch("a/x.go", "x"))
+	req.Dismissals = map[string][]finding.Rejected{"s": rejectedBoth}
+
+	Run(context.Background(), req)
+	if len(f.calls) != 1 {
+		t.Fatalf("runner called %d times, want 1", len(f.calls))
+	}
+	c := f.calls[0]
+	got, ok := rejectedContents(t, c)
+	if !ok || !slices.Equal(got, rejectedBoth) {
+		t.Errorf("rejected = %+v (attached %v), want %+v", got, ok, rejectedBoth)
+	}
+	if !strings.Contains(c.opts.Message, rejectedMessage) {
+		t.Errorf("Message = %q, want it to contain the rejected message", c.opts.Message)
+	}
+	assertRemoved(t, allFiles(f.calls))
+}
+
+func TestNoDismissalsNoAttachment(t *testing.T) {
+	cases := map[string]map[string][]finding.Rejected{
+		"nil":            nil,
+		"empty list":     {"s": {}},
+		"other skill":    {"other": rejectedBoth},
+		"other and none": {"other": rejectedBoth, "s": nil},
+	}
+	for name, dismissals := range cases {
+		t.Run(name, func(t *testing.T) {
+			f := &fake{}
+			f.respond = func(int, call) runner.RunResult { return completed(answer(t)) }
+			req := newRequest(t, f, patch("a/x.go", "x"))
+			req.Dismissals = dismissals
+
+			Run(context.Background(), req)
+			if len(f.calls) != 1 {
+				t.Fatalf("runner called %d times, want 1", len(f.calls))
+			}
+			c := f.calls[0]
+			if _, ok := rejectedContents(t, c); ok || len(c.opts.Files) != 2 {
+				t.Errorf("Files = %q, want only the diff and the file list", c.opts.Files)
+			}
+			if c.opts.Message != singleBatchMessage {
+				t.Errorf("Message = %q, want %q", c.opts.Message, singleBatchMessage)
+			}
+		})
+	}
+}
+
+func TestDismissalsAttachedToCrossBatch(t *testing.T) {
+	f := &fake{}
+	f.respond = func(int, call) runner.RunResult { return completed(answer(t)) }
+	req, _ := crossBatchRequest(t, f, true)
+	req.Dismissals = map[string][]finding.Rejected{"s": rejectedBoth}
+
+	Run(context.Background(), req)
+	var cross []call
+	for _, c := range f.calls {
+		if isCrossBatchCall(c) {
+			cross = append(cross, c)
+		}
+	}
+	if len(cross) != 1 {
+		t.Fatalf("%d cross-batch calls, want 1", len(cross))
+	}
+	got, ok := rejectedContents(t, cross[0])
+	if !ok || !slices.Equal(got, rejectedBoth) {
+		t.Errorf("rejected = %+v (attached %v), want %+v", got, ok, rejectedBoth)
+	}
+	if want := wantCrossBatchMessage(3) + " " + rejectedMessage; cross[0].opts.Message != want {
+		t.Errorf("Message = %q, want %q", cross[0].opts.Message, want)
+	}
+	assertRemoved(t, allFiles(f.calls))
+}
+
+// isVerifyRun reports whether the run was the verification run, with or
+// without the rejected-findings text.
+func isVerifyRun(c call) bool { return strings.HasPrefix(c.opts.Message, verifyMessage) }
+
+func verifyDismissalsRun(t *testing.T, rejected []finding.Rejected) call {
+	t.Helper()
+	f := &fake{}
+	f.respond = func(_ int, c call) runner.RunResult {
+		if isVerifyRun(c) {
+			return completed(verifyAnswer(t))
+		}
+		return completed(answer(t, blockingTwoAndSuggestion()...))
+	}
+	req := newRequest(t, f, patch("a/x.go", "x"))
+	req.Budget = 5 * time.Minute
+	req.Dismissals = map[string][]finding.Rejected{"s": rejected}
+
+	Run(context.Background(), req)
+	for _, c := range f.calls {
+		if isVerifyRun(c) {
+			return c
+		}
+	}
+	t.Fatal("verification did not run")
+	return call{}
+}
+
+func TestVerificationGetsOnlyBlockingDismissals(t *testing.T) {
+	c := verifyDismissalsRun(t, rejectedBoth)
+
+	got, ok := rejectedContents(t, c)
+	if want := rejectedBoth[:1]; !ok || !slices.Equal(got, want) {
+		t.Errorf("rejected = %+v (attached %v), want %+v", got, ok, want)
+	}
+	if !strings.HasSuffix(c.opts.Message, "Judge only the findings in blocking-findings.json; rejected-findings.json is context.") {
+		t.Errorf("Message = %q, want it to end by naming the file to judge", c.opts.Message)
+	}
+	if want := verifyMessage + " " + rejectedVerifyMessage; c.opts.Message != want {
+		t.Errorf("Message = %q, want %q", c.opts.Message, want)
+	}
+	if len(c.opts.Files) != 2 {
+		t.Errorf("Files = %q, want the findings and the rejected findings", c.opts.Files)
+	}
+}
+
+func TestVerificationSkipsSuggestionOnlyDismissals(t *testing.T) {
+	// Any severity other than exactly "blocking" is not blocking.
+	c := verifyDismissalsRun(t, []finding.Rejected{
+		rejectedBoth[1],
+		{File: "a/x.go", Title: "Odd", Severity: "Blocking", Reason: "r"},
+		{File: "a/x.go", Title: "Odder", Severity: "", Reason: "r"},
+	})
+
+	if _, ok := rejectedContents(t, c); ok || len(c.opts.Files) != 1 {
+		t.Errorf("Files = %q, want only the findings", c.opts.Files)
+	}
+	if c.opts.Message != verifyMessage {
+		t.Errorf("Message = %q, want %q", c.opts.Message, verifyMessage)
+	}
+}
+
+func TestRepairGetsNoDismissals(t *testing.T) {
+	f := &fake{}
+	f.respond = func(n int, _ call) runner.RunResult {
+		if n == 1 {
+			return completed("The code looks fine.")
+		}
+		return completed(answer(t))
+	}
+	req := newRequest(t, f, patch("a/x.go", "x"), skill.Skill{Name: "s", Body: "Review it."})
+	req.Dismissals = map[string][]finding.Rejected{"s": rejectedBoth}
+
+	Run(context.Background(), req)
+	if len(f.calls) != 2 {
+		t.Fatalf("runner called %d times, want 2 (review and repair)", len(f.calls))
+	}
+	if _, ok := rejectedContents(t, f.calls[1]); ok || len(f.calls[1].opts.Files) != 1 {
+		t.Errorf("repair Files = %q, want only the bad answer", f.calls[1].opts.Files)
+	}
+	if strings.Contains(f.calls[1].opts.Message, "rejected") {
+		t.Errorf("repair Message = %q, want no mention of rejected findings", f.calls[1].opts.Message)
+	}
+}
+
+func TestDismissalsAttachedToEveryBatch(t *testing.T) {
+	f := &fake{}
+	f.respond = func(int, call) runner.RunResult { return completed(answer(t)) }
+	req := newRequest(t, f, twoBatchDiff())
+	req.ContextLimit = twoBatchContextLimit
+	req.Dismissals = map[string][]finding.Rejected{"s": rejectedBoth}
+
+	Run(context.Background(), req)
+	if len(f.calls) != 2 {
+		t.Fatalf("runner called %d times, want 2", len(f.calls))
+	}
+	for i, c := range f.calls {
+		if got, ok := rejectedContents(t, c); !ok || !slices.Equal(got, rejectedBoth) {
+			t.Errorf("call %d rejected = %+v (attached %v), want %+v", i+1, got, ok, rejectedBoth)
+		}
+	}
+}
+
+func TestDismissalsAttachmentFailureDoesNotFailTheReview(t *testing.T) {
+	orig := writeRejected
+	writeRejected = func(string, []byte, os.FileMode) error { return errors.New("disk full") }
+	t.Cleanup(func() { writeRejected = orig })
+
+	f := &fake{}
+	f.respond = func(_ int, c call) runner.RunResult {
+		switch {
+		case isVerifyRun(c):
+			return completed(verifyAnswer(t))
+		case isCrossBatchCall(c):
+			return completed(answer(t))
+		}
+		return completed(answer(t, finding.Finding{File: "a/x.go", Line: 1, Severity: finding.Blocking, Title: "A bug", Explanation: "e"}))
+	}
+	req, _ := crossBatchRequest(t, f, true)
+	req.Dismissals = map[string][]finding.Rejected{"s": rejectedBoth}
+
+	r := Run(context.Background(), req)[0]
+	// Three batches, the cross-batch run and the verification run all ran.
+	if len(f.calls) != 5 {
+		t.Fatalf("runner called %d times, want 5", len(f.calls))
+	}
+	for i, c := range f.calls {
+		if _, ok := rejectedContents(t, c); ok {
+			t.Errorf("call %d has %s, want none", i+1, rejectedFile)
+		}
+		if strings.Contains(c.opts.Message, "rejected") {
+			t.Errorf("call %d Message = %q, want no text about rejected findings", i+1, c.opts.Message)
+		}
+	}
+	if r.Verdict != HasBlockingIssues || len(r.Failures) != 0 {
+		t.Errorf("verdict = %s, failures = %+v, want has_blocking_issues and none", r.Verdict, r.Failures)
+	}
+	n := 0
+	for _, note := range r.Notes {
+		if note == dismissalsNote {
+			n++
+		}
+	}
+	if n != 1 || len(r.Notes) != 1 {
+		t.Errorf("Notes = %q, want exactly one %q", r.Notes, dismissalsNote)
+	}
+	assertRemoved(t, allFiles(f.calls))
+}
+
+// leftOutAnswer returns a model answer with no findings that reports left_out.
+func leftOutAnswer(t *testing.T, leftOut ...finding.LeftOut) string {
+	t.Helper()
+	data, err := json.Marshal(map[string]any{"findings": []finding.Finding{}, "left_out": leftOut})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return "```json\n" + string(data) + "\n```\n"
+}
+
+// leftOutByRun answers each batch run with its entry list, by batch number,
+// and the cross-batch run with cross.
+func leftOutByRun(t *testing.T, batches map[int][]finding.LeftOut, cross []finding.LeftOut) *fake {
+	t.Helper()
+	f := &fake{}
+	f.respond = func(_ int, c call) runner.RunResult {
+		if isCrossBatchCall(c) {
+			return completed(leftOutAnswer(t, cross...))
+		}
+		for n, entries := range batches {
+			if strings.HasPrefix(c.opts.Message, batchMessage(n, 3)) {
+				return completed(leftOutAnswer(t, entries...))
+			}
+		}
+		t.Errorf("unexpected run with message %q", c.opts.Message)
+		return completed(answer(t))
+	}
+	return f
+}
+
+func TestLeftOutNote(t *testing.T) {
+	f := &fake{}
+	f.respond = func(int, call) runner.RunResult {
+		return completed(leftOutAnswer(t, finding.LeftOut{Title: "A", Rejected: "B"}))
+	}
+	req := newRequest(t, f, patch("a/x.go", "x"))
+	req.Dismissals = map[string][]finding.Rejected{"s": rejectedBoth}
+
+	r := Run(context.Background(), req)[0]
+	if want := []string{"Left out because of past dismissals: A (B)"}; !slices.Equal(r.Notes, want) {
+		t.Errorf("Notes = %q, want %q", r.Notes, want)
+	}
+	if r.Verdict != NoBlockingIssues {
+		t.Errorf("Verdict = %q, want %q", r.Verdict, NoBlockingIssues)
+	}
+}
+
+func TestLeftOutNoteAcrossBatches(t *testing.T) {
+	f := leftOutByRun(t,
+		map[int][]finding.LeftOut{
+			1: {{Title: "A", Rejected: "B"}, {Title: "C", Rejected: "D"}},
+			2: {{Title: "C", Rejected: "D"}, {Title: "E", Rejected: "F"}},
+			3: nil,
+		},
+		[]finding.LeftOut{{Title: "A", Rejected: "B"}, {Title: "G", Rejected: "H"}})
+	req, _ := crossBatchRequest(t, f, true)
+	req.Dismissals = map[string][]finding.Rejected{"s": rejectedBoth}
+
+	r := Run(context.Background(), req)[0]
+	if len(f.calls) != 4 {
+		t.Fatalf("runner called %d times, want 4 (three batches and the cross-batch run)", len(f.calls))
+	}
+	want := "Left out because of past dismissals: A (B); C (D); E (F); G (H)"
+	if len(r.Notes) != 1 || r.Notes[0] != want {
+		t.Errorf("Notes = %q, want one note %q", r.Notes, want)
+	}
+}
+
+func TestLeftOutNoteBesideOtherNotes(t *testing.T) {
+	f := &fake{}
+	f.respond = func(_ int, c call) runner.RunResult {
+		if isCrossBatchCall(c) {
+			return completed("Looks fine to me.")
+		}
+		return completed(leftOutAnswer(t, finding.LeftOut{Title: "A", Rejected: "B"}))
+	}
+	req, _ := crossBatchRequest(t, f, true)
+	req.Dismissals = map[string][]finding.Rejected{"s": rejectedBoth}
+
+	r := Run(context.Background(), req)[0]
+	if len(r.Notes) != 2 || !strings.HasPrefix(r.Notes[0], "Cross-batch check failed") || r.Notes[1] != "Left out because of past dismissals: A (B)" {
+		t.Errorf("Notes = %q, want the cross-batch note and then the left-out note", r.Notes)
+	}
+	if r.Verdict != NoBlockingIssues {
+		t.Errorf("Verdict = %q, want %q: a note never changes it", r.Verdict, NoBlockingIssues)
+	}
+}
+
+func TestLeftOutNoteWithoutRejected(t *testing.T) {
+	f := &fake{}
+	f.respond = func(int, call) runner.RunResult {
+		return completed(leftOutAnswer(t, finding.LeftOut{Title: "A"}))
+	}
+	req := newRequest(t, f, patch("a/x.go", "x"))
+	req.Dismissals = map[string][]finding.Rejected{"s": rejectedBoth}
+
+	r := Run(context.Background(), req)[0]
+	if want := "Left out because of past dismissals: A"; len(r.Notes) != 1 || r.Notes[0] != want {
+		t.Errorf("Notes = %q, want one note %q", r.Notes, want)
+	}
+}
+
+func TestLeftOutIgnoredWithoutAttachment(t *testing.T) {
+	f := &fake{}
+	f.respond = func(int, call) runner.RunResult {
+		return completed(leftOutAnswer(t, finding.LeftOut{Title: "A", Rejected: "B"}))
+	}
+	req := newRequest(t, f, patch("a/x.go", "x"))
+	req.Dismissals = map[string][]finding.Rejected{"other": rejectedBoth}
+
+	r := Run(context.Background(), req)[0]
+	if len(r.Notes) != 0 {
+		t.Errorf("Notes = %q, want none: the skill had no past dismissals", r.Notes)
+	}
+}
+
+func TestLeftOutNeverRepairs(t *testing.T) {
+	f := &fake{}
+	f.respond = func(int, call) runner.RunResult {
+		return completed("```json\n{\"findings\": [], \"left_out\": \"A\"}\n```\n")
+	}
+	req := newRequest(t, f, patch("a/x.go", "x"))
+	req.Dismissals = map[string][]finding.Rejected{"s": rejectedBoth}
+
+	r := Run(context.Background(), req)[0]
+	if len(f.calls) != 1 {
+		t.Errorf("runner called %d times, want 1 (no repair run)", len(f.calls))
+	}
+	if r.Verdict != NoBlockingIssues || len(r.Failures) != 0 || len(r.Notes) != 0 {
+		t.Errorf("result = %+v, want a pass with no failures and no notes", r)
+	}
+}
+
+func TestLeftOutNoteCapped(t *testing.T) {
+	entries := func(from, to int) []finding.LeftOut {
+		var out []finding.LeftOut
+		for i := from; i < to; i++ {
+			out = append(out, finding.LeftOut{Title: fmt.Sprintf("T%d", i), Rejected: fmt.Sprintf("R%d", i)})
+		}
+		return out
+	}
+	want := func() string {
+		var parts []string
+		for _, e := range entries(0, 20) {
+			parts = append(parts, e.Title+" ("+e.Rejected+")")
+		}
+		return "Left out because of past dismissals: " + strings.Join(parts, "; ") + " and 5 more"
+	}()
+	for name, batches := range map[string]map[int][]finding.LeftOut{
+		"across batches": {1: entries(0, 12), 2: entries(12, 25), 3: nil},
+		"one answer":     {1: entries(0, 25), 2: nil, 3: nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := leftOutByRun(t, batches, nil)
+			req, _ := crossBatchRequest(t, f, false)
+			req.Dismissals = map[string][]finding.Rejected{"s": rejectedBoth}
+
+			r := Run(context.Background(), req)[0]
+			if len(r.Notes) != 1 || r.Notes[0] != want {
+				t.Errorf("Notes = %q, want one note %q", r.Notes, want)
+			}
+		})
+	}
+}
+
+func TestLeftOutFromRepairedAnswer(t *testing.T) {
+	f := &fake{}
+	f.respond = func(n int, _ call) runner.RunResult {
+		if n == 1 {
+			return completed("The code looks fine.")
+		}
+		return completed(leftOutAnswer(t, finding.LeftOut{Title: "A", Rejected: "B"}))
+	}
+	req := newRequest(t, f, patch("a/x.go", "x"))
+	req.Dismissals = map[string][]finding.Rejected{"s": rejectedBoth}
+
+	r := Run(context.Background(), req)[0]
+	if len(f.calls) != 2 {
+		t.Fatalf("runner called %d times, want 2 (review and repair)", len(f.calls))
+	}
+	if want := "Left out because of past dismissals: A (B)"; len(r.Notes) != 1 || r.Notes[0] != want {
+		t.Errorf("Notes = %q, want one note %q", r.Notes, want)
+	}
+}
+
+func TestLeftOutFromFailedBatchIgnored(t *testing.T) {
+	f := &fake{}
+	f.respond = func(_ int, c call) runner.RunResult {
+		switch {
+		case strings.HasPrefix(c.opts.Message, batchMessage(1, 3)):
+			return completed(leftOutAnswer(t, finding.LeftOut{Title: "A", Rejected: "B"}))
+		case strings.HasPrefix(c.opts.Message, batchMessage(2, 3)):
+			// The failed run's text is never an answer.
+			return runner.RunResult{
+				Status: runner.StatusFailed,
+				Cause:  &runner.Cause{Kind: runner.CauseTimeout, Timeout: time.Minute},
+				Output: leftOutAnswer(t, finding.LeftOut{Title: "C", Rejected: "D"}),
+			}
+		}
+		return completed(answer(t))
+	}
+	req, _ := crossBatchRequest(t, f, false)
+	req.Dismissals = map[string][]finding.Rejected{"s": rejectedBoth}
+
+	r := Run(context.Background(), req)[0]
+	if r.Verdict != Failed {
+		t.Errorf("Verdict = %q, want %q", r.Verdict, Failed)
+	}
+	if want := "Left out because of past dismissals: A (B)"; len(r.Notes) != 1 || r.Notes[0] != want {
+		t.Errorf("Notes = %q, want one note %q", r.Notes, want)
 	}
 }
