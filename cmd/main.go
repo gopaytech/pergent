@@ -21,7 +21,9 @@ import (
 	"github.com/gopaytech/pergent/render"
 )
 
-const version = "0.3.0"
+// version is the release without its "v". The release image sets it from the
+// tag at build time, so it can't go stale; hosts compare it.
+var version = "dev"
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "agent" {
