@@ -64,18 +64,12 @@ func (r *reviewer) crossBatch(ctx context.Context, s skill.Skill, res *SkillResu
 
 	message := fmt.Sprintf(crossBatchMessage, res.Batches)
 	if rejected := r.req.Dismissals[s.Name]; len(rejected) > 0 {
-		content, err := rejectedAttachment(rejected)
-		if err != nil {
-			fail("could not encode the rejected findings: %v", err)
-			return
+		if p, err := attachRejected(dir, rejected); err != nil {
+			res.noteDismissalsFailed()
+		} else {
+			files = append(files, p)
+			message += " " + rejectedMessage
 		}
-		p := filepath.Join(dir, rejectedFile)
-		if err := os.WriteFile(p, []byte(content), 0600); err != nil {
-			fail("could not write the check's files: %v", err)
-			return
-		}
-		files = append(files, p)
-		message += " " + rejectedMessage
 	}
 
 	out, err := r.run(ctx, s, "cross", files, message)

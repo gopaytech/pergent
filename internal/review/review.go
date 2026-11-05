@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -262,6 +263,9 @@ type batchOutcome struct {
 	notStarted       bool
 	// usage is the tokens of the batch's runs, whatever their outcome.
 	usage runner.Usage
+	// dismissalsFailed is set when the rejected findings could not be
+	// attached to one of the batch's runs.
+	dismissalsFailed bool
 }
 
 func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillResult) {
@@ -359,6 +363,9 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillRes
 	unscored := false
 	for i, o := range outcomes {
 		res.Usage = res.Usage.Add(o.usage)
+		if o.dismissalsFailed {
+			res.noteDismissalsFailed()
+		}
 		switch {
 		case o.notStarted:
 			for _, f := range batches[i] {
@@ -410,10 +417,30 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillRes
 // rejectedFile is the attachment that holds a skill's rejected findings.
 const rejectedFile = "rejected-findings.json"
 
-// rejectedAttachment is the content of rejectedFile.
-func rejectedAttachment(rejected []finding.Rejected) (string, error) {
+// dismissalsNote is the one note a skill gets when rejected findings could not
+// be attached to some of its runs. They only help the model, so those runs go
+// on without them.
+const dismissalsNote = "Past dismissals could not be attached to every run."
+
+// noteDismissalsFailed adds dismissalsNote unless the skill has it already.
+func (res *SkillResult) noteDismissalsFailed() {
+	if !slices.Contains(res.Notes, dismissalsNote) {
+		res.Notes = append(res.Notes, dismissalsNote)
+	}
+}
+
+// writeRejected writes rejectedFile; a test replaces it to make that fail.
+var writeRejected = os.WriteFile
+
+// attachRejected writes rejected as {"rejected": [...]} to rejectedFile in dir
+// and returns its path.
+func attachRejected(dir string, rejected []finding.Rejected) (string, error) {
 	data, err := json.MarshalIndent(map[string][]finding.Rejected{"rejected": rejected}, "", "  ")
-	return string(data), err
+	if err != nil {
+		return "", err
+	}
+	p := filepath.Join(dir, rejectedFile)
+	return p, writeRejected(p, data, 0600)
 }
 
 // reviewBatch runs the review of one batch, and one repair run when the
@@ -421,7 +448,8 @@ func rejectedAttachment(rejected []finding.Rejected) (string, error) {
 // the batch was not reviewed, or that its run never started.
 func (r *reviewer) reviewBatch(ctx context.Context, s skill.Skill, batch []diff.FileDiff, n, total int, prev []finding.Finding, hasPrev, hasCarried bool) (o batchOutcome) {
 	var usage runner.Usage
-	defer func() { o.usage = usage }()
+	dismissalsFailed := false
+	defer func() { o.usage, o.dismissalsFailed = usage, dismissalsFailed }()
 	label := fmt.Sprintf("%d/%d", n, total)
 	paths := make([]string, len(batch))
 	var patch strings.Builder
@@ -466,14 +494,6 @@ func (r *reviewer) reviewBatch(ctx context.Context, s skill.Skill, batch []diff.
 		attachments = append(attachments, attachment{"previous-findings.json", string(data)})
 		message += " " + previousMessage
 	}
-	if rejected := r.req.Dismissals[s.Name]; len(rejected) > 0 {
-		content, err := rejectedAttachment(rejected)
-		if err != nil {
-			return notReviewed("could not encode the rejected findings: %v", err)
-		}
-		attachments = append(attachments, attachment{rejectedFile, content})
-		message += " " + rejectedMessage
-	}
 	var files []string
 	for _, a := range attachments {
 		p, err := write(a.name, a.content)
@@ -481,6 +501,14 @@ func (r *reviewer) reviewBatch(ctx context.Context, s skill.Skill, batch []diff.
 			return notReviewed("could not write the batch files: %v", err)
 		}
 		files = append(files, p)
+	}
+	if rejected := r.req.Dismissals[s.Name]; len(rejected) > 0 {
+		if p, err := attachRejected(dir, rejected); err != nil {
+			dismissalsFailed = true
+		} else {
+			files = append(files, p)
+			message += " " + rejectedMessage
+		}
 	}
 
 	res, err := r.run(ctx, s, label, files, message)
