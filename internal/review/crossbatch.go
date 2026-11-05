@@ -21,8 +21,9 @@ const crossBatchMessage = "This change was reviewed in %d batches. Attached are 
 // when the skill asks for it and there is more than one batch. A cross-batch
 // check that cannot run, or whose answer cannot be used, adds a note and
 // changes nothing else: every file was already reviewed, so it never fails
-// the skill.
-func (r *reviewer) crossBatch(ctx context.Context, s skill.Skill, res *SkillResult, prev []finding.Finding) {
+// the skill. It returns what the run's answer says it left out because of past
+// dismissals.
+func (r *reviewer) crossBatch(ctx context.Context, s skill.Skill, res *SkillResult, prev []finding.Finding) (leftOut []finding.LeftOut) {
 	if !s.CrossBatch || res.Batches <= 1 {
 		return
 	}
@@ -97,4 +98,5 @@ func (r *reviewer) crossBatch(ctx context.Context, s skill.Skill, res *SkillResu
 	}
 	merged := append(append([]finding.Finding{}, res.Findings...), assignFingerprints(s.Name, ans.Findings, prev)...)
 	res.Findings = finding.Dedup(merged)
+	return ans.LeftOut
 }

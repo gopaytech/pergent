@@ -187,7 +187,7 @@ Each entry of `skills`:
 | `files.skipped` | array | `{path, rule}`: files left out, the machine-readable record of what was not reviewed. `rule` is one of the values in [What a verdict covers](#what-a-verdict-covers). |
 | `files.not_reviewed` | array | `{path, cause}`: in-scope files whose batch failed. `cause` is plain one-line text. |
 | `failures` | array | One entry per batch that did not finish: `files`, `message` (plain one-line text: the failure's own message, if any, followed by the cause's message) and, when known, `cause` with `kind` and `message`. `kind` is `context_overflow`, `timeout`, `opencode_error`, `step_limit`, `exit_error` or `no_answer`. |
-| `notes` | array | Plain-text notes, such as "Checks omitted to fit the 10 MB result limit." |
+| `notes` | array | Plain-text notes, such as "Checks omitted to fit the 10 MB result limit." When the run had `--dismissals` entries for the skill and the model left findings out because of them, one note lists them: `Left out because of past dismissals: <title> (<rejected title>); ...`, at most 20 entries followed by `and N more`. It is a note, not a field, and never changes the verdict. |
 | `batches`, `batches_finished` | number | Batches the skill needed, and how many finished. |
 | `duration_seconds` | number | Wall-clock time for the skill, to a tenth of a second. |
 | `tokens` | object | `input` and `output` token counts, summed over every run of the skill: batch, repair, verification and cross-batch runs. A provider that reports no usage gives zeros. |

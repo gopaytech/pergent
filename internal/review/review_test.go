@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -1007,4 +1008,160 @@ func TestDismissalsAttachmentFailureDoesNotFailTheReview(t *testing.T) {
 		t.Errorf("Notes = %q, want exactly one %q", r.Notes, dismissalsNote)
 	}
 	assertRemoved(t, allFiles(f.calls))
+}
+
+// leftOutAnswer returns a model answer with no findings that reports left_out.
+func leftOutAnswer(t *testing.T, leftOut ...finding.LeftOut) string {
+	t.Helper()
+	data, err := json.Marshal(map[string]any{"findings": []finding.Finding{}, "left_out": leftOut})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return "```json\n" + string(data) + "\n```\n"
+}
+
+// leftOutByRun answers each batch run with its entry list, by batch number,
+// and the cross-batch run with cross.
+func leftOutByRun(t *testing.T, batches map[int][]finding.LeftOut, cross []finding.LeftOut) *fake {
+	t.Helper()
+	f := &fake{}
+	f.respond = func(_ int, c call) runner.RunResult {
+		if isCrossBatchCall(c) {
+			return completed(leftOutAnswer(t, cross...))
+		}
+		for n, entries := range batches {
+			if strings.HasPrefix(c.opts.Message, batchMessage(n, 3)) {
+				return completed(leftOutAnswer(t, entries...))
+			}
+		}
+		t.Errorf("unexpected run with message %q", c.opts.Message)
+		return completed(answer(t))
+	}
+	return f
+}
+
+func TestLeftOutNote(t *testing.T) {
+	f := &fake{}
+	f.respond = func(int, call) runner.RunResult {
+		return completed(leftOutAnswer(t, finding.LeftOut{Title: "A", Rejected: "B"}))
+	}
+	req := newRequest(t, f, patch("a/x.go", "x"))
+	req.Dismissals = map[string][]finding.Rejected{"s": rejectedBoth}
+
+	r := Run(context.Background(), req)[0]
+	if want := []string{"Left out because of past dismissals: A (B)"}; !slices.Equal(r.Notes, want) {
+		t.Errorf("Notes = %q, want %q", r.Notes, want)
+	}
+	if r.Verdict != NoBlockingIssues {
+		t.Errorf("Verdict = %q, want %q", r.Verdict, NoBlockingIssues)
+	}
+}
+
+func TestLeftOutNoteAcrossBatches(t *testing.T) {
+	f := leftOutByRun(t,
+		map[int][]finding.LeftOut{
+			1: {{Title: "A", Rejected: "B"}, {Title: "C", Rejected: "D"}},
+			2: {{Title: "C", Rejected: "D"}, {Title: "E", Rejected: "F"}},
+			3: nil,
+		},
+		[]finding.LeftOut{{Title: "A", Rejected: "B"}, {Title: "G", Rejected: "H"}})
+	req, _ := crossBatchRequest(t, f, true)
+	req.Dismissals = map[string][]finding.Rejected{"s": rejectedBoth}
+
+	r := Run(context.Background(), req)[0]
+	if len(f.calls) != 4 {
+		t.Fatalf("runner called %d times, want 4 (three batches and the cross-batch run)", len(f.calls))
+	}
+	want := "Left out because of past dismissals: A (B); C (D); E (F); G (H)"
+	if len(r.Notes) != 1 || r.Notes[0] != want {
+		t.Errorf("Notes = %q, want one note %q", r.Notes, want)
+	}
+}
+
+func TestLeftOutNoteBesideOtherNotes(t *testing.T) {
+	f := &fake{}
+	f.respond = func(_ int, c call) runner.RunResult {
+		if isCrossBatchCall(c) {
+			return completed("Looks fine to me.")
+		}
+		return completed(leftOutAnswer(t, finding.LeftOut{Title: "A", Rejected: "B"}))
+	}
+	req, _ := crossBatchRequest(t, f, true)
+	req.Dismissals = map[string][]finding.Rejected{"s": rejectedBoth}
+
+	r := Run(context.Background(), req)[0]
+	if len(r.Notes) != 2 || !strings.HasPrefix(r.Notes[0], "Cross-batch check failed") || r.Notes[1] != "Left out because of past dismissals: A (B)" {
+		t.Errorf("Notes = %q, want the cross-batch note and then the left-out note", r.Notes)
+	}
+	if r.Verdict != NoBlockingIssues {
+		t.Errorf("Verdict = %q, want %q: a note never changes it", r.Verdict, NoBlockingIssues)
+	}
+}
+
+func TestLeftOutNoteWithoutRejected(t *testing.T) {
+	f := &fake{}
+	f.respond = func(int, call) runner.RunResult {
+		return completed(leftOutAnswer(t, finding.LeftOut{Title: "A"}))
+	}
+	req := newRequest(t, f, patch("a/x.go", "x"))
+	req.Dismissals = map[string][]finding.Rejected{"s": rejectedBoth}
+
+	r := Run(context.Background(), req)[0]
+	if want := "Left out because of past dismissals: A"; len(r.Notes) != 1 || r.Notes[0] != want {
+		t.Errorf("Notes = %q, want one note %q", r.Notes, want)
+	}
+}
+
+func TestLeftOutIgnoredWithoutAttachment(t *testing.T) {
+	f := &fake{}
+	f.respond = func(int, call) runner.RunResult {
+		return completed(leftOutAnswer(t, finding.LeftOut{Title: "A", Rejected: "B"}))
+	}
+	req := newRequest(t, f, patch("a/x.go", "x"))
+	req.Dismissals = map[string][]finding.Rejected{"other": rejectedBoth}
+
+	r := Run(context.Background(), req)[0]
+	if len(r.Notes) != 0 {
+		t.Errorf("Notes = %q, want none: the skill had no past dismissals", r.Notes)
+	}
+}
+
+func TestLeftOutNeverRepairs(t *testing.T) {
+	f := &fake{}
+	f.respond = func(int, call) runner.RunResult {
+		return completed("```json\n{\"findings\": [], \"left_out\": \"A\"}\n```\n")
+	}
+	req := newRequest(t, f, patch("a/x.go", "x"))
+	req.Dismissals = map[string][]finding.Rejected{"s": rejectedBoth}
+
+	r := Run(context.Background(), req)[0]
+	if len(f.calls) != 1 {
+		t.Errorf("runner called %d times, want 1 (no repair run)", len(f.calls))
+	}
+	if r.Verdict != NoBlockingIssues || len(r.Failures) != 0 || len(r.Notes) != 0 {
+		t.Errorf("result = %+v, want a pass with no failures and no notes", r)
+	}
+}
+
+func TestLeftOutNoteCapped(t *testing.T) {
+	entries := func(from, to int) []finding.LeftOut {
+		var out []finding.LeftOut
+		for i := from; i < to; i++ {
+			out = append(out, finding.LeftOut{Title: fmt.Sprintf("T%d", i), Rejected: fmt.Sprintf("R%d", i)})
+		}
+		return out
+	}
+	f := leftOutByRun(t, map[int][]finding.LeftOut{1: entries(0, 12), 2: entries(12, 25), 3: nil}, nil)
+	req, _ := crossBatchRequest(t, f, false)
+	req.Dismissals = map[string][]finding.Rejected{"s": rejectedBoth}
+
+	r := Run(context.Background(), req)[0]
+	var parts []string
+	for _, e := range entries(0, 20) {
+		parts = append(parts, e.Title+" ("+e.Rejected+")")
+	}
+	want := "Left out because of past dismissals: " + strings.Join(parts, "; ") + " and 5 more"
+	if len(r.Notes) != 1 || r.Notes[0] != want {
+		t.Errorf("Notes = %q, want one note %q", r.Notes, want)
+	}
 }

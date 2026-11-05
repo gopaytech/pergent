@@ -57,6 +57,12 @@ const (
 	maxCheckSection = 80
 )
 
+// Limits on an answer's left_out list. The field limit is in runes.
+const (
+	maxLeftOut      = 20
+	maxLeftOutField = 200
+)
+
 // maxConfidenceReason caps an answer's confidence reason, in runes.
 const maxConfidenceReason = 300
 
@@ -77,6 +83,14 @@ type Check struct {
 	Detail  string // the evidence; may be empty
 }
 
+// LeftOut is a finding the model left out because people rejected the same
+// mistake in an earlier review: its own title and the title of the rejected
+// finding it matched.
+type LeftOut struct {
+	Title    string `json:"title"`
+	Rejected string `json:"rejected,omitempty"` // may be empty
+}
+
 // Answer is the model's parsed final answer.
 type Answer struct {
 	// Summary is what the model says it checked and concluded, on one line.
@@ -93,13 +107,17 @@ type Answer struct {
 	// is 0.
 	ConfidenceReason string
 	Findings         []Finding
+	// LeftOut are the findings the model says it left out because of past
+	// dismissals, at most maxLeftOut of them.
+	LeftOut []LeftOut
 }
 
 type answer struct {
-	// Summary and Checks are decoded loosely: an unexpected shape must not
-	// cost the answer its findings.
+	// Summary, Checks and LeftOut are decoded loosely: an unexpected shape
+	// must not cost the answer its findings.
 	Summary          json.RawMessage `json:"summary"`
 	Checks           json.RawMessage `json:"checks"`
+	LeftOut          json.RawMessage `json:"left_out"`
 	Confidence       json.RawMessage `json:"confidence"`
 	ConfidenceReason json.RawMessage `json:"confidence_reason"`
 	Findings         *[]rawFinding   `json:"findings"`
@@ -112,6 +130,11 @@ type rawFinding struct {
 	Finding
 	EndLine    json.RawMessage `json:"end_line"`
 	Suggestion json.RawMessage `json:"suggestion"`
+}
+
+type rawLeftOut struct {
+	Title    json.RawMessage `json:"title"`
+	Rejected json.RawMessage `json:"rejected"`
 }
 
 type rawCheck struct {
@@ -174,6 +197,7 @@ func parseBlock(block JSONBlock) (Answer, error) {
 		Confidence:       confidence,
 		ConfidenceReason: reason,
 		Findings:         findings,
+		LeftOut:          parseLeftOut(a.LeftOut),
 	}, nil
 }
 
@@ -254,6 +278,32 @@ func parseChecks(raw json.RawMessage) ([]Check, int) {
 		})
 	}
 	return checks, dropped
+}
+
+// parseLeftOut reads the left_out list, dropping entries that aren't objects
+// or lack a title, and keeping at most maxLeftOut of the rest. Anything but a
+// JSON array counts as nothing left out; it is never an error.
+func parseLeftOut(raw json.RawMessage) []LeftOut {
+	var entries []json.RawMessage
+	if json.Unmarshal(raw, &entries) != nil {
+		return nil
+	}
+	var out []LeftOut
+	for _, e := range entries {
+		var rl rawLeftOut
+		if json.Unmarshal(e, &rl) != nil {
+			continue
+		}
+		title := cleanText(stringValue(rl.Title), maxLeftOutField)
+		if title == "" {
+			continue
+		}
+		out = append(out, LeftOut{Title: title, Rejected: cleanText(stringValue(rl.Rejected), maxLeftOutField)})
+		if len(out) == maxLeftOut {
+			break
+		}
+	}
+	return out
 }
 
 // checkStatus reads a status, ignoring case and surrounding whitespace, and

@@ -266,6 +266,9 @@ type batchOutcome struct {
 	// dismissalsFailed is set when the rejected findings could not be
 	// attached to one of the batch's runs.
 	dismissalsFailed bool
+	// leftOut is what the batch's answer says it left out because of past
+	// dismissals.
+	leftOut []finding.LeftOut
 }
 
 func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillResult) {
@@ -359,6 +362,7 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillRes
 	// Collect in batch order so the result doesn't depend on which run
 	// finished first.
 	var all []finding.Finding
+	var leftOut []finding.LeftOut
 	var unstarted []string
 	unscored := false
 	for i, o := range outcomes {
@@ -376,6 +380,7 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillRes
 		default:
 			res.BatchesFinished++
 			all = append(all, o.findings...)
+			leftOut = append(leftOut, o.leftOut...)
 			// The skill's score is its lowest batch score, the first on a tie.
 			switch {
 			case o.confidence == 0:
@@ -406,12 +411,45 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillRes
 	res.Findings = finding.Dedup(assignFingerprints(s.Name, all, prev))
 	// The optional cross-batch run goes before verification so the findings it
 	// adds are verified too.
-	r.crossBatch(ctx, s, &res, prev)
+	crossLeftOut := r.crossBatch(ctx, s, &res, prev)
+	if len(r.req.Dismissals[s.Name]) > 0 {
+		res.noteLeftOut(append(leftOut, crossLeftOut...))
+	}
 	r.verify(ctx, s, &res)
 	// The verdict is computed after verification: findings it drops no
 	// longer block.
 	res.Verdict = verdict(res)
 	return res
+}
+
+// maxLeftOutNote is how many entries the left-out note lists.
+const maxLeftOutNote = 20
+
+// noteLeftOut adds the one note that lists what the model left out because of
+// past dismissals, without repeats and in the order given. It adds nothing
+// when the list is empty.
+func (res *SkillResult) noteLeftOut(leftOut []finding.LeftOut) {
+	var entries []string
+	seen := make(map[finding.LeftOut]bool, len(leftOut))
+	for _, l := range leftOut {
+		if seen[l] {
+			continue
+		}
+		seen[l] = true
+		if l.Rejected == "" {
+			entries = append(entries, l.Title)
+		} else {
+			entries = append(entries, l.Title+" ("+l.Rejected+")")
+		}
+	}
+	if len(entries) == 0 {
+		return
+	}
+	note := "Left out because of past dismissals: " + strings.Join(entries[:min(len(entries), maxLeftOutNote)], "; ")
+	if more := len(entries) - maxLeftOutNote; more > 0 {
+		note += fmt.Sprintf(" and %d more", more)
+	}
+	res.Notes = append(res.Notes, note)
 }
 
 // rejectedFile is the attachment that holds a skill's rejected findings.
@@ -558,7 +596,7 @@ func (r *reviewer) reviewBatch(ctx context.Context, s skill.Skill, batch []diff.
 // answered is the outcome of a batch whose answer parsed.
 func answered(ans finding.Answer) batchOutcome {
 	return batchOutcome{findings: ans.Findings, summary: ans.Summary, checks: ans.Checks, dropped: ans.ChecksDropped,
-		confidence: ans.Confidence, confidenceReason: ans.ConfidenceReason}
+		confidence: ans.Confidence, confidenceReason: ans.ConfidenceReason, leftOut: ans.LeftOut}
 }
 
 // stopReason says why runs can no longer start: the budget ran out, or the
