@@ -99,6 +99,8 @@ make build
 
 Requires [opencode](https://github.com/anomalyco/opencode) installed on the system.
 
+A build from source reports its version as `dev`; only a release image carries a real one. pergent.sh treats `dev` as older than any release, so such an image gets full reviews.
+
 ## 🚀 Usage
 
 ### Local Mode

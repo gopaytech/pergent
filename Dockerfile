@@ -11,7 +11,8 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 ARG VERSION=dev
-RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -ldflags "-X main.version=${VERSION#v}" -o /pergent ./cmd/
+# The shell strips the tag's "v": Docker's own substitution wouldn't.
+RUN v="${VERSION#v}" && CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -ldflags "-X main.version=$v" -o /pergent ./cmd/
 
 FROM debian:trixie-slim
 
