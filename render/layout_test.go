@@ -611,3 +611,41 @@ func TestUntrustedFileURLWithWhitespaceIsNoLink(t *testing.T) {
 		}
 	}
 }
+
+func TestNoteTextNeutralizesModelText(t *testing.T) {
+	cases := []struct {
+		name, note string
+		want       string   // the note as it appears in the comment
+		banned     []string // must not appear anywhere in the comment
+	}{
+		{"mention", "Missing @bob", "Missing @\u200dbob", []string{"@bob"}},
+		{"image", "see ![x](http://e/x.png)", `see !\[x]\(http://e/x.png)`, []string{"![", "](", "<img"}},
+		{"link", "[click](http://e)", `[click]\(http://e)`, []string{"](http://e)"}},
+		{"html", "<img src=x>", "&lt;img src=x&gt;", []string{"<img"}},
+		{"comment", "<!-- x", "&lt;!-- x", []string{"<!-- x"}},
+		{"details", "</details>", "&lt;/details&gt;", []string{"<details></details>", "</details>\n"}},
+		{"newlines", "line one\n\n# line two", "line one # line two", []string{"\n# line two"}},
+		{"plain", "Dropped `Foo.bar` (not real)", "Dropped `Foo.bar` (not real)", nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := Skill{Name: "a", Verdict: VerdictNoBlockingIssues, Notes: []string{tc.note}}
+			got := Comment([]Skill{s}, Options{})
+			if want := "> " + tc.want + "\n"; !strings.Contains(got, want) {
+				t.Errorf("lacks %q:\n%s", want, got)
+			}
+			for _, banned := range tc.banned {
+				if strings.Contains(got, banned) {
+					t.Errorf("live %q in:\n%s", banned, got)
+				}
+			}
+		})
+	}
+
+	// With several skills the prefix is added outside the escaping.
+	a := Skill{Name: "a", Verdict: VerdictNoBlockingIssues, Notes: []string{"ping @bob <b>"}}
+	got := Comment([]Skill{a, cleanSkill("b", 0)}, Options{})
+	if want := "> `a`: ping @\u200dbob &lt;b&gt;\n"; !strings.Contains(got, want) {
+		t.Errorf("lacks %q:\n%s", want, got)
+	}
+}

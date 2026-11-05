@@ -164,7 +164,7 @@ func writeNotes(b *strings.Builder, skills []Skill) {
 		if len(skills) > 1 {
 			prefix = skillRef(s.Name) + ": "
 		}
-		notes = append(notes, prefix+neutralizeComments(oneLine(n)))
+		notes = append(notes, prefix+noteText(n))
 	}
 	for _, s := range skills {
 		if len(s.Checks) == 0 {
@@ -209,6 +209,24 @@ func writeNotes(b *strings.Builder, skills []Skill) {
 	if len(notes) > 0 {
 		b.WriteString("\n")
 	}
+}
+
+// noteTextReplacer makes model text in a note inert: HTML can't open, mentions
+// can't ping, and an image or link can't render. Backticks stay, so a plain
+// note may use code spans.
+var noteTextReplacer = strings.NewReplacer(
+	"<", "&lt;",
+	">", "&gt;",
+	"@", "@\u200d",
+	"![", `!\[`,
+	"](", `]\(`,
+)
+
+// noteText renders a note on one line as text only. It follows a fixed prefix
+// or a quote marker, so it never starts a block. summaryText is not used: it
+// would escape "<" a second time.
+func noteText(n string) string {
+	return noteTextReplacer.Replace(oneLine(n))
 }
 
 // fileRow is a path of the review and what each skill did with it.
