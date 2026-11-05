@@ -1151,17 +1151,74 @@ func TestLeftOutNoteCapped(t *testing.T) {
 		}
 		return out
 	}
-	f := leftOutByRun(t, map[int][]finding.LeftOut{1: entries(0, 12), 2: entries(12, 25), 3: nil}, nil)
+	want := func() string {
+		var parts []string
+		for _, e := range entries(0, 20) {
+			parts = append(parts, e.Title+" ("+e.Rejected+")")
+		}
+		return "Left out because of past dismissals: " + strings.Join(parts, "; ") + " and 5 more"
+	}()
+	for name, batches := range map[string]map[int][]finding.LeftOut{
+		"across batches": {1: entries(0, 12), 2: entries(12, 25), 3: nil},
+		"one answer":     {1: entries(0, 25), 2: nil, 3: nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := leftOutByRun(t, batches, nil)
+			req, _ := crossBatchRequest(t, f, false)
+			req.Dismissals = map[string][]finding.Rejected{"s": rejectedBoth}
+
+			r := Run(context.Background(), req)[0]
+			if len(r.Notes) != 1 || r.Notes[0] != want {
+				t.Errorf("Notes = %q, want one note %q", r.Notes, want)
+			}
+		})
+	}
+}
+
+func TestLeftOutFromRepairedAnswer(t *testing.T) {
+	f := &fake{}
+	f.respond = func(n int, _ call) runner.RunResult {
+		if n == 1 {
+			return completed("The code looks fine.")
+		}
+		return completed(leftOutAnswer(t, finding.LeftOut{Title: "A", Rejected: "B"}))
+	}
+	req := newRequest(t, f, patch("a/x.go", "x"))
+	req.Dismissals = map[string][]finding.Rejected{"s": rejectedBoth}
+
+	r := Run(context.Background(), req)[0]
+	if len(f.calls) != 2 {
+		t.Fatalf("runner called %d times, want 2 (review and repair)", len(f.calls))
+	}
+	if want := "Left out because of past dismissals: A (B)"; len(r.Notes) != 1 || r.Notes[0] != want {
+		t.Errorf("Notes = %q, want one note %q", r.Notes, want)
+	}
+}
+
+func TestLeftOutFromFailedBatchIgnored(t *testing.T) {
+	f := &fake{}
+	f.respond = func(_ int, c call) runner.RunResult {
+		switch {
+		case strings.HasPrefix(c.opts.Message, batchMessage(1, 3)):
+			return completed(leftOutAnswer(t, finding.LeftOut{Title: "A", Rejected: "B"}))
+		case strings.HasPrefix(c.opts.Message, batchMessage(2, 3)):
+			// The failed run's text is never an answer.
+			return runner.RunResult{
+				Status: runner.StatusFailed,
+				Cause:  &runner.Cause{Kind: runner.CauseTimeout, Timeout: time.Minute},
+				Output: leftOutAnswer(t, finding.LeftOut{Title: "C", Rejected: "D"}),
+			}
+		}
+		return completed(answer(t))
+	}
 	req, _ := crossBatchRequest(t, f, false)
 	req.Dismissals = map[string][]finding.Rejected{"s": rejectedBoth}
 
 	r := Run(context.Background(), req)[0]
-	var parts []string
-	for _, e := range entries(0, 20) {
-		parts = append(parts, e.Title+" ("+e.Rejected+")")
+	if r.Verdict != Failed {
+		t.Errorf("Verdict = %q, want %q", r.Verdict, Failed)
 	}
-	want := "Left out because of past dismissals: " + strings.Join(parts, "; ") + " and 5 more"
-	if len(r.Notes) != 1 || r.Notes[0] != want {
+	if want := "Left out because of past dismissals: A (B)"; len(r.Notes) != 1 || r.Notes[0] != want {
 		t.Errorf("Notes = %q, want one note %q", r.Notes, want)
 	}
 }

@@ -337,15 +337,15 @@ func TestParseAnswer_LeftOutMissingRejected(t *testing.T) {
 
 func TestParseAnswer_LeftOutLimit(t *testing.T) {
 	var entries []string
-	for i := 0; i < 30; i++ {
+	for i := 0; i < 120; i++ {
 		entries = append(entries, fmt.Sprintf(`{"title": "Title\n%d %s", "rejected": "Rejected\n%d %s"}`, i, strings.Repeat("t", 300), i, strings.Repeat("r", 300)))
 	}
 	a, err := ParseAnswer(leftOutAnswer("[" + strings.Join(entries, ",") + "]"))
 	if err != nil {
 		t.Fatalf("unexpected error %v", err)
 	}
-	if len(a.LeftOut) != 20 {
-		t.Fatalf("got %d entries, want 20", len(a.LeftOut))
+	if len(a.LeftOut) != 100 {
+		t.Fatalf("got %d entries, want 100", len(a.LeftOut))
 	}
 	for i, e := range a.LeftOut {
 		for _, s := range []string{e.Title, e.Rejected} {

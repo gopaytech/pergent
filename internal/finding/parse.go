@@ -59,7 +59,7 @@ const (
 
 // Limits on an answer's left_out list. The field limit is in runes.
 const (
-	maxLeftOut      = 20
+	maxLeftOut      = 100
 	maxLeftOutField = 200
 )
 
