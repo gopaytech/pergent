@@ -111,6 +111,9 @@ func writeMeta(b *strings.Builder, skills []Skill, o Options, blocking, suggesti
 	if blocking > 0 && failed > 0 {
 		parts = append(parts, plural(failed, "skill")+" failed")
 	}
+	if o.MetaNote != "" {
+		parts = append(parts, oneLine(o.MetaNote))
+	}
 	if len(parts) > 0 {
 		fmt.Fprintf(b, "<sub>%s</sub>\n\n", strings.Join(parts, " · "))
 	}

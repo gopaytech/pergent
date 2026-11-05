@@ -123,7 +123,7 @@ A failed review is still a result. A review that could not run at all is an **er
 }
 ```
 
-The `markdown` and `findings_block` values are shortened here. `comment.markdown` is the whole comment, ready to post.
+The `markdown` and `findings_block` values are shortened here. `comment.markdown` is the whole comment, ready to post. A caller that passes `--carried` gets a partial review, covering only the files not carried: it must merge that result with its previous review before posting `comment.markdown`.
 
 ## Error result
 
@@ -183,6 +183,7 @@ Each entry of `skills`:
 | `summaries` | array | `{batch, text}`: the model's summary of each batch. Omitted when empty. |
 | `checks` | array | One entry per batch that reported a checklist: `batch`, `dropped` (valid checks beyond the per-answer limit), `findings` (the number of findings in that batch) and `checks`, a list of `{section, name, status, detail}` where `status` is `pass`, `fail` or `n/a`. Omitted when no batch reported checks. |
 | `files.reviewed` | array | Paths the skill reviewed. The verdict covers these files and nothing else. |
+| `files.carried` | array | Paths the caller's previous review covers; not reviewed in this run. Omitted when empty. |
 | `files.skipped` | array | `{path, rule}`: files left out, the machine-readable record of what was not reviewed. `rule` is one of the values in [What a verdict covers](#what-a-verdict-covers). |
 | `files.not_reviewed` | array | `{path, cause}`: in-scope files whose batch failed. `cause` is plain one-line text. |
 | `failures` | array | One entry per batch that did not finish: `files`, `message` (plain one-line text: the failure's own message, if any, followed by the cause's message) and, when known, `cause` with `kind` and `message`. `kind` is `context_overflow`, `timeout`, `opencode_error`, `step_limit`, `exit_error` or `no_answer`. |
@@ -227,7 +228,7 @@ A skill's `verdict` covers only its `files.reviewed`. A file in `files.skipped` 
 
 Only `.gitattributes` and the generated header come from the base commit. `lockfile` and `vendored` are fixed path rules, and `binary`, `deleted` and `no content changes` follow the change itself, so a change decides on its own whether those apply to it. A change whose files are all skipped gets `files.reviewed: []` and `no_blocking_issues`.
 
-A caller deciding on approval must therefore not treat `no_blocking_issues` as approval when `files.reviewed` is empty, or when `files.skipped` holds `deleted`, `binary`, `vendored`, `lockfile` or `generated` entries, unless its own policy accepts those changes unreviewed.
+A caller deciding on approval must therefore not treat `no_blocking_issues` as approval when `files.reviewed` is empty, when `files.carried` is non-empty (those files were not reviewed in this run, so the verdict says nothing about them), or when `files.skipped` holds `deleted`, `binary`, `vendored`, `lockfile` or `generated` entries, unless its own policy accepts those changes unreviewed.
 
 ### Finding IDs
 

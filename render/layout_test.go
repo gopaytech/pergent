@@ -96,6 +96,32 @@ func TestMetaLine(t *testing.T) {
 	}
 }
 
+func TestMetaNote(t *testing.T) {
+	s := Skill{Name: "s", Verdict: VerdictNoBlockingIssues, Reviewed: []string{"a.go", "b.go"},
+		Findings: []Finding{{File: "a.go", Severity: Suggestion, Title: "A"}}}
+	base := Options{Commit: "a1b2c3d4e5", ChangedFiles: []string{"a.go", "b.go"}}
+
+	const note = "Re-reviewed 2 files · 28 carried over from `abc1234`"
+	base.MetaNote = note
+	got := Comment([]Skill{s}, base)
+	if want := "<sub>Commit `a1b2c3d` · 2 files · 1 suggestion · " + note + "</sub>\n\n"; !strings.Contains(got, want) {
+		t.Errorf("meta line missing %q:\n%s", want, head(got))
+	}
+
+	// Line breaks in the note collapse: the line stays one <sub> line.
+	base.MetaNote = "Re-reviewed 2 files\n\n28 carried over"
+	got = Comment([]Skill{s}, base)
+	if want := "<sub>Commit `a1b2c3d` · 2 files · 1 suggestion · Re-reviewed 2 files 28 carried over</sub>\n\n"; !strings.Contains(got, want) {
+		t.Errorf("meta line missing %q:\n%s", want, head(got))
+	}
+
+	// With no other part, the note makes the line.
+	got = Comment(nil, Options{MetaNote: note})
+	if want := "<sub>" + note + "</sub>\n\n"; !strings.Contains(got, want) {
+		t.Errorf("meta line missing %q:\n%s", want, head(got))
+	}
+}
+
 func TestMetaLineVariants(t *testing.T) {
 	s := Skill{Name: "s", Verdict: VerdictNoBlockingIssues, Reviewed: []string{"a.go", "a.go", "b.go"},
 		Checks: []BatchChecks{{Batch: 1, Checks: []Check{{Name: "1", Status: CheckPass}, {Name: "2", Status: CheckFail}}}}}
