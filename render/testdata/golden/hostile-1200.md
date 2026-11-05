@@ -32,7 +32,7 @@ https://x.example/?key=[REDACTED]&token=[REDACTED]
 
 > 2 suggestions omitted to fit the comment size limit.
 
-> `second`: note with &lt;!-- comment --&gt; and newline
+> `second`: note with <‍!-- comment --> and newline
 > `second`: token [REDACTED]
 
 <details><summary>Files (3)</summary>
