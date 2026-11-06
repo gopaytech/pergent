@@ -3,6 +3,7 @@ package platform
 import (
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 )
 
@@ -156,5 +157,44 @@ func TestGitHub_UpdateComment(t *testing.T) {
 	err := gh.UpdateComment(200, "updated body")
 	if err != nil {
 		t.Fatalf("UpdateComment() error: %v", err)
+	}
+}
+
+func TestParseDiffFiles(t *testing.T) {
+	diffContent := "diff --git a/old.go b/new.go\n" +
+		"similarity index 90%\n" +
+		"rename from old.go\n" +
+		"rename to new.go\n" +
+		"index 1234567..abcdefg 100644\n" +
+		"--- a/old.go\n" +
+		"+++ b/new.go\n" +
+		"@@ -1 +1 @@\n" +
+		"-package old\n" +
+		"+package new\n" +
+		"diff --git \"a/caf\\303\\251.go\" \"b/caf\\303\\251.go\"\n" +
+		"index 1234567..abcdefg 100644\n" +
+		"--- \"a/caf\\303\\251.go\"\n" +
+		"+++ \"b/caf\\303\\251.go\"\n" +
+		"@@ -1 +1 @@\n" +
+		"-package a\n" +
+		"+package b\n" +
+		"diff --git a/my file.go b/my file.go\n" +
+		"index 1234567..abcdefg 100644\n" +
+		"--- a/my file.go\n" +
+		"+++ b/my file.go\n" +
+		"@@ -1 +1 @@\n" +
+		"-package a\n" +
+		"+package b\n" +
+		"diff --git a/gone.go b/gone.go\n" +
+		"deleted file mode 100644\n" +
+		"index 1234567..0000000\n" +
+		"--- a/gone.go\n" +
+		"+++ /dev/null\n" +
+		"@@ -1 +0,0 @@\n" +
+		"-package a\n"
+	got := parseDiffFiles(diffContent)
+	want := []string{"new.go", "café.go", "my file.go", "gone.go"}
+	if !slices.Equal(got, want) {
+		t.Errorf("parseDiffFiles = %q, want %q", got, want)
 	}
 }
