@@ -379,12 +379,13 @@ func dismissedBlocking(ds []DismissedFinding) int {
 }
 
 // writeDismissed writes one line of the Dismissed list: the finding's title
-// and ID, then who dismissed it and why. The reason is someone's free text,
-// so it is collapsed to one line and "<" is escaped, which keeps it from
-// opening HTML, a comment or the layout's collapsible blocks. "@" is broken
-// up too, so re-rendering the comment doesn't mention people again.
+// and ID, then who dismissed it and why. The title is model text, so it is
+// shown as noteText does. The reason is someone's free text, so it is
+// collapsed to one line and "<" is escaped, which keeps it from opening HTML,
+// a comment or the layout's collapsible blocks. "@" is broken up too, so
+// re-rendering the comment doesn't mention people again.
 func writeDismissed(b *strings.Builder, d DismissedFinding) {
-	fmt.Fprintf(b, "- **%s**", neutralizeComments(oneLine(d.Finding.Title)))
+	fmt.Fprintf(b, "- **%s**", noteText(d.Finding.Title))
 	if d.Finding.ID != "" {
 		fmt.Fprintf(b, " id %s", codeSpan(d.Finding.ID))
 	}
@@ -535,6 +536,8 @@ func closeFences(s string) string {
 // modelText prepares multi-line model text for the comment. "\r" goes first:
 // neutralizeQuickActions removes it from the whole comment later, which would
 // rebuild a comment marker or a fence that the steps here had broken up.
+// proseText goes before neutralizeComments, which writes "&lt;" that it would
+// break.
 func modelText(s string) string {
-	return closeFences(neutralizeComments(strings.ReplaceAll(strings.TrimSpace(s), "\r", "")))
+	return closeFences(neutralizeComments(proseText(strings.ReplaceAll(strings.TrimSpace(s), "\r", ""))))
 }

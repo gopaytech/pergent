@@ -131,7 +131,7 @@ func writeReason(b *strings.Builder, skills []Skill) {
 	if at < 0 {
 		return
 	}
-	reason := mentionSafe(skills[at].ConfidenceReason)
+	reason := noteText(skills[at].ConfidenceReason)
 	switch {
 	case reason == "" && score.Capped == "":
 		return
@@ -256,7 +256,7 @@ func writeFindings(b *strings.Builder, skills []Skill, o Options, l layout) {
 		// stays text.
 		b.WriteString(detailsDroppedNote + "\n\n<ul>\n")
 		for _, r := range suggestions {
-			fmt.Fprintf(b, "<li>💡 <b>%s</b>%s", escapeSummary(r.Title), locationPart(r.Finding, o))
+			fmt.Fprintf(b, "<li>💡 <b>%s</b>%s", findingTitleHTML(r.Title), locationPart(r.Finding, o))
 			if many {
 				fmt.Fprintf(b, " · <code>%s</code>", escapeSummary(r.skill))
 			}
@@ -277,6 +277,13 @@ func writeFindings(b *strings.Builder, skills []Skill, o Options, l layout) {
 // escapeSummary prepares model text for a line of inline HTML: platforms
 // don't render Markdown there, so it is shown as plain text.
 func escapeSummary(s string) string { return html.EscapeString(oneLine(s)) }
+
+// findingTitleHTML is escapeSummary for a finding's title, which also puts a
+// zero-width joiner after each "@": the title is model text, and a platform
+// turns "@name" into a mention even inside inline HTML.
+func findingTitleHTML(s string) string {
+	return strings.ReplaceAll(escapeSummary(s), "@", "@\u200d")
+}
 
 // locationHTML is the finding's location as <code>, linked to the file when
 // the caller gave o.FileURL.
@@ -325,7 +332,7 @@ func writeFindingRow(b *strings.Builder, r findingRow, o Options, withSkill bool
 	if f.Severity != Suggestion {
 		icon, open = "❌", " open"
 	}
-	fmt.Fprintf(b, "<details%s><summary>%s <b>%s</b>%s", open, icon, escapeSummary(f.Title), locationPart(f, o))
+	fmt.Fprintf(b, "<details%s><summary>%s <b>%s</b>%s", open, icon, findingTitleHTML(f.Title), locationPart(f, o))
 	if withSkill {
 		fmt.Fprintf(b, " · <code>%s</code>", escapeSummary(r.skill))
 	}

@@ -146,7 +146,7 @@ func TestReasonLine(t *testing.T) {
 		{Name: "b", Verdict: VerdictNoBlockingIssues, Confidence: 2, ConfidenceReason: "<b>risky</b>"},
 	}
 	got = Comment(two, Options{})
-	if want := "> `b`: &lt;b>risky&lt;/b>\n\n"; !strings.Contains(got, want) {
+	if want := "> `b`: <\u200db>risky<\u200d/b>\n\n"; !strings.Contains(got, want) {
 		t.Errorf("reason missing %q:\n%s", want, got)
 	}
 }

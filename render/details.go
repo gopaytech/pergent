@@ -225,17 +225,21 @@ var noteTextReplacer = strings.NewReplacer(
 	"](", "]\u200d(",
 )
 
+// inertText puts the zero-width joiner inside every sequence of s that does
+// something (see noteTextReplacer). It keeps the line breaks of s.
+func inertText(s string) string {
+	s = noteTextReplacer.Replace(s)
+	// A replacer pass doesn't overlap, so "[[[" keeps a "[[" after one pass.
+	for strings.Contains(s, "[[") {
+		s = strings.ReplaceAll(s, "[[", "[\u200d[")
+	}
+	return s
+}
+
 // noteText renders a note on one line as text only. The caller puts a fixed
 // pergent prefix before it (a quote marker, and the skill name with several
 // skills), so it never starts a block.
-func noteText(n string) string {
-	n = noteTextReplacer.Replace(oneLine(n))
-	// A replacer pass doesn't overlap, so "[[[" keeps a "[[" after one pass.
-	for strings.Contains(n, "[[") {
-		n = strings.ReplaceAll(n, "[[", "[\u200d[")
-	}
-	return n
-}
+func noteText(n string) string { return inertText(oneLine(n)) }
 
 // fileRow is a path of the review and what each skill did with it.
 type fileRow struct {

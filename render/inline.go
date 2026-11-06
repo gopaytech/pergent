@@ -85,13 +85,11 @@ func defuseSuggestionFences(s string) string {
 	return b.String()
 }
 
-// inlineText prepares multi-line model text for an inline comment: comments
-// and fences neutralised, suggestion fences renamed, mentions broken and
-// quick actions defused.
+// inlineText prepares multi-line model text for an inline comment: made inert
+// like the summary comment's (code kept as it is), suggestion fences renamed
+// and quick actions defused.
 func inlineText(s string) string {
-	s = defuseSuggestionFences(modelText(s))
-	s = strings.ReplaceAll(s, "@", "@‍")
-	return neutralizeQuickActions(s)
+	return neutralizeQuickActions(defuseSuggestionFences(modelText(s)))
 }
 
 // InlineComment renders one finding as the body of an inline review thread.
@@ -115,7 +113,7 @@ func InlineComment(f Finding, o InlineOptions) string {
 	if f.Severity == Suggestion {
 		label = "**💡 Suggestion: "
 	}
-	b.WriteString(label + mentionSafe(f.Title) + "**\n")
+	b.WriteString(label + noteText(f.Title) + "**\n")
 	if f.Explanation != "" {
 		b.WriteString(inlineText(f.Explanation) + "\n")
 	}
