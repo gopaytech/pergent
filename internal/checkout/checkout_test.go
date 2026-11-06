@@ -94,6 +94,66 @@ func TestScan(t *testing.T) {
 	}
 }
 
+// A dangling link is judged by where its text really leads, through any
+// symlinked directory on the way, not by the text alone. One that cannot be
+// shown to stay inside leaves the checkout.
+func TestScan_DanglingLinks(t *testing.T) {
+	outsideDir := filepath.Join(t.TempDir(), "deep", "dir")
+	if err := os.MkdirAll(outsideDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	root := tree(t, "a.go", "sub/")
+	link(t, root, "ldir", outsideDir)
+	// Inside: nothing on the way leaves the checkout.
+	link(t, root, "missing", "missing.go")
+	link(t, root, "sub/up-missing", "../missing.go")
+	link(t, root, "sub/deeper", "nope/further/still")
+	// Outside: through a symlinked directory, plain or with "..".
+	link(t, root, "through", "ldir/missing.go")
+	link(t, root, "sub/through-dotdot", "../ldir/../missing.go")
+	link(t, root, "dotdot-after", "ldir/../../missing.go")
+	link(t, root, "abs-missing", filepath.Join(outsideDir, "missing.go"))
+
+	got, err := Scan(root)
+	if err != nil {
+		t.Fatalf("Scan() error: %v", err)
+	}
+	var outside []string
+	for _, l := range got.Outside {
+		outside = append(outside, l.Path)
+	}
+	want := []string{"abs-missing", "dotdot-after", "ldir", "sub/through-dotdot", "through"}
+	if !reflect.DeepEqual(outside, want) {
+		t.Errorf("Outside = %v, want %v", outside, want)
+	}
+}
+
+// A directory Scan cannot read is reported, and the walk goes on, so a link
+// after it is still found.
+func TestScan_UnreadableDirectory(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads every directory")
+	}
+	root := tree(t, "locked/", "z/")
+	link(t, root, "z/up", "../..")
+	locked := filepath.Join(root, "locked")
+	if err := os.Chmod(locked, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(locked, 0o755) })
+
+	got, err := Scan(root)
+	if err != nil {
+		t.Fatalf("Scan() error: %v, want the unreadable directory reported instead", err)
+	}
+	if want := []string{"locked"}; !reflect.DeepEqual(got.Unreadable, want) {
+		t.Errorf("Unreadable = %v, want %v", got.Unreadable, want)
+	}
+	if want := []Link{{"z/up", "../.."}}; !reflect.DeepEqual(got.Outside, want) {
+		t.Errorf("Outside = %v, want %v", got.Outside, want)
+	}
+}
+
 func TestIsInstructionName(t *testing.T) {
 	for _, n := range []string{"AGENTS.md", "agents.MD", "CLAUDE.md", "Context.md"} {
 		if !IsInstructionName(n) {

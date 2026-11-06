@@ -147,6 +147,10 @@ func main() {
 		}
 	}
 
+	// Before any run: delete symlinks that leave the checkout (platform mode
+	// only; --local never deletes). A problem here is a warning, not a stop.
+	scrubCheckout(cfg, log.Default())
+
 	// Review the change with every skill. A failed review is reported in the
 	// comment and the log but doesn't fail the job; only setup errors above
 	// exit non-zero.

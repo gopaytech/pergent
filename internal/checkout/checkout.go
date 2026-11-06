@@ -49,6 +49,9 @@ type Found struct {
 	ToRoot []string
 	// Outside are the symlinks whose target is neither the root nor below it.
 	Outside []Link
+	// Unreadable are the directories Scan could not read, and so did not look
+	// into.
+	Unreadable []string
 }
 
 // Scan walks root, which must have its symlinks resolved. It skips .git
@@ -58,6 +61,16 @@ func Scan(root string) (Found, error) {
 	var found Found
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
+			if d != nil && d.IsDir() && path != root {
+				// ReadDir failed: whatever is in it is as unreadable to opencode.
+				// Go on, so the links after it are still found.
+				rel, relErr := filepath.Rel(root, path)
+				if relErr != nil {
+					return err
+				}
+				found.Unreadable = append(found.Unreadable, filepath.ToSlash(rel))
+				return nil
+			}
 			return err
 		}
 		if d.IsDir() {
@@ -83,12 +96,8 @@ func Scan(root string) (Found, error) {
 		}
 		target, err := filepath.EvalSymlinks(path)
 		if err != nil {
-			// Dangling (or looping): judge where the link text points.
-			target = text
-			if !filepath.IsAbs(target) {
-				target = filepath.Join(filepath.Dir(path), target)
-			}
-			target = filepath.Clean(target)
+			// Dangling (or looping): judge where the link text leads.
+			target = looseTarget(filepath.Dir(path), text)
 		}
 		switch {
 		case target == root:
@@ -100,6 +109,33 @@ func Scan(root string) (Found, error) {
 	})
 	sort.Strings(found.Instructions)
 	sort.Strings(found.ToRoot)
+	sort.Strings(found.Unreadable)
 	sort.Slice(found.Outside, func(i, j int) bool { return found.Outside[i].Path < found.Outside[j].Path })
 	return found, err
+}
+
+// looseTarget is where a link with the given text, in the real directory dir,
+// leads when its target does not exist. The longest leading part of the path
+// that exists is resolved by the file system, so a symlinked directory on the
+// way counts and ".." after one is read as the kernel reads it; the rest is
+// added as written. Resolving the text alone would call "ldir/../x" inside
+// when ldir leads out. A target that cannot be shown to stay inside therefore
+// shows up outside.
+func looseTarget(dir, text string) string {
+	sep := string(filepath.Separator)
+	raw := text
+	if !filepath.IsAbs(raw) {
+		raw = dir + sep + text
+	}
+	parts := strings.Split(raw, sep)
+	for i := len(parts); i > 0; i-- {
+		prefix := strings.Join(parts[:i], sep)
+		if prefix == "" {
+			prefix = sep
+		}
+		if r, err := filepath.EvalSymlinks(prefix); err == nil {
+			return filepath.Join(append([]string{r}, parts[i:]...)...)
+		}
+	}
+	return filepath.Clean(raw)
 }

@@ -682,6 +682,11 @@ func handleInstructionFiles(root string, scrub bool, logger *log.Logger) *result
 	if err != nil {
 		return &result.Error{Code: result.CodeInternal, Message: fmt.Sprintf("looking for instruction files in the checkout: %v", err)}
 	}
+	if len(scan.Unreadable) > 0 {
+		// Whatever is in them might be a link the scan did not see.
+		return &result.Error{Code: result.CodeInternal, Message: fmt.Sprintf(
+			"looking for instruction files in the checkout: cannot read the directories %s", quoteAll(scan.Unreadable))}
+	}
 	if scrub {
 		deleted := map[string]bool{}
 		for _, rel := range scan.Instructions {

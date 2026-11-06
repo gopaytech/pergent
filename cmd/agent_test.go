@@ -882,6 +882,35 @@ func outsideLinks(t *testing.T, dir, outsideFile string) map[string]string {
 	return out
 }
 
+// A directory the scan cannot read could hold a link it did not see, so agent
+// mode fails rather than reviewing on.
+func TestPrepareAgent_UnreadableDirectory(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads every directory")
+	}
+	repo, base, head := agentRepo(t, func(dir string) {
+		locked := filepath.Join(dir, "locked")
+		if err := os.Mkdir(locked, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(locked, 0); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { os.Chmod(locked, 0o755) })
+	})
+	for _, scrub := range []bool{false, true} {
+		args := agentArgs(repo, base, head, oneSkill(t))
+		if scrub {
+			args = append(args, "--scrub-instructions")
+		}
+		in := mustParse(t, args)
+		e := prepareAgent(&in, quietLog)
+		if e == nil || e.Code != result.CodeInternal || !strings.Contains(e.Message, `"locked"`) {
+			t.Errorf("scrub=%v: prepareAgent() error = %+v, want %s naming \"locked\"", scrub, e, result.CodeInternal)
+		}
+	}
+}
+
 func TestPrepareAgent_OutsideSymlinks(t *testing.T) {
 	outsideFile := filepath.Join(t.TempDir(), "secret.txt")
 	writeFile(t, filepath.Dir(outsideFile), "secret.txt", "secret\n")
