@@ -138,7 +138,8 @@ type Options struct {
 	// means no limit.
 	MaxLen int
 	// ChangedFiles are listed in the Files block, which also names the
-	// skills that reviewed or skipped each file.
+	// skills that reviewed or skipped each file. With Short they are only
+	// counted in the meta line, not listed.
 	ChangedFiles []string
 	// Inline holds the fingerprints of the findings the caller posted as
 	// inline comments on the diff. They are left out of the one findings list
