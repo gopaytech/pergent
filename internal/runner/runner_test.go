@@ -78,6 +78,44 @@ func TestBuildCommand(t *testing.T) {
 	}
 }
 
+// opencode needs neither platform token, and a change under review can reach
+// its environment (a /proc/self/environ link, say), so only a run with
+// pergent's generated config, which has opencode use OPENCODE_API_KEY, drops
+// them. opencode's own config may use one to sign in to a provider.
+func TestBuildCommand_PlatformTokens(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "gh-secret")
+	t.Setenv("GITLAB_TOKEN", "gl-secret")
+	has := func(env []string, name string) bool {
+		return slices.ContainsFunc(env, func(kv string) bool { return strings.HasPrefix(kv, name+"=") })
+	}
+
+	generated := BuildCommand(context.Background(), "/tmp/config.json", nil, "m", ".")
+	for _, name := range []string{"GITHUB_TOKEN", "GITLAB_TOKEN"} {
+		if has(generated.Env, name) {
+			t.Errorf("%s in the env of a run with a generated config", name)
+		}
+	}
+	own := BuildCommand(context.Background(), "", nil, "m", ".")
+	for _, name := range []string{"GITHUB_TOKEN", "GITLAB_TOKEN"} {
+		if !has(own.Env, name) {
+			t.Errorf("%s missing from the env of a run with opencode's own config", name)
+		}
+	}
+}
+
+// The config's "pergent-*" rule allows reading everything under a directory it
+// matches, so opencode's data directory (auth.json) must not start that way.
+func TestNewDataDir_OutsideTheTempAllowRule(t *testing.T) {
+	dir, err := newDataDir()
+	if err != nil {
+		t.Fatalf("newDataDir() error: %v", err)
+	}
+	defer os.RemoveAll(dir)
+	if name := filepath.Base(dir); strings.HasPrefix(name, "pergent-") || !strings.HasPrefix(name, config.DataDirPrefix) {
+		t.Errorf("data dir = %q, want %q* and not pergent-*", name, config.DataDirPrefix)
+	}
+}
+
 func TestBuildCommand_NoDiffFile(t *testing.T) {
 	ctx := context.Background()
 	cmd := BuildCommand(ctx, "/tmp/config.json", nil, "Say hello", ".")

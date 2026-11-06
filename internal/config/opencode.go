@@ -14,6 +14,12 @@ import (
 // run its built-in "build" agent and ignore our agent definition.
 const AgentName = "pergent"
 
+// DataDirPrefix starts the name of each run's opencode data directory. It must
+// not start with "pergent-": the external_directory rule for pergent's temp
+// directories would then let a run read the auth.json and the session database
+// inside it.
+const DataDirPrefix = "opencode-data-pergent-"
+
 type openCodeConfig struct {
 	Schema       string                      `json:"$schema,omitempty"`
 	Model        string                      `json:"model"`
@@ -250,10 +256,13 @@ func GenerateOpenCodeConfigWith(o OpenCodeOptions) (string, func(), error) {
 			// every ask, and a rejection ends the run with no answer; a deny
 			// only fails that one tool call. The model may re-read the files
 			// pergent attaches, and read the diffs and the index it writes for
-			// runs, which all live in pergent-* temp directories.
+			// runs, which all live in pergent-* temp directories. opencode saves
+			// a long tool result in its data directory and points the model at
+			// it; only that folder of the data directory is allowed.
 			"external_directory": map[string]string{
 				"*":                                      "deny",
 				filepath.Join(os.TempDir(), "pergent-*"): "allow",
+				filepath.Join(os.TempDir(), DataDirPrefix+"*", "opencode", "tool-output", "*"): "allow",
 			},
 			// A repeated tool call is bounded by the agent's step limit.
 			"doom_loop": "allow",

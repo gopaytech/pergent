@@ -132,9 +132,12 @@ func BuildCommand(ctx context.Context, configPath string, files []string, messag
 
 	env := os.Environ()
 	if configPath != "" {
+		// opencode signs in with OPENCODE_API_KEY here and has no use for a
+		// platform token, which a change under review could otherwise reach.
+		env = withoutEnv(env, []string{"GITHUB_TOKEN", "GITLAB_TOKEN"})
 		// Ignore the reviewed repo's own opencode.json and .opencode/ (agents,
 		// plugins), which would otherwise override our permissions or run code
-		// with the platform token and LLM key in the environment.
+		// with the LLM key in the environment.
 		env = append(env,
 			"OPENCODE_CONFIG="+configPath,
 			"OPENCODE_DISABLE_PROJECT_CONFIG=true",
@@ -275,7 +278,7 @@ func stopReason(ctx context.Context) string {
 // container) race on that and the losers exit 1 before the first step. The
 // user's auth.json is copied in, so `opencode auth login` keeps working.
 func newDataDir() (string, error) {
-	dir, err := os.MkdirTemp("", "pergent-opencode-data-")
+	dir, err := os.MkdirTemp("", config.DataDirPrefix)
 	if err != nil {
 		return "", fmt.Errorf("creating opencode's data directory: %w", err)
 	}
