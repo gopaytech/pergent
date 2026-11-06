@@ -162,6 +162,40 @@ func TestClassify_Fixtures(t *testing.T) {
 			message: "opencode failed at step 2 without producing a review: signal: killed.",
 		},
 		{
+			// The review's context ended (SIGTERM, SIGINT) and opencode was
+			// killed: the cause is the stop, not the kill.
+			name:    "stopped by the review",
+			fixture: "no_answer.ndjson",
+			attempt: attempt{cancelled: "the review was cancelled", runErr: errors.New("signal: killed"), exitCode: -1},
+			status:  StatusFailed,
+			kind:    CauseCancelled,
+			message: "Not finished: the review was cancelled; opencode was stopped at step 2.",
+		},
+		{
+			name:    "stopped at the Job deadline before the first step",
+			fixture: "connection_refused.ndjson",
+			attempt: attempt{cancelled: "stopped at the Job deadline after the review budget ran out", runErr: errors.New("signal: killed"), exitCode: -1},
+			status:  StatusFailed,
+			kind:    CauseCancelled,
+			message: "Not finished: stopped at the Job deadline after the review budget ran out; opencode was stopped before the first model step finished.",
+		},
+		{
+			// Killing opencode can make it report an abort; the stop is the cause.
+			name:    "stopped, with an abort error event",
+			fixture: "rate_limited.ndjson",
+			attempt: attempt{cancelled: "the review was cancelled", runErr: errors.New("signal: killed"), exitCode: -1},
+			status:  StatusFailed,
+			kind:    CauseCancelled,
+			message: "Not finished: the review was cancelled; opencode was stopped at step 2.",
+		},
+		{
+			// A final answer that arrived before the stop is a finished review.
+			name:    "answer arrived as the review was stopped",
+			fixture: "completed.ndjson",
+			attempt: attempt{cancelled: "the review was cancelled"},
+			status:  StatusCompleted,
+		},
+		{
 			name:    "exit 0 without answer",
 			fixture: "no_answer.ndjson",
 			status:  StatusFailed,

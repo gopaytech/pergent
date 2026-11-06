@@ -27,6 +27,7 @@ const (
 	CauseStepLimit       CauseKind = "step_limit"
 	CauseExitError       CauseKind = "exit_error"
 	CauseNoAnswer        CauseKind = "no_answer"
+	CauseCancelled       CauseKind = "cancelled"
 )
 
 // Cause is a failed run's reason, with the numbers pergent could observe.
@@ -62,6 +63,10 @@ type Cause struct {
 	Elapsed        time.Duration
 	LastTool       string
 	LastToolTarget string
+
+	// StopReason says, as a phrase, why the review was stopped (cancelled),
+	// e.g. "the review was cancelled".
+	StopReason string
 
 	// Process exit details (exit_error).
 	ExitCode    int
@@ -136,6 +141,9 @@ func (c Cause) Message() string {
 	case CauseStepLimit:
 		msg = fmt.Sprintf("Reached the %d-step limit before the model finished the review (raise --max-turns to allow more steps).", c.StepLimit)
 
+	case CauseCancelled:
+		msg = fmt.Sprintf("Not finished: %s; opencode was stopped %s.", c.StopReason, c.atStep())
+
 	case CauseExitError:
 		if c.ExitCode > 0 {
 			msg = fmt.Sprintf("opencode exited with code %d %s without producing a review.", c.ExitCode, c.atStep())
@@ -206,6 +214,9 @@ func (e EventError) Transient() bool {
 type attempt struct {
 	transcript Transcript
 	timedOut   bool
+	// cancelled, when set, says why the caller's context ended (not a
+	// deadline) while the process ran, as a phrase.
+	cancelled string
 	// exitCode is the process exit code; -1 when killed by a signal.
 	exitCode int
 	// runErr is the error from starting or waiting on the process, nil on a
@@ -223,6 +234,16 @@ func classify(a attempt, opts Options, elapsed time.Duration) (Status, *Cause) {
 		StepLimit:      opts.StepLimit,
 		LastStepTokens: t.LastStepTokens,
 		ContextLimit:   opts.ContextLimit,
+	}
+
+	// The review was stopped, so opencode was killed: that is the cause, not
+	// the kill's "signal: killed" nor an abort opencode may report. An answer
+	// that arrived with a clean exit is still a finished review.
+	if a.cancelled != "" && (t.Answer == "" || a.runErr != nil) {
+		c := base
+		c.Kind = CauseCancelled
+		c.StopReason = a.cancelled
+		return StatusFailed, &c
 	}
 
 	// opencode reports provider and session failures as error events and then

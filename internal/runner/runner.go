@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/gopaytech/pergent/internal/config"
@@ -113,6 +114,21 @@ func BuildCommand(ctx context.Context, configPath string, files []string, messag
 	cmd := exec.CommandContext(ctx, "opencode", args...)
 	cmd.Dir = repoPath
 	cmd.WaitDelay = waitDelay
+	// opencode starts children (language servers, tools). Put them in one
+	// process group and kill the group, or a killed run leaves them running
+	// and holding opencode's pipes.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		// The group id is opencode's pid (Setpgid).
+		err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		if errors.Is(err, syscall.ESRCH) {
+			return os.ErrProcessDone
+		}
+		if err != nil {
+			return cmd.Process.Kill()
+		}
+		return nil
+	}
 
 	env := os.Environ()
 	if configPath != "" {
@@ -226,12 +242,34 @@ func runAttempt(ctx context.Context, opts Options) attempt {
 		runErr:      err,
 		stderrLines: stderr.lastLines(stderrTailLines),
 	}
+	// A deadline is a timeout; any other end of the caller's context (a
+	// signal, a cancel) is a stop that says why.
+	if ctx.Err() != nil && !a.timedOut {
+		a.cancelled = stopReason(ctx)
+	}
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {
 		a.exitCode = exitErr.ExitCode()
 	}
 	a.transcript.LastToolTarget = relativeTo(opts.RepoPath, a.transcript.LastToolTarget)
 	return a
+}
+
+// stopReasoner is a context cause that says, as a phrase, why the run was
+// stopped, e.g. "the review was cancelled". The review package's callers set
+// one (agent mode does after SIGTERM).
+type stopReasoner interface {
+	StopReason() string
+}
+
+// stopReason says why ctx ended: the phrase its cause gives, or a plain
+// cancellation.
+func stopReason(ctx context.Context) string {
+	var sr stopReasoner
+	if errors.As(context.Cause(ctx), &sr) {
+		return sr.StopReason()
+	}
+	return "the review was cancelled"
 }
 
 // newDataDir returns a new, empty directory for one opencode run's

@@ -47,32 +47,55 @@ var generatedHeader = regexp.MustCompile(`(?i)^\s*(?://|#|/\*|\*|--|<!--|;).*cod
 // generated-file comment.
 const GeneratedHeaderLines = 10
 
-// Attributes holds the patterns a .gitattributes file marks linguist-generated.
-// The zero value has none.
+// Attributes holds what a .gitattributes file says about linguist-generated:
+// one entry per line that sets, unsets or resets it, in file order. The zero
+// value has none.
 type Attributes struct {
-	generated []string
+	generated []generatedRule
 }
 
-// ParseAttributes reads the patterns marked linguist-generated (or
-// linguist-generated=true) from .gitattributes bytes.
+// generatedRule is one .gitattributes line that decides linguist-generated
+// for the paths matching pattern.
+type generatedRule struct {
+	pattern string
+	// set is true when the line sets the attribute (linguist-generated or
+	// linguist-generated=true). It is false when the line unsets it
+	// (-linguist-generated, linguist-generated=false, any other value) or
+	// resets it to unspecified (!linguist-generated): neither makes a file
+	// generated.
+	set bool
+}
+
+// ParseAttributes reads from .gitattributes bytes which patterns are marked
+// linguist-generated (or linguist-generated=true) and which lines unset it
+// again (-linguist-generated, linguist-generated=false, !linguist-generated).
+// As in git, PathRule lets the last matching line decide, and within one line
+// the last token about the attribute decides.
 func ParseAttributes(gitattributes []byte) Attributes {
 	var a Attributes
 	sc := bufio.NewScanner(bytes.NewReader(gitattributes))
 	for sc.Scan() {
 		fields := strings.Fields(sc.Text())
-		if len(fields) < 2 || strings.HasPrefix(fields[0], "#") {
+		if len(fields) < 2 || strings.HasPrefix(fields[0], "#") || strings.HasPrefix(fields[0], "[attr]") {
 			continue
 		}
+		var set, seen bool
 		for _, attr := range fields[1:] {
-			if attr == "linguist-generated" || attr == "linguist-generated=true" {
-				pattern := strings.TrimPrefix(fields[0], "/")
-				if strings.HasSuffix(pattern, "/") {
-					pattern += "**"
-				}
-				a.generated = append(a.generated, pattern)
-				break
+			switch {
+			case attr == "linguist-generated", attr == "linguist-generated=true":
+				set, seen = true, true
+			case attr == "-linguist-generated", attr == "!linguist-generated", strings.HasPrefix(attr, "linguist-generated="):
+				set, seen = false, true
 			}
 		}
+		if !seen {
+			continue
+		}
+		pattern := strings.TrimPrefix(fields[0], "/")
+		if strings.HasSuffix(pattern, "/") {
+			pattern += "**"
+		}
+		a.generated = append(a.generated, generatedRule{pattern, set})
 	}
 	return a
 }
@@ -89,10 +112,15 @@ func (a Attributes) PathRule(p string) string {
 			return RuleVendored
 		}
 	}
-	for _, pattern := range a.generated {
-		if Match(pattern, p) {
-			return RuleGenerated
+	// The last matching line decides, as in .gitattributes.
+	generated := false
+	for _, r := range a.generated {
+		if Match(r.pattern, p) {
+			generated = r.set
 		}
+	}
+	if generated {
+		return RuleGenerated
 	}
 	return ""
 }
