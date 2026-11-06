@@ -369,7 +369,7 @@ A comment is pergent's own only when **both** hold: its body starts with the `<!
 
 pergent learns the token's identity once per run with `GET /user`:
 
-- **GitLab**: a token that can post notes can read `/user`. If the read fails, the comment lookup counts as failed (see below).
+- **GitLab**: the `api` scope that posting notes needs also covers `/user`, for project and group access tokens too. If the read fails, as it can for a fine-grained token without `read_user`, the comment lookup counts as failed (see below), so each run posts a new comment.
 - **GitHub**: a personal or fine-grained token can read `/user`. The `GITHUB_TOKEN` of GitHub Actions, and a GitHub App installation token, cannot (GitHub answers 403). Then pergent accepts only a comment whose author is a `Bot`, because a person cannot post as a Bot.
 
 If the token's identity changes (a new bot user, a new token owner, a switch between `GITHUB_TOKEN` and a personal token), pergent starts a new comment and the old one stays on the PR/MR. Delete it by hand if you don't want it.

@@ -172,9 +172,11 @@ func quotePath(p string) string {
 	return strconv.Quote(p)
 }
 
-// readIdentity learns who the token posts as, once per run. A token that can
-// post notes can read /user, so a failed read is a failed lookup: the caller
-// retries, and nothing is guessed.
+// readIdentity learns who the token posts as, once per run. The api scope that
+// posting notes needs also covers /user, for project and group tokens too. A
+// narrower token (a fine-grained one without read_user) fails here, and that
+// is a failed lookup: the caller retries, then posts a new comment. Nothing is
+// guessed, because matching on the marker alone would let anyone's note pass.
 func (gl *GitLab) readIdentity() error {
 	if gl.selfID != 0 {
 		return nil
