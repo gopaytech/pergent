@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -78,7 +79,7 @@ func TestScan(t *testing.T) {
 	link(t, root, "sub/back", "..")
 	link(t, root, ".git/escape", "/etc")
 
-	got, err := Scan(root)
+	got, err := Scan(root, nil)
 	if err != nil {
 		t.Fatalf("Scan() error: %v", err)
 	}
@@ -114,7 +115,7 @@ func TestScan_DanglingLinks(t *testing.T) {
 	link(t, root, "dotdot-after", "ldir/../../missing.go")
 	link(t, root, "abs-missing", filepath.Join(outsideDir, "missing.go"))
 
-	got, err := Scan(root)
+	got, err := Scan(root, nil)
 	if err != nil {
 		t.Fatalf("Scan() error: %v", err)
 	}
@@ -142,7 +143,7 @@ func TestScan_UnreadableDirectory(t *testing.T) {
 	}
 	t.Cleanup(func() { os.Chmod(locked, 0o755) })
 
-	got, err := Scan(root)
+	got, err := Scan(root, nil)
 	if err != nil {
 		t.Fatalf("Scan() error: %v, want the unreadable directory reported instead", err)
 	}
@@ -150,6 +151,43 @@ func TestScan_UnreadableDirectory(t *testing.T) {
 		t.Errorf("Unreadable = %v, want %v", got.Unreadable, want)
 	}
 	if want := []Link{{"z/up", "../.."}}; !reflect.DeepEqual(got.Outside, want) {
+		t.Errorf("Outside = %v, want %v", got.Outside, want)
+	}
+}
+
+// A link inside the checkout whose real target the caller's rule denies is
+// reported as Denied: the read rules match the name that is read, not where a
+// link leads. The rule is given the target's path relative to the root.
+func TestScan_DeniedTargets(t *testing.T) {
+	root := tree(t, "prod.env", "cfg/db.env", "cfg/ok.txt", "keys/")
+	denied := func(rel string) bool {
+		return strings.HasSuffix(rel, ".env") || strings.HasPrefix(rel, "keys/")
+	}
+	link(t, root, "safe.txt", "prod.env")
+	link(t, root, "sub/deep.txt", "../cfg/db.env")
+	link(t, root, "chain", "safe.txt")
+	link(t, root, "viadir", "cfg")
+	link(t, root, "okay", "cfg/ok.txt")
+	link(t, root, "dangle-denied", "missing.env")
+	link(t, root, "dangle-fine", "missing.txt")
+	link(t, root, "keys/k", "../cfg/ok.txt")
+	link(t, root, "out", "/etc") // outside, not Denied
+	link(t, root, "root", ".")   // to the root, not Denied
+
+	got, err := Scan(root, denied)
+	if err != nil {
+		t.Fatalf("Scan() error: %v", err)
+	}
+	want := []Link{
+		{"chain", "safe.txt"},
+		{"dangle-denied", "missing.env"},
+		{"safe.txt", "prod.env"},
+		{"sub/deep.txt", "../cfg/db.env"},
+	}
+	if !reflect.DeepEqual(got.Denied, want) {
+		t.Errorf("Denied = %v, want %v", got.Denied, want)
+	}
+	if want := []Link{{"out", "/etc"}}; !reflect.DeepEqual(got.Outside, want) {
 		t.Errorf("Outside = %v, want %v", got.Outside, want)
 	}
 }

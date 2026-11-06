@@ -49,6 +49,9 @@ type Found struct {
 	ToRoot []string
 	// Outside are the symlinks whose target is neither the root nor below it.
 	Outside []Link
+	// Denied are the symlinks that stay inside the checkout but whose real
+	// target the denied function given to Scan rejects.
+	Denied []Link
 	// Unreadable are the directories Scan could not read, and so did not look
 	// into.
 	Unreadable []string
@@ -56,8 +59,10 @@ type Found struct {
 
 // Scan walks root, which must have its symlinks resolved. It skips .git
 // directories, does not follow symlinked directories, and classifies what it
-// finds.
-func Scan(root string) (Found, error) {
+// finds. The read rules match the name of the path being read, not where a
+// link leads, so denied (nil for none) is asked about the real target of every
+// link that stays inside, as a slash-separated path relative to root.
+func Scan(root string, denied func(rel string) bool) (Found, error) {
 	var found Found
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -104,6 +109,10 @@ func Scan(root string) (Found, error) {
 			found.ToRoot = append(found.ToRoot, rel)
 		case !Within(root, target):
 			found.Outside = append(found.Outside, Link{Path: rel, Target: text})
+		case denied != nil:
+			if targetRel, err := filepath.Rel(root, target); err == nil && denied(filepath.ToSlash(targetRel)) {
+				found.Denied = append(found.Denied, Link{Path: rel, Target: text})
+			}
 		}
 		return nil
 	})
@@ -111,6 +120,7 @@ func Scan(root string) (Found, error) {
 	sort.Strings(found.ToRoot)
 	sort.Strings(found.Unreadable)
 	sort.Slice(found.Outside, func(i, j int) bool { return found.Outside[i].Path < found.Outside[j].Path })
+	sort.Slice(found.Denied, func(i, j int) bool { return found.Denied[i].Path < found.Denied[j].Path })
 	return found, err
 }
 
@@ -138,4 +148,10 @@ func looseTarget(dir, text string) string {
 		}
 	}
 	return filepath.Clean(raw)
+}
+
+// Remove deletes the symlink l, found under root. It unlinks the link itself,
+// never its target.
+func Remove(root string, l Link) error {
+	return os.Remove(filepath.Join(root, filepath.FromSlash(l.Path)))
 }

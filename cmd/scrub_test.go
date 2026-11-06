@@ -160,6 +160,52 @@ func TestScrubCheckout_ProblemsAreWarningsAndTheRestIsScrubbed(t *testing.T) {
 	}
 }
 
+// The read rules match the name being read, not where a link leads, so a link
+// to a file they deny is removed like one that leaves the checkout. CI mode
+// denies *.env files only: a link to a *.pem file stays.
+func TestScrubCheckout_PlatformModeRemovesLinksToDeniedFiles(t *testing.T) {
+	root, _ := ciCheckout(t)
+	writeFile(t, root, "prod.env", "TOKEN=abc\n")
+	writeFile(t, root, "cfg/.env.local", "TOKEN=abc\n")
+	writeFile(t, root, ".env.example", "TOKEN=\n")
+	writeFile(t, root, "keys/id.pem", "KEY\n")
+	removed := map[string]string{
+		"safe.txt":      "prod.env",
+		"sub/cfg.txt":   "../cfg/.env.local",
+		"chain":         "safe.txt",
+		"dangle-denied": "missing.env",
+	}
+	for name, target := range removed {
+		symlinkAt(t, root, name, target)
+	}
+	kept := map[string]string{"example": ".env.example", "pem": "keys/id.pem", "ok": "a.go", "dir": "sub"}
+	for name, target := range kept {
+		symlinkAt(t, root, name, target)
+	}
+
+	logger, logs := bufferLog()
+	scrubCheckout(config.Config{Platform: "github", RepoPath: root}, logger)
+
+	for name, target := range removed {
+		if exists(root, name) {
+			t.Errorf("symlink %s still exists, want it removed", name)
+		}
+		if want := "symlink " + strconv.Quote(name) + " -> " + strconv.Quote(target); !strings.Contains(logs.String(), want) {
+			t.Errorf("log lacks %q:\n%s", want, logs)
+		}
+	}
+	for name := range kept {
+		if !exists(root, name) {
+			t.Errorf("symlink %s was removed, want it kept", name)
+		}
+	}
+	for _, name := range []string{"prod.env", "cfg/.env.local", "keys/id.pem"} {
+		if !exists(root, name) {
+			t.Errorf("the target %s was removed", name)
+		}
+	}
+}
+
 func TestScrubCheckout_MissingRepoPathIsAWarning(t *testing.T) {
 	logger, logs := bufferLog()
 	scrubCheckout(config.Config{Platform: "github", RepoPath: filepath.Join(t.TempDir(), "nope")}, logger)

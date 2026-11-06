@@ -672,13 +672,14 @@ func checkoutRoot(repoPath string) (string, *result.Error) {
 // checkout, or reading beyond it through symlinks.
 //
 // With scrub, every instruction file is deleted, the root's included, and so
-// is every symlink whose target is outside the checkout. Without it, pergent
-// refuses any instruction file below the root, any symlink to the root itself
-// (through "sub -> ." opencode would find the root's AGENTS.md as
-// sub/AGENTS.md), and any symlink whose target is outside the checkout
-// ("x -> /proc/self/environ", "up -> ..").
+// is every symlink whose target is outside the checkout, or inside it but a
+// file the read rules deny ("safe.txt -> prod.env": the rules match the name
+// that is read, not where a link leads). Without it, pergent refuses any
+// instruction file below the root, any symlink to the root itself (through
+// "sub -> ." opencode would find the root's AGENTS.md as sub/AGENTS.md), and
+// any such symlink ("x -> /proc/self/environ", "up -> ..").
 func handleInstructionFiles(root string, scrub bool, logger *log.Logger) *result.Error {
-	scan, err := checkout.Scan(root)
+	scan, err := checkout.Scan(root, func(rel string) bool { return config.ReadDenied(rel, true) })
 	if err != nil {
 		return &result.Error{Code: result.CodeInternal, Message: fmt.Sprintf("looking for instruction files in the checkout: %v", err)}
 	}
@@ -696,12 +697,11 @@ func handleInstructionFiles(root string, scrub bool, logger *log.Logger) *result
 			deleted[rel] = true
 			logger.Printf("--scrub-instructions: deleted %q", rel)
 		}
-		for _, l := range scan.Outside {
+		for _, l := range append(append([]checkout.Link(nil), scan.Outside...), scan.Denied...) {
 			if deleted[l.Path] {
 				continue // a symlink named like an instruction file, already gone
 			}
-			// os.Remove unlinks the symlink itself, never its target.
-			if err := os.Remove(filepath.Join(root, filepath.FromSlash(l.Path))); err != nil {
+			if err := checkout.Remove(root, l); err != nil {
 				return &result.Error{Code: result.CodeInternal, Message: fmt.Sprintf("--scrub-instructions: deleting symlink %q: %v", l.Path, err)}
 			}
 			logger.Printf("--scrub-instructions: deleted symlink %q -> %q", l.Path, l.Target)
@@ -727,18 +727,29 @@ func handleInstructionFiles(root string, scrub bool, logger *log.Logger) *result
 			quoteAll(scan.ToRoot)))
 	}
 	if len(scan.Outside) > 0 {
-		links := make([]string, len(scan.Outside))
-		for i, l := range scan.Outside {
-			links[i] = fmt.Sprintf("%q -> %q", l.Path, l.Target)
-		}
 		problems = append(problems, fmt.Sprintf(
 			"the checkout has symlinks to outside it, through which the agent could read beyond the checkout: %s (pass --scrub-instructions to delete them)",
-			strings.Join(links, ", ")))
+			quoteLinks(scan.Outside)))
+	}
+	if len(scan.Denied) > 0 {
+		problems = append(problems, fmt.Sprintf(
+			"the checkout has symlinks to files the read rules deny, through which the agent could read them: %s (pass --scrub-instructions to delete them)",
+			quoteLinks(scan.Denied)))
 	}
 	if len(problems) > 0 {
 		return &result.Error{Code: result.CodeUntrustedInstructions, Message: strings.Join(problems, "; ")}
 	}
 	return nil
+}
+
+// quoteLinks formats links taken from the checkout as "path" -> "text",
+// comma-separated.
+func quoteLinks(links []checkout.Link) string {
+	quoted := make([]string, len(links))
+	for i, l := range links {
+		quoted[i] = fmt.Sprintf("%q -> %q", l.Path, l.Target)
+	}
+	return strings.Join(quoted, ", ")
 }
 
 // quoteAll formats names taken from the checkout with %q, comma-separated.
