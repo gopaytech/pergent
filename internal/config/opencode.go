@@ -3,10 +3,13 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/gopaytech/pergent/internal/checkout"
 )
 
 // AgentName is the opencode agent that carries the skill prompt and step limit.
@@ -207,7 +210,7 @@ func GenerateOpenCodeConfigWith(o OpenCodeOptions) (string, func(), error) {
 
 	instructions := o.Instructions
 	if !o.ExplicitInstructions {
-		instructions = projectInstructions(o.RepoPath)
+		instructions = projectInstructions(o.RepoPath, o.DenySecretFiles)
 	}
 
 	readRules := ReadRules(o.DenySecretFiles)
@@ -309,18 +312,56 @@ func GenerateOpenCodeConfigWith(o OpenCodeOptions) (string, func(), error) {
 // absolute path. The subprocess runs with OPENCODE_DISABLE_PROJECT_CONFIG, which
 // also stops opencode from finding these files itself, so they are passed
 // explicitly. Like opencode, only the first match is used.
-func projectInstructions(repoPath string) []string {
+//
+// A file may be a symlink, but only to a regular file inside the repo that
+// the read rules (with denySecretFiles) allow. Any other link would put a
+// file the agent must not read, or one outside the repo such as
+// /proc/self/environ, in the model's context. Such a link is skipped with a
+// warning and the next name is tried. The repo root itself may be reached
+// through a symlink, so real paths are compared.
+func projectInstructions(repoPath string, denySecretFiles bool) []string {
 	if repoPath == "" {
 		repoPath = "."
 	}
+	abs, err := filepath.Abs(repoPath)
+	if err != nil {
+		return nil
+	}
+	root, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return nil
+	}
 	for _, name := range []string{"AGENTS.md", "CLAUDE.md"} {
-		path, err := filepath.Abs(filepath.Join(repoPath, name))
+		path := filepath.Join(abs, name)
+		linfo, err := os.Lstat(path)
 		if err != nil {
 			continue
 		}
-		if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
-			return []string{path}
+		isLink := linfo.Mode()&os.ModeSymlink != 0
+		skip := func(why string) {
+			if isLink {
+				log.Printf("warning: not using %s as instructions: %s", path, why)
+			}
 		}
+		real, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			skip("the link does not resolve")
+			continue
+		}
+		if info, err := os.Stat(real); err != nil || !info.Mode().IsRegular() {
+			skip("it is not a link to a regular file")
+			continue
+		}
+		if !checkout.Within(root, real) {
+			skip("the link leaves the repository")
+			continue
+		}
+		rel, err := filepath.Rel(root, real)
+		if err != nil || ReadDenied(filepath.ToSlash(rel), denySecretFiles) {
+			skip("the read rules deny its target")
+			continue
+		}
+		return []string{path}
 	}
 	return nil
 }

@@ -252,7 +252,7 @@ Credentials are redacted from every string of the result before it leaves pergen
 | `head_mismatch` | 3 | The checkout's `HEAD` is not `--head`. |
 | `diff_failed` | 3 | `git diff` between the two commits failed. |
 | `skills_invalid` | 3 | A skill file or `--skills-dir` could not be loaded, including a folder in `--skills-dir` without a `SKILL.md` and a `paths` or `exclude` pattern with bad glob syntax or that can never match a file. |
-| `untrusted_instructions` | 3 | The checkout has instruction files below its root, a symlink to its root, or a symlink to outside it, and `--scrub-instructions` was not passed. |
+| `untrusted_instructions` | 3 | The checkout has instruction files below its root, a symlink to its root, a symlink to outside it, or a symlink whose real target a read rule denies (such as `prod.env`), and `--scrub-instructions` was not passed. |
 | `internal` | 3 | Anything else: git older than 2.40, a failure while scrubbing, or a result over 10 MB that checks and summaries could not shrink enough. |
 
 The list is fixed in version 1.

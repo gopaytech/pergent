@@ -882,6 +882,120 @@ func outsideLinks(t *testing.T, dir, outsideFile string) map[string]string {
 	return out
 }
 
+// deniedLinks adds files the read rules deny and links to them from inside
+// the checkout, which the name-based rules would let through. It returns the
+// links (name to link text). Agent mode also denies *.pem, *.key, *.tfvars.
+func deniedLinks(t *testing.T, dir string) map[string]string {
+	t.Helper()
+	writeFile(t, dir, "prod.env", "TOKEN=abc\n")
+	writeFile(t, dir, "keys/id.pem", "KEY\n")
+	writeFile(t, dir, "infra/prod.tfvars", "pw = 1\n")
+	writeFile(t, dir, ".env.example", "TOKEN=\n")
+	links := map[string]string{
+		"safe.txt":      "prod.env",
+		"also-safe.txt": "keys/id.pem",
+		"vars.txt":      "infra/prod.tfvars",
+		"chain":         "safe.txt",
+	}
+	for name, target := range links {
+		if err := os.Symlink(target, filepath.Join(dir, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A link to an allowed file, and one to a name the rules explicitly allow.
+	for name, target := range map[string]string{"inlink": "a.go", "example": ".env.example"} {
+		if err := os.Symlink(target, filepath.Join(dir, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return links
+}
+
+func TestPrepareAgent_LinksToDeniedFiles(t *testing.T) {
+	t.Run("scrub deletes them", func(t *testing.T) {
+		var links map[string]string
+		repo, base, head := agentRepo(t, func(dir string) { links = deniedLinks(t, dir) })
+		logger, logs := bufferLog()
+
+		in := mustParse(t, agentArgs(repo, base, head, oneSkill(t), "--scrub-instructions"))
+		if e := prepareAgent(&in, logger); e != nil {
+			t.Fatalf("prepareAgent() error: %+v, want the review to proceed", e)
+		}
+		for name, target := range links {
+			if _, err := os.Lstat(filepath.Join(repo, name)); !os.IsNotExist(err) {
+				t.Errorf("symlink %s still exists (err %v), want it deleted", name, err)
+			}
+			want := "--scrub-instructions: deleted symlink " + strconv.Quote(name) + " -> " + strconv.Quote(target)
+			if !strings.Contains(logs.String(), want) {
+				t.Errorf("log lacks %q:\n%s", want, logs)
+			}
+		}
+		for _, name := range []string{"inlink", "example", "prod.env", "keys/id.pem", "infra/prod.tfvars"} {
+			if _, err := os.Lstat(filepath.Join(repo, name)); err != nil {
+				t.Errorf("%s was removed: %v", name, err)
+			}
+		}
+	})
+
+	t.Run("without scrub each refuses", func(t *testing.T) {
+		for name, target := range map[string]string{"safe.txt": "prod.env", "also-safe.txt": "keys/id.pem", "vars.txt": "infra/prod.tfvars"} {
+			t.Run(name, func(t *testing.T) {
+				repo, base, head := agentRepo(t, func(dir string) { deniedLinks(t, dir) })
+				in := mustParse(t, agentArgs(repo, base, head, oneSkill(t)))
+				e := prepareAgent(&in, quietLog)
+				want := strconv.Quote(name) + " -> " + strconv.Quote(target)
+				if e == nil || e.Code != result.CodeUntrustedInstructions || !strings.Contains(e.Message, want) {
+					t.Fatalf("prepareAgent() error = %+v, want %s naming %s", e, result.CodeUntrustedInstructions, want)
+				}
+			})
+		}
+	})
+
+	t.Run("links to allowed files are fine without scrub", func(t *testing.T) {
+		repo, base, head := agentRepo(t, func(dir string) {
+			writeFile(t, dir, ".env.example", "TOKEN=\n")
+			for name, target := range map[string]string{"inlink": "a.go", "example": ".env.example"} {
+				if err := os.Symlink(target, filepath.Join(dir, name)); err != nil {
+					t.Fatal(err)
+				}
+			}
+		})
+		in := mustParse(t, agentArgs(repo, base, head, oneSkill(t)))
+		if e := prepareAgent(&in, quietLog); e != nil {
+			t.Fatalf("prepareAgent() error = %+v, want none", e)
+		}
+	})
+}
+
+// A directory the scan cannot read could hold a link it did not see, so agent
+// mode fails rather than reviewing on.
+func TestPrepareAgent_UnreadableDirectory(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads every directory")
+	}
+	repo, base, head := agentRepo(t, func(dir string) {
+		locked := filepath.Join(dir, "locked")
+		if err := os.Mkdir(locked, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(locked, 0); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { os.Chmod(locked, 0o755) })
+	})
+	for _, scrub := range []bool{false, true} {
+		args := agentArgs(repo, base, head, oneSkill(t))
+		if scrub {
+			args = append(args, "--scrub-instructions")
+		}
+		in := mustParse(t, args)
+		e := prepareAgent(&in, quietLog)
+		if e == nil || e.Code != result.CodeInternal || !strings.Contains(e.Message, `"locked"`) {
+			t.Errorf("scrub=%v: prepareAgent() error = %+v, want %s naming \"locked\"", scrub, e, result.CodeInternal)
+		}
+	}
+}
+
 func TestPrepareAgent_OutsideSymlinks(t *testing.T) {
 	outsideFile := filepath.Join(t.TempDir(), "secret.txt")
 	writeFile(t, filepath.Dir(outsideFile), "secret.txt", "secret\n")
