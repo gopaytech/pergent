@@ -448,8 +448,10 @@ func TestRun_CancelledByTheReview(t *testing.T) {
 	if got.Status != StatusFailed || got.Cause == nil || got.Cause.Kind != CauseCancelled {
 		t.Fatalf("Run() = %+v, want a cancelled failure", got)
 	}
-	if want := "Not finished: the review was cancelled; opencode was stopped at step 3."; got.Cause.Message() != want {
-		t.Errorf("message = %q, want %q", got.Cause.Message(), want)
+	// How far the fake opencode got depends on the machine's load, so only the
+	// reason is checked here; the classify tests pin the step wording.
+	if want := "Not finished: the review was cancelled; opencode was stopped "; !strings.HasPrefix(got.Cause.Message(), want) {
+		t.Errorf("message = %q, want it to start with %q", got.Cause.Message(), want)
 	}
 	if got.Output != "" {
 		t.Errorf("Output = %q, want empty", got.Output)
