@@ -257,8 +257,9 @@ func GenerateOpenCodeConfigWith(o OpenCodeOptions) (string, func(), error) {
 			// only fails that one tool call. The model may re-read the files
 			// pergent attaches, and read the diffs and the index it writes for
 			// runs, which all live in pergent-* temp directories. opencode saves
-			// a long tool result in its data directory and points the model at
-			// it; only that folder of the data directory is allowed.
+			// a long tool result in <data>/opencode/tool-output (so in 1.3.17 and
+			// 1.19.4) and points the model at it; only that folder of the data
+			// directory is allowed. If a version moves it, that read is denied.
 			"external_directory": map[string]string{
 				"*":                                      "deny",
 				filepath.Join(os.TempDir(), "pergent-*"): "allow",
