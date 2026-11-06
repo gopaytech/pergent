@@ -188,6 +188,9 @@ type reviewer struct {
 	slots    chan struct{}
 	start    time.Time
 	deadline time.Time
+	// diffs are the files written for runs to read, in diff order; empty when
+	// none could be written. Set before any run starts, then only read.
+	diffs []diffFile
 }
 
 // Run reviews the change with every skill and batch concurrently, with at
@@ -237,6 +240,8 @@ func Run(ctx context.Context, req Request) []SkillResult {
 		}
 		return results
 	}
+	// One directory of per-file diffs for the whole review, removed when it ends.
+	defer r.writeDiffs()()
 	var wg sync.WaitGroup
 	for i, s := range req.Skills {
 		wg.Add(1)
@@ -516,10 +521,16 @@ func (r *reviewer) reviewBatch(ctx context.Context, s skill.Skill, batch []diff.
 	if hasCarried {
 		message += " " + carriedMessage
 	}
+	// The diffs of the changed files outside this batch, named in the list;
+	// none when this batch's diff already covers every file with a diff.
+	section := r.diffSection(paths)
+	if section != "" {
+		message += " " + diffsMessage
+	}
 	type attachment struct{ name, content string }
 	attachments := []attachment{
 		{"diff.patch", patch.String()},
-		{"changed-files.md", r.changedList},
+		{"changed-files.md", r.changedList + section},
 	}
 	if hasPrev {
 		if prev == nil {

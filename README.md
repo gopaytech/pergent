@@ -43,6 +43,8 @@ Agentic PR/MR review tool for CI/CD pipelines. Unlike single-shot review tools, 
 
 Skills and batches run in parallel (see `--concurrency`), all within one time budget for the whole review (see `--timeout`).
 
+A run gets only its own batch's diff attached. So that it can see how another changed file changed (a skill with `paths`, or a batch of a big change, would otherwise miss a problem spanning two areas), pergent writes the diff of each reviewable changed file to a temporary file once per review and lists them in the run's `changed-files.md`; the cross-batch and verification runs get the same list. A run can read these diffs when it needs to, and nothing proves it does, so they cost tokens only when opened. Files with a default exclusion, and files whose path the read rules deny (`*.env`, and with agent mode `*.pem`, `*.key`, `*.tfvars`), have none. A review whose diffs cannot be written logs a warning and runs without them. A run whose own diff already covers every file with a diff is not told about any.
+
 The agent also picks up project context from the repo root's `AGENTS.md` (or `CLAUDE.md` if there is no `AGENTS.md`).
 
 ### Agent sandbox
