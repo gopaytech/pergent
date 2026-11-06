@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/gopaytech/pergent/internal/redact"
 )
 
 var httpClient = &http.Client{Timeout: 30 * time.Second}
@@ -48,11 +50,26 @@ func LocalDiff(repoPath string, ref string) (diff string, changedFiles []string,
 	return string(diffOut), files, nil
 }
 
-// readErrorBody extracts up to 512 bytes of the response body for error messages.
+// errorBodyLen is how many characters of an error body an error message shows.
+const errorBodyLen = 512
+
+// errorBodyRead is how much of an error body is read, so redaction sees a
+// credential in the part that is shown whole.
+const errorBodyRead = 64 * 1024
+
+// readErrorBody extracts the start of the response body for error messages.
+// Every platform call reports a failure through it, so this is the one place
+// that keeps a credential an error body echoes (a token in a 500 page) out of
+// the logs. The body is redacted before it is cut: a credential across the
+// cut would keep its first part.
 func readErrorBody(resp *http.Response) string {
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 512))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, errorBodyRead))
 	if err != nil || len(body) == 0 {
 		return ""
 	}
-	return ": " + string(body)
+	text := []rune(redact.String(string(body)))
+	if len(text) > errorBodyLen {
+		text = text[:errorBodyLen]
+	}
+	return ": " + string(text)
 }
