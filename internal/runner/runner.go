@@ -230,9 +230,11 @@ func runAttempt(ctx context.Context, opts Options) attempt {
 	err = cmd.Run()
 	passthrough.Flush()
 
-	if debugFile := os.Getenv("PERGENT_DEBUG_OUTPUT"); debugFile != "" {
-		if writeErr := os.WriteFile(debugFile, pw.buf.Bytes(), 0644); writeErr != nil {
-			fmt.Fprintf(os.Stderr, "warning: could not write debug output: %v\n", writeErr)
+	if debugBase := os.Getenv("PERGENT_DEBUG_OUTPUT"); debugBase != "" {
+		if path, writeErr := writeDebugOutput(debugBase, pw.buf.Bytes()); writeErr != nil {
+			fmt.Fprintf(os.Stderr, opts.logPrefix()+"  Warning: could not write debug output: %s\n", redact.String(writeErr.Error()))
+		} else {
+			fmt.Fprintf(os.Stderr, opts.logPrefix()+"  Debug output: %s\n", strings.ReplaceAll(path, "%", "%%"))
 		}
 	}
 

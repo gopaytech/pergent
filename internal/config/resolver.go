@@ -90,7 +90,10 @@ func Resolve(opts Options) (Config, error) {
 	cfg.RepoPath = resolveString(opts.RepoPath, "", ".")
 	cfg.Local = opts.Local
 
-	cfg.PreviousReview = resolveBool(opts.PreviousReview, opts.PreviousReviewSet, "PERGENT_PREVIOUS_REVIEW", false)
+	cfg.PreviousReview, err = resolveBool(opts.PreviousReview, opts.PreviousReviewSet, "PERGENT_PREVIOUS_REVIEW", false)
+	if err != nil {
+		return Config{}, err
+	}
 
 	if cfg.Local && cfg.PreviousReview {
 		return Config{}, fmt.Errorf("previous-review requires platform mode (cannot be used with --local)")
@@ -147,19 +150,30 @@ func ResolveAgent(opts Options) (Config, error) {
 // resolveReview resolves and validates the settings shared by every mode:
 // the review's limits, plus the --max-tokens deprecation warning.
 func resolveReview(opts Options) (Config, error) {
-	cfg := Config{
-		MaxTurns:     resolveInt(opts.MaxTurns, "PERGENT_MAX_TURNS", 20),
-		ContextLimit: resolveInt(opts.ContextLimit, "PERGENT_CONTEXT_LIMIT", 0),
-		Concurrency:  resolveInt(opts.Concurrency, "PERGENT_CONCURRENCY", 4),
-		Timeout:      resolveDuration(opts.Timeout, "PERGENT_TIMEOUT", 10*time.Minute),
+	var cfg Config
+	var err error
+	if cfg.MaxTurns, err = resolveInt(opts.MaxTurns, "PERGENT_MAX_TURNS", 20); err != nil {
+		return Config{}, err
 	}
-
-	if cfg.ContextLimit < 0 {
-		return Config{}, fmt.Errorf("--context-limit must be a positive number of tokens, got %d", cfg.ContextLimit)
+	if cfg.ContextLimit, err = resolveInt(opts.ContextLimit, "PERGENT_CONTEXT_LIMIT", 0); err != nil {
+		return Config{}, err
 	}
 	if opts.ConcurrencySet {
-		// An explicit flag is used as given, so 0 is an error rather than "unset".
+		// An explicit flag is used as given, so 0 is an error rather than
+		// "unset", and the variable is not read.
 		cfg.Concurrency = opts.Concurrency
+	} else if cfg.Concurrency, err = resolveInt(opts.Concurrency, "PERGENT_CONCURRENCY", 4); err != nil {
+		return Config{}, err
+	}
+	if cfg.Timeout, err = resolveDuration(opts.Timeout, "PERGENT_TIMEOUT", 10*time.Minute); err != nil {
+		return Config{}, err
+	}
+
+	if cfg.MaxTurns < 1 {
+		return Config{}, fmt.Errorf("--max-turns must be at least 1, got %d", cfg.MaxTurns)
+	}
+	if cfg.ContextLimit < 0 {
+		return Config{}, fmt.Errorf("--context-limit must be a positive number of tokens, got %d", cfg.ContextLimit)
 	}
 	if cfg.Timeout < 0 {
 		return Config{}, fmt.Errorf("--timeout must be positive, got %s", cfg.Timeout)
@@ -249,30 +263,40 @@ func resolveGitLab() GitLabConfig {
 	}
 }
 
-func resolveInt(flag int, envKey string, defaultVal int) int {
+// resolveInt returns flag, else the integer in envKey, else defaultVal. A zero
+// flag and an empty variable mean unset; a variable that is not a whole
+// number is an error.
+func resolveInt(flag int, envKey string, defaultVal int) (int, error) {
 	if flag != 0 {
-		return flag
+		return flag, nil
 	}
 	if env := os.Getenv(envKey); env != "" {
-		if v, err := strconv.Atoi(env); err == nil {
-			return v
+		v, err := strconv.Atoi(env)
+		if err != nil {
+			return 0, fmt.Errorf("%s=%q is not a whole number", envKey, env)
 		}
+		return v, nil
 	}
-	return defaultVal
+	return defaultVal, nil
 }
 
 // resolveDuration returns flag, else the duration in envKey, else defaultVal.
-// A zero flag or env value means unset.
-func resolveDuration(flag time.Duration, envKey string, defaultVal time.Duration) time.Duration {
+// A zero flag or env value means unset; a variable that is not a duration is
+// an error.
+func resolveDuration(flag time.Duration, envKey string, defaultVal time.Duration) (time.Duration, error) {
 	if flag != 0 {
-		return flag
+		return flag, nil
 	}
 	if env := os.Getenv(envKey); env != "" {
-		if v, err := time.ParseDuration(env); err == nil && v != 0 {
-			return v
+		v, err := time.ParseDuration(env)
+		if err != nil {
+			return 0, fmt.Errorf("%s=%q is not a duration such as 90s or 10m", envKey, env)
+		}
+		if v != 0 {
+			return v, nil
 		}
 	}
-	return defaultVal
+	return defaultVal, nil
 }
 
 func resolveString(flag string, envKey string, defaultVal string) string {
@@ -287,14 +311,18 @@ func resolveString(flag string, envKey string, defaultVal string) string {
 	return defaultVal
 }
 
-func resolveBool(flagVal bool, flagSet bool, envKey string, defaultVal bool) bool {
+// resolveBool returns flagVal when the flag was set, else the boolean in
+// envKey, else defaultVal. A variable that is not a boolean is an error.
+func resolveBool(flagVal bool, flagSet bool, envKey string, defaultVal bool) (bool, error) {
 	if flagSet {
-		return flagVal
+		return flagVal, nil
 	}
 	if env := os.Getenv(envKey); env != "" {
-		if v, err := strconv.ParseBool(env); err == nil {
-			return v
+		v, err := strconv.ParseBool(env)
+		if err != nil {
+			return false, fmt.Errorf("%s=%q is not true or false", envKey, env)
 		}
+		return v, nil
 	}
-	return defaultVal
+	return defaultVal, nil
 }

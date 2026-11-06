@@ -373,22 +373,6 @@ func TestResolve_PreviousReviewExplicitFlagBeatsEnv(t *testing.T) {
 	}
 }
 
-func TestResolve_PreviousReviewEnvGarbage(t *testing.T) {
-	setupValidGitHub(t)
-	t.Setenv("PERGENT_PREVIOUS_REVIEW", "yes")
-
-	cfg, err := Resolve(Options{
-		Skills:   []string{"./skills/code-review.md"},
-		Platform: "github",
-	})
-	if err != nil {
-		t.Fatalf("Resolve() error: %v", err)
-	}
-	if cfg.PreviousReview {
-		t.Error("unparseable env value should fall through to default false")
-	}
-}
-
 func TestResolve_PreviousReviewLocalError(t *testing.T) {
 	_, err := Resolve(Options{
 		Skills:            []string{"./skills/code-review.md"},
