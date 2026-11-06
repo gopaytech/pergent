@@ -88,3 +88,17 @@ func (s *stderrWriter) writeLine(line, end string) {
 	}
 	_, _ = io.WriteString(s.w, redact.String(line)+end)
 }
+
+// RedactedLineWriter is an io.Writer that passes what it is given on to a
+// destination one line at a time, with credentials redacted. Flush writes a
+// last line that had no newline.
+type RedactedLineWriter interface {
+	io.Writer
+	Flush()
+}
+
+// NewRedactedLineWriter returns a RedactedLineWriter for w. A line is held
+// until it ends, so a credential split across writes is still redacted.
+func NewRedactedLineWriter(w io.Writer) RedactedLineWriter {
+	return &stderrWriter{w: w}
+}
