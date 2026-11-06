@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/gopaytech/pergent/scope"
 	"gopkg.in/yaml.v3"
 )
 
@@ -157,6 +158,17 @@ func CheckUnique(skills []Skill) error {
 	return nil
 }
 
+// checkPatterns refuses a bad scope pattern: a skill that silently matches
+// nothing would report a clean review on every change.
+func checkPatterns(field string, patterns []string) error {
+	for _, p := range patterns {
+		if err := scope.CheckPattern(p); err != nil {
+			return fmt.Errorf("%s: %w", field, err)
+		}
+	}
+	return nil
+}
+
 func parse(data []byte, fallbackName string) (Skill, error) {
 	content := string(data)
 	var fm frontmatter
@@ -170,6 +182,13 @@ func parse(data []byte, fallbackName string) (Skill, error) {
 			}
 			body = strings.TrimSpace(parts[2])
 		}
+	}
+
+	if err := checkPatterns("paths", fm.Paths); err != nil {
+		return Skill{}, err
+	}
+	if err := checkPatterns("exclude", fm.Exclude); err != nil {
+		return Skill{}, err
 	}
 
 	name := fm.Name
