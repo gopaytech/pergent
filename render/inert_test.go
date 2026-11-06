@@ -85,6 +85,8 @@ var hostileCorpus = []string{
 	"https://e.com/?a=1&b=2 and https://e.com/@bob",
 	// N2, N3: a URL or math may take a span's backtick.
 	"https://e.com/`a @bob` x", "www.e.com/`a ![x](http://e/p.png) b` c", "$`$ @bob`", "$x`y$ @bob`z`",
+	"https://e.com/(`a @bob` x", "www.e.com/(`a ![x](http://e/p.png) b` c", "$x `y$ @bob` z", "$a `b$ ![x](http://e/p.png)` c",
+	"`@bob`x", "```\n</details>\n```",
 	// N4: a backslash before a pipe in a cell, alone and in a span.
 	"a\\|b", "`a\\| @bob`",
 	// N6: spans next to backslashes and other backticks, an indented ">>>".
@@ -268,7 +270,9 @@ func liveDelimiters(region string, cell bool) (problems []string, fences int, sp
 					bad("backtick run")
 				case rest[0] == ' ' || rest[j-1] == ' ':
 					bad("span with an edge space")
-				case i > 0 && !strings.ContainsRune(" \t(", rune(line[i-1])):
+				case strings.Contains(line, "$") && rest[:j] != "abc123": // pergent's own span, the ID of a dismissed finding, may share a line
+					bad("span on a line with $")
+				case i > 0 && !strings.ContainsRune(" \t", rune(line[i-1])):
 					bad("span opens inside a word")
 				case j+1 < len(rest) && !strings.ContainsRune(" \t).,:;!?", rune(rest[j+1])):
 					bad("span closes inside a word")
@@ -350,14 +354,14 @@ func TestLiveDelimitersChecker(t *testing.T) {
 	for _, bad := range []string{
 		"@bob", "<img>", "[a]" + joiner + "(b)", joiner + "[a](b)", "`x", "`a` `b", "``a``", "` a`", "&#64;", "&commat;", "a|b",
 		"x\n```\n@bob ![x](http://e/p.png)", // an unclosed fence
-		"https://e.com/`a @bob`", "x`a`", "`a`x", "$`a`$ y", "~~~", joiner + "[[REDACTED]]", "[REDACTED](u)",
+		"https://e.com/`a @bob`", "x`a`", "`a`x", "$`a`$ y", "(`a`)", "$ `a` y", "~~~", joiner + "[[REDACTED]]", "[REDACTED](u)",
 	} {
 		if p, _, _ := liveDelimiters(bad, false); len(p) == 0 {
 			t.Errorf("checker accepts %q", bad)
 		}
 	}
 	for _, good := range []string{
-		"@" + joiner + "bob", "<" + joiner + "img>", joiner + "[a]" + joiner + "(b)", "`@bob` and `a<b`", "(`a`)", "`a`, `b`.", "\\`", "R&D & a&b=1",
+		"@" + joiner + "bob", "<" + joiner + "img>", joiner + "[a]" + joiner + "(b)", "`@bob` and `a<b`", "`a`, `b`.", "\\`", "R&D & a&b=1",
 		"[REDACTED] ok", joiner + "[REDACTED]" + joiner + ": x", "\\[x", "a|" + joiner + "b",
 		"x\n```\n@bob ![x](u)\n```\ny",
 	} {

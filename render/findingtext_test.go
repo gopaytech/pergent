@@ -27,11 +27,15 @@ var lineCases = []textCase{
 	{"edge space is no span", "` a`", "\\` a\\`"},
 	{"escaped backtick", "\\` @bob \\`", "\\` @" + joiner + "bob \\`"},
 	{"code span", "use `@Override` and `a<b|c`", "use `@Override` and `a<b|c`"},
-	{"code span in parentheses and before punctuation", "(`a`), see `b`.", "(`a`), see `b`."},
-	// A span is kept only where it starts after the line, a space, a tab or "(",
-	// and ends before the line's end, a space, a tab or one of ").,:;!?";
-	// otherwise a URL or math could take its backtick, and every backtick on
-	// the line is stray.
+	{"code span before punctuation", "see `a`, `b`.", "see `a`, `b`."},
+	// A span is kept only where it starts at the line's start or after a space
+	// or a tab, ends at the line's end or before a space, a tab or one of
+	// ").,:;!?", and the line has no "$"; otherwise a URL or math could take
+	// its backtick, and every backtick on the line is stray.
+	{"span in parentheses", "(`a`)", "(\\`a\\`)"},
+	{"span after a parenthesis in a url", "https://e.com/(`a @bob` x", "https://e.com/(\\`a @" + joiner + "bob\\` x"},
+	{"span on a line with a dollar", "costs $5 and `a`", "costs $5 and \\`a\\`"},
+	{"span in math", "$x `y$ @bob` z", "$x \\`y$ @" + joiner + "bob\\` z"},
 	{"span in a url", "https://e.com/`a @bob` x", "https://e.com/\\`a @" + joiner + "bob\\` x"},
 	{"span in a word", "x`a`", "x\\`a\\`"},
 	{"span in bold", "**`a`**", "**\\`a\\`**"},
@@ -245,6 +249,23 @@ func TestDismissedTextIsInert(t *testing.T) {
 				t.Errorf("comment lacks %q:\n%s", want, got)
 			}
 		})
+	}
+}
+
+// The Dismissed list shows title, by and reason on one line, so a "$" in one
+// of them leaves no span in any.
+func TestDismissedLineWithDollarKeepsNoSpan(t *testing.T) {
+	s := Skill{Name: "s", Verdict: VerdictNoBlockingIssues, Dismissed: []DismissedFinding{
+		{Finding: Finding{ID: "abc123", Severity: Suggestion, Title: "use x `a` y"}, By: "eve", Reason: "costs $5, see `b` now"},
+	}}
+	got := Comment([]Skill{s}, Options{})
+	if want := "- **use x \\`a\\` y** id `abc123` — dismissed by eve: costs $5, see \\`b\\` now\n"; !strings.Contains(got, want) {
+		t.Errorf("comment lacks %q:\n%s", want, got)
+	}
+	s.Dismissed[0].Reason = "see `b` now"
+	got = Comment([]Skill{s}, Options{})
+	if want := "- **use x `a` y** id `abc123` — dismissed by eve: see `b` now\n"; !strings.Contains(got, want) {
+		t.Errorf("without a dollar, the comment lacks %q:\n%s", want, got)
 	}
 }
 

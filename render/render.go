@@ -396,11 +396,15 @@ func dismissedBlocking(ds []DismissedFinding) int {
 // open HTML, a comment or the layout's collapsible blocks, and re-rendering
 // the comment doesn't mention people again.
 func writeDismissed(b *strings.Builder, d DismissedFinding) {
-	fmt.Fprintf(b, "- **%s**", wrappedText(d.Finding.Title))
+	title, text := wrappedText, lineText
+	if strings.Contains(d.Finding.Title+d.By+d.Reason, "$") {
+		title, text = plainText, plainText // one output line: see lineSpans
+	}
+	fmt.Fprintf(b, "- **%s**", title(d.Finding.Title))
 	if d.Finding.ID != "" {
 		fmt.Fprintf(b, " id %s", codeSpan(d.Finding.ID))
 	}
-	by, reason := lineText(d.By), lineText(d.Reason)
+	by, reason := text(d.By), text(d.Reason)
 	switch {
 	case by != "" && reason != "":
 		fmt.Fprintf(b, " — dismissed by %s: %s\n", by, reason)

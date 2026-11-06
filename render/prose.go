@@ -12,12 +12,16 @@ import "strings"
 //     model's fence was. This is a container of pergent's.
 //   - A code span, on a narrow rule (see lineSpans). A span is the model's own
 //     bytes, not a container of pergent's, so a platform that reads the line
-//     differently could make its content live. The rule only keeps a span where
-//     nothing before or after it can reach its backticks: it must start at the
-//     line's start or after a space, a tab or "(" and end at the line's end or
-//     before a space, a tab or one of ").,:;!?". That keeps an autolinked URL,
-//     or math around the backticks, from taking one, and the spans of one line
-//     from pairing with a backtick of another. A table cell keeps no span.
+//     differently could make its content live. The rule keeps a span only if
+//     the line has no "$", it starts at the line's start or after a space or
+//     a tab, and it ends at the line's end or before a space, a tab or one of
+//     ").,:;!?". That covers a URL whose address runs up to a backtick, since
+//     no span starts inside a word, "(" or a path, and a dollar-delimited
+//     math expression around a backtick. It also keeps the spans of one line
+//     from pairing with a backtick of another, since the rule is all or
+//     nothing per line. It covers nothing else: a platform that reads a
+//     span-shaped text in some other way is not guarded against. A table cell
+//     keeps no span.
 //
 // A wrong guess about a fence changes how text looks (text shown as code, code
 // as text). For a span the rule is the only protection, and it is narrower
@@ -42,6 +46,11 @@ const redactedToken = "[REDACTED]"
 // image, link, footnote, wiki link or HTML.
 func lineText(s string) string { return inertLine(oneLine(s), modeLine) }
 
+// plainText is lineText without spans, for a line that holds several texts
+// of which one has a "$": the rule that a line with a "$" keeps no span is
+// about the output line.
+func plainText(s string) string { return inertLine(oneLine(s), modePlain) }
+
 // wrappedText is lineText for text that pergent writes between its own
 // characters ("**title**", "_note_"): a span can't be at an edge of the line,
 // as the character beside it would be next to a backtick.
@@ -54,6 +63,7 @@ const (
 	modeLine    lineMode = iota // alone on its line, or after a space
 	modeWrapped                 // between pergent's characters
 	modeCell                    // in a table cell
+	modePlain                   // on a line that also holds other text with a "$": no span
 )
 
 // cellText is lineText for a table cell. A cell is split at a "|" before spans
@@ -78,7 +88,7 @@ func cellText(s string) string { return inertLine(oneLine(s), modeCell) }
 func inertLine(line string, mode lineMode) string {
 	cell := mode == modeCell
 	var spans [][2]int
-	if !cell {
+	if mode == modeLine || mode == modeWrapped {
 		spans = lineSpans(line, mode == modeWrapped)
 	}
 	var b strings.Builder
@@ -179,12 +189,12 @@ func escapedAt(s string, i int) bool {
 // backtick of the line is not part of one. A span is one backtick, one or
 // more characters that are not backticks and don't start or end with a
 // space, and one backtick. Its first backtick is at the start of the line or
-// right after a space, a tab or "(", and its last at the end of the line or
-// right before a space, a tab or one of ").,:;!?"; for text between pergent's
+// right after a space or a tab, and its last at the end of the line or right
+// before a space, a tab or one of ").,:;!?"; for text between pergent's
 // characters (wrapped) the start and the end of the line don't count. A line
-// with an odd number of backticks has no span.
+// with an odd number of backticks, or with a "$", has no span.
 func lineSpans(line string, wrapped bool) [][2]int {
-	if strings.Count(line, "`")%2 == 1 {
+	if strings.Count(line, "`")%2 == 1 || strings.Contains(line, "$") {
 		return nil
 	}
 	var spans [][2]int
@@ -206,7 +216,7 @@ func lineSpans(line string, wrapped bool) [][2]int {
 // spanEnd returns the end of the code span that starts at the backtick at
 // line[i], or 0 if there is none.
 func spanEnd(line string, i int, wrapped bool) int {
-	if i > 0 && !strings.ContainsRune(" \t(", rune(line[i-1])) || i == 0 && wrapped {
+	if i > 0 && !strings.ContainsRune(" \t", rune(line[i-1])) || i == 0 && wrapped {
 		return 0
 	}
 	j := strings.IndexByte(line[i+1:], '`')
