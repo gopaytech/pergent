@@ -105,7 +105,10 @@ func ReadRules(denySecretFiles bool) map[string]string {
 
 // ReadDenied reports whether the read rules deny reading path (a path in the
 // repository). Like opencode, "*" matches any run of characters, "/"
-// included, and the last matching rule in key order wins.
+// included, and the last matching rule in key order wins. This is the only
+// guard for the review's diff files: they are named by index, so opencode's
+// own read rules never see the path a diff came from. If this ever matched
+// differently from opencode, a denied file's diff could be readable.
 func ReadDenied(path string, denySecretFiles bool) bool {
 	rules := ReadRules(denySecretFiles)
 	keys := make([]string, 0, len(rules))
