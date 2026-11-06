@@ -59,17 +59,21 @@ func Fingerprint(skill, file, title string) string {
 	return hex.EncodeToString(sum[:])[:12]
 }
 
-// Dedup keeps the first finding for each (file, line, normalized title),
-// preserving order.
+// Dedup keeps one finding for each (file, line, normalized title), preserving
+// order: the first, unless a blocking one follows a suggestion, which then
+// takes its place. A duplicate must never lower a finding's severity.
 func Dedup(fs []Finding) []Finding {
-	seen := make(map[string]struct{}, len(fs))
+	seen := make(map[string]int, len(fs))
 	out := make([]Finding, 0, len(fs))
 	for _, f := range fs {
 		key := fmt.Sprintf("%s\x00%d\x00%s", f.File, f.Line, normalize(f.Title))
-		if _, ok := seen[key]; ok {
+		if i, ok := seen[key]; ok {
+			if f.Severity == Blocking && out[i].Severity != Blocking {
+				out[i] = f
+			}
 			continue
 		}
-		seen[key] = struct{}{}
+		seen[key] = len(out)
 		out = append(out, f)
 	}
 	return out

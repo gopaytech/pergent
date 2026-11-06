@@ -355,6 +355,40 @@ func TestRun_OversizeFileMakesSkillFailed(t *testing.T) {
 	}
 }
 
+// An example block of the output shape must not stand in for a real answer
+// whose own block is bad: that would turn a real finding into a clean pass.
+func TestRun_BadLastBlockIsNotAPass(t *testing.T) {
+	bad := "Shape:\n```json\n{\"findings\": []}\n```\nAnswer:\n```json\n" +
+		`{"findings":[{"file":"cmd/a.go","severity":"high","title":"SQL injection","explanation":"e"}]}` + "\n```\n"
+
+	t.Run("goes to a repair run", func(t *testing.T) {
+		fixed := finding.Finding{File: "cmd/a.go", Severity: finding.Suggestion, Title: "SQL injection", Explanation: "e"}
+		f := &fake{}
+		f.respond = func(n int, _ call) runner.RunResult {
+			if n == 1 {
+				return completed(bad)
+			}
+			return completed(answer(t, fixed))
+		}
+		r := Run(context.Background(), newRequest(t, f, patch("cmd/a.go", "x")))[0]
+		if len(f.calls) != 2 {
+			t.Fatalf("runner called %d times, want 2", len(f.calls))
+		}
+		if len(r.Findings) != 1 || r.Findings[0].Title != "SQL injection" {
+			t.Errorf("result = %+v, want the repaired finding", r)
+		}
+	})
+
+	t.Run("fails when the repair is bad too", func(t *testing.T) {
+		f := &fake{}
+		f.respond = func(int, call) runner.RunResult { return completed(bad) }
+		r := Run(context.Background(), newRequest(t, f, patch("cmd/a.go", "x")))[0]
+		if r.Verdict != Failed {
+			t.Errorf("Verdict = %q, want %q", r.Verdict, Failed)
+		}
+	})
+}
+
 func TestRun_RepairsBadFormatOnce(t *testing.T) {
 	const badMsg = "The attached review is not in the required output format (no json code block found in the answer). Rewrite it in the required format without changing its findings."
 
