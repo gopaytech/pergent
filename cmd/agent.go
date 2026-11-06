@@ -7,7 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/fs"
 	"log"
 	"os"
 	"os/exec"
@@ -21,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gopaytech/pergent/internal/checkout"
 	"github.com/gopaytech/pergent/internal/config"
 	"github.com/gopaytech/pergent/internal/diff"
 	"github.com/gopaytech/pergent/internal/finding"
@@ -78,10 +78,6 @@ var commitSHA = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
 // minGitMinor is the oldest git 2.x agent mode runs on: GIT_ATTR_SOURCE,
 // which makes the diff read attributes from the base commit, is 2.40.
 const minGitMinor = 40
-
-// instructionNames are the file names opencode loads as instructions from
-// any directory it reads in, compared case-insensitively.
-var instructionNames = []string{"AGENTS.md", "CLAUDE.md", "CONTEXT.md"}
 
 // What a failure says when a signal stopped the review: SIGTERM before the
 // budget ran out is a cancellation, after it the Job's deadline.
@@ -607,10 +603,7 @@ func resolvePath(path string) (string, error) {
 
 // within reports whether path is dir or below it. Both must be clean and
 // absolute.
-func within(dir, path string) bool {
-	rel, err := filepath.Rel(dir, path)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
-}
+func within(dir, path string) bool { return checkout.Within(dir, path) }
 
 // loadAgentSkills loads --skills-dir, then each --skill. Duplicate names are a
 // usage error: the caller resolves library-versus-repo overrides.
@@ -685,35 +678,35 @@ func checkoutRoot(repoPath string) (string, *result.Error) {
 // sub/AGENTS.md), and any symlink whose target is outside the checkout
 // ("x -> /proc/self/environ", "up -> ..").
 func handleInstructionFiles(root string, scrub bool, logger *log.Logger) *result.Error {
-	scan, err := scanCheckout(root)
+	scan, err := checkout.Scan(root)
 	if err != nil {
 		return &result.Error{Code: result.CodeInternal, Message: fmt.Sprintf("looking for instruction files in the checkout: %v", err)}
 	}
 	if scrub {
 		deleted := map[string]bool{}
-		for _, rel := range scan.instructions {
+		for _, rel := range scan.Instructions {
 			if err := os.Remove(filepath.Join(root, filepath.FromSlash(rel))); err != nil {
 				return &result.Error{Code: result.CodeInternal, Message: fmt.Sprintf("--scrub-instructions: deleting %q: %v", rel, err)}
 			}
 			deleted[rel] = true
 			logger.Printf("--scrub-instructions: deleted %q", rel)
 		}
-		for _, l := range scan.outside {
-			if deleted[l.path] {
+		for _, l := range scan.Outside {
+			if deleted[l.Path] {
 				continue // a symlink named like an instruction file, already gone
 			}
 			// os.Remove unlinks the symlink itself, never its target.
-			if err := os.Remove(filepath.Join(root, filepath.FromSlash(l.path))); err != nil {
-				return &result.Error{Code: result.CodeInternal, Message: fmt.Sprintf("--scrub-instructions: deleting symlink %q: %v", l.path, err)}
+			if err := os.Remove(filepath.Join(root, filepath.FromSlash(l.Path))); err != nil {
+				return &result.Error{Code: result.CodeInternal, Message: fmt.Sprintf("--scrub-instructions: deleting symlink %q: %v", l.Path, err)}
 			}
-			logger.Printf("--scrub-instructions: deleted symlink %q -> %q", l.path, l.target)
+			logger.Printf("--scrub-instructions: deleted symlink %q -> %q", l.Path, l.Target)
 		}
 		return nil
 	}
 
 	var problems []string
 	var nested []string
-	for _, rel := range scan.instructions {
+	for _, rel := range scan.Instructions {
 		if strings.Contains(rel, "/") {
 			nested = append(nested, rel)
 		}
@@ -723,15 +716,15 @@ func handleInstructionFiles(root string, scrub bool, logger *log.Logger) *result
 			"the checkout has instruction files below its root, which the agent would load: %s (pass --scrub-instructions to delete them)",
 			quoteAll(nested)))
 	}
-	if len(scan.toRoot) > 0 {
+	if len(scan.ToRoot) > 0 {
 		problems = append(problems, fmt.Sprintf(
 			"the checkout has symlinks to its root, through which the agent would load the root's instruction files: %s",
-			quoteAll(scan.toRoot)))
+			quoteAll(scan.ToRoot)))
 	}
-	if len(scan.outside) > 0 {
-		links := make([]string, len(scan.outside))
-		for i, l := range scan.outside {
-			links[i] = fmt.Sprintf("%q -> %q", l.path, l.target)
+	if len(scan.Outside) > 0 {
+		links := make([]string, len(scan.Outside))
+		for i, l := range scan.Outside {
+			links[i] = fmt.Sprintf("%q -> %q", l.Path, l.Target)
 		}
 		problems = append(problems, fmt.Sprintf(
 			"the checkout has symlinks to outside it, through which the agent could read beyond the checkout: %s (pass --scrub-instructions to delete them)",
@@ -743,73 +736,6 @@ func handleInstructionFiles(root string, scrub bool, logger *log.Logger) *result
 	return nil
 }
 
-// checkoutScan is what scanCheckout finds. Paths are slash-separated,
-// relative to the root, and sorted.
-type checkoutScan struct {
-	// instructions are the non-directory entries named like an instruction
-	// file, symlinks so named included.
-	instructions []string
-	// toRoot are the symlinks that resolve to the root itself.
-	toRoot []string
-	// outside are the symlinks whose target is neither the root nor below it.
-	outside []outsideLink
-}
-
-// outsideLink is a symlink out of the checkout. target is the link's text.
-type outsideLink struct{ path, target string }
-
-// scanCheckout walks root (symlinks resolved), skipping .git directories and
-// not following symlinked directories, and classifies what it finds.
-func scanCheckout(root string) (checkoutScan, error) {
-	var scan checkoutScan
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			if d.Name() == ".git" && path != root {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		rel = filepath.ToSlash(rel)
-		if isInstructionName(d.Name()) {
-			scan.instructions = append(scan.instructions, rel)
-		}
-		if d.Type()&fs.ModeSymlink == 0 {
-			return nil
-		}
-		text, err := os.Readlink(path)
-		if err != nil {
-			return err
-		}
-		target, err := filepath.EvalSymlinks(path)
-		if err != nil {
-			// Dangling (or looping): judge where the link text points.
-			target = text
-			if !filepath.IsAbs(target) {
-				target = filepath.Join(filepath.Dir(path), target)
-			}
-			target = filepath.Clean(target)
-		}
-		switch {
-		case target == root:
-			scan.toRoot = append(scan.toRoot, rel)
-		case !within(root, target):
-			scan.outside = append(scan.outside, outsideLink{path: rel, target: text})
-		}
-		return nil
-	})
-	sort.Strings(scan.instructions)
-	sort.Strings(scan.toRoot)
-	sort.Slice(scan.outside, func(i, j int) bool { return scan.outside[i].path < scan.outside[j].path })
-	return scan, err
-}
-
 // quoteAll formats names taken from the checkout with %q, comma-separated.
 func quoteAll(names []string) string {
 	quoted := make([]string, len(names))
@@ -817,15 +743,6 @@ func quoteAll(names []string) string {
 		quoted[i] = strconv.Quote(n)
 	}
 	return strings.Join(quoted, ", ")
-}
-
-func isInstructionName(name string) bool {
-	for _, n := range instructionNames {
-		if strings.EqualFold(name, n) {
-			return true
-		}
-	}
-	return false
 }
 
 // baseClassifier builds the default skip rules from the base commit, never
