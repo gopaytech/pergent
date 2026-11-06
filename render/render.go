@@ -165,6 +165,12 @@ type Options struct {
 	// included, is collapsed to single spaces. Empty adds nothing. Caller-owned
 	// text, not escaped: it must not carry model text.
 	MetaNote string
+	// Short leaves out the Files list and the passed and n/a checks, with no
+	// note, since nothing was cut for size. Everything else is as without it:
+	// the meta line keeps its file count and "N of M checks passed", and the
+	// failed checks table, the findings, the Dismissed list and the hidden
+	// findings block stay. The size-limit steps still apply after it.
+	Short bool
 	// Version is shown in the footer after "pergent ".
 	Version string
 	// FindingsTitle replaces the "Findings" heading when non-empty. Caller-owned
@@ -218,7 +224,9 @@ type layout struct {
 // passed and n/a checks, then the failed checks table (the meta line keeps
 // the counts), then the file list is cut to 20 paths and then to a count.
 // Blocking findings and failures are never dropped; if they alone are over the
-// limit, the comment is cut at the limit with a note.
+// limit, the comment is cut at the limit with a note. With o.Short the file
+// list and the passed and n/a checks are not written at all, so their steps
+// change nothing and leave no note.
 func Comment(skills []Skill, o Options) string {
 	out := render(skills, o, layout{listLimit: -1})
 	if o.MaxLen <= 0 || len(out) <= o.MaxLen {
@@ -268,7 +276,7 @@ func render(skills []Skill, o Options, l layout) string {
 	writeHeader(&b, skills, o)
 	writeFindings(&b, skills, o, l)
 	writeDismissedList(&b, skills, l)
-	writeChecks(&b, skills, l)
+	writeChecks(&b, skills, o, l)
 	writeNotes(&b, skills)
 	writeFiles(&b, skills, o, l)
 	writeFooter(&b, o)

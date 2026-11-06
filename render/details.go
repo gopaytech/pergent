@@ -95,8 +95,10 @@ func checkTotals(rows []checkRow) (passed, total, na int) {
 }
 
 // writeChecks writes the failed checks of all skills as one table, then the
-// passed and n/a ones in a collapsed block, as the layout allows.
-func writeChecks(b *strings.Builder, skills []Skill, l layout) {
+// passed and n/a ones in a collapsed block, as the layout allows. With o.Short
+// the collapsed block is never written, and neither is the note about it; the
+// tables note stays when a failed table is cut, since that cut is real.
+func writeChecks(b *strings.Builder, skills []Skill, o Options, l layout) {
 	rows := mergeChecks(skills)
 	if len(rows) == 0 {
 		return
@@ -110,7 +112,9 @@ func writeChecks(b *strings.Builder, skills []Skill, l layout) {
 		}
 	}
 	if l.noCheckTables {
-		b.WriteString(checkTablesDroppedNote + "\n\n")
+		if !o.Short || len(failed) > 0 {
+			b.WriteString(checkTablesDroppedNote + "\n\n")
+		}
 		return
 	}
 	withSkill := len(skills) > 1
@@ -119,7 +123,7 @@ func writeChecks(b *strings.Builder, skills []Skill, l layout) {
 		writeCheckTable(b, failed, withSkill)
 	}
 	switch {
-	case len(other) == 0:
+	case len(other) == 0, o.Short:
 	case l.checksFailOnly:
 		b.WriteString(passedChecksDroppedNote + "\n\n")
 	default:
@@ -301,8 +305,12 @@ func fileLine(r fileRow, skills []Skill) string {
 	return " — " + strings.Join(parts, "; ")
 }
 
-// writeFiles writes every path of the review in one collapsed list.
+// writeFiles writes every path of the review in one collapsed list; with
+// o.Short it writes nothing.
 func writeFiles(b *strings.Builder, skills []Skill, o Options, l layout) {
+	if o.Short {
+		return
+	}
 	rows := fileRows(skills, o)
 	if len(rows) == 0 {
 		return
