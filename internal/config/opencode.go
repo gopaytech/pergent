@@ -23,6 +23,10 @@ const AgentName = "pergent"
 // inside it.
 const DataDirPrefix = "opencode-data-pergent-"
 
+// PromptFileName is the file, next to opencode.json, that holds the agent's
+// prompt. The config names it with a {file:} token.
+const PromptFileName = "agent-prompt.md"
+
 type openCodeConfig struct {
 	Schema       string                      `json:"$schema,omitempty"`
 	Model        string                      `json:"model"`
@@ -236,7 +240,6 @@ func GenerateOpenCodeConfigWith(o OpenCodeOptions) (string, func(), error) {
 				Mode:        "primary",
 				Model:       fullModel,
 				Steps:       maxTurns,
-				Prompt:      skillPrompt,
 			},
 		},
 		// Rules are last-match-wins. encoding/json sorts map keys, so the read
@@ -287,6 +290,27 @@ func GenerateOpenCodeConfigWith(o OpenCodeOptions) (string, func(), error) {
 	tmpDir, err := os.MkdirTemp("", "pergent-*")
 	if err != nil {
 		return "", nil, fmt.Errorf("creating temp dir: %w", err)
+	}
+
+	// opencode expands {env:VAR} and {file:path} over the whole config text, so
+	// a prompt inside opencode.json would reach the model changed (a skill
+	// body naming {env:GITLAB_TOKEN} would carry the token) or fail every run
+	// (a stray {file:missing}). A {file:} token is replaced by the file's
+	// content, which is not scanned again, so the prompt stays literal there.
+	if skillPrompt != "" {
+		promptPath := filepath.Join(tmpDir, PromptFileName)
+		// A "}" would end the token early.
+		if strings.Contains(promptPath, "}") {
+			os.RemoveAll(tmpDir)
+			return "", nil, fmt.Errorf("temp dir path %q contains a closing brace, which opencode's {file:} cannot take", tmpDir)
+		}
+		if err := os.WriteFile(promptPath, []byte(skillPrompt), 0600); err != nil {
+			os.RemoveAll(tmpDir)
+			return "", nil, fmt.Errorf("writing prompt: %w", err)
+		}
+		agent := cfg.Agent[AgentName]
+		agent.Prompt = "{file:" + promptPath + "}"
+		cfg.Agent[AgentName] = agent
 	}
 
 	configPath := filepath.Join(tmpDir, "opencode.json")

@@ -3,13 +3,11 @@ package review
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/gopaytech/pergent/internal/config"
 	"github.com/gopaytech/pergent/internal/finding"
 	"github.com/gopaytech/pergent/internal/runner"
 )
@@ -134,17 +132,7 @@ func TestVerify_UsesVerifyPrompt(t *testing.T) {
 	f := &fake{}
 	f.respond = func(_ int, c call) runner.RunResult {
 		if isVerifyCall(c) {
-			data, err := os.ReadFile(c.opts.ConfigPath)
-			if err != nil {
-				t.Errorf("reading config %q: %v", c.opts.ConfigPath, err)
-			}
-			var cfg struct {
-				Agent map[string]struct {
-					Prompt string `json:"prompt"`
-				} `json:"agent"`
-			}
-			json.Unmarshal(data, &cfg)
-			prompts = append(prompts, cfg.Agent[config.AgentName].Prompt)
+			prompts = append(prompts, readPrompt(t, c.opts.ConfigPath))
 			return completed(verifyAnswer(t))
 		}
 		return completed(answer(t, blockingTwoAndSuggestion()...))

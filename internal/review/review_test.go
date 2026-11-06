@@ -14,7 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gopaytech/pergent/internal/config"
 	"github.com/gopaytech/pergent/internal/diff"
 	"github.com/gopaytech/pergent/internal/finding"
 	"github.com/gopaytech/pergent/internal/runner"
@@ -82,14 +81,15 @@ func scored(t *testing.T, score int, reason string) string {
 
 func newRequest(t *testing.T, f *fake, diffText string, skills ...skill.Skill) Request {
 	t.Helper()
-	t.Setenv("OPENCODE_PROVIDER", "")
+	// A generated config holds the prompt, so a run carries only its own
+	// attachments. Own-config mode (no provider) attaches the prompt too; its
+	// tests unset the provider themselves (ownconfig_test.go).
+	t.Setenv("OPENCODE_PROVIDER", "anthropic")
+	t.Setenv("OPENCODE_MODEL", "test-model")
 	if !diffsWatched {
 		// Most tests pin a run as it is without the changed files' diffs; the
-		// tests of the diffs watch them instead, with a generated config.
+		// tests of the diffs watch them instead.
 		noDiffs(t)
-	} else {
-		t.Setenv("OPENCODE_PROVIDER", "anthropic")
-		t.Setenv("OPENCODE_MODEL", "test-model")
 	}
 	if len(skills) == 0 {
 		skills = []skill.Skill{{Name: "s", Body: "Review it."}}
@@ -758,17 +758,7 @@ func TestRun_GeneratesConfigPerRun(t *testing.T) {
 	var configs []string
 	f := &fake{}
 	f.respond = func(_ int, c call) runner.RunResult {
-		data, err := os.ReadFile(c.opts.ConfigPath)
-		if err != nil {
-			t.Errorf("reading config %q: %v", c.opts.ConfigPath, err)
-		}
-		var cfg struct {
-			Agent map[string]struct {
-				Prompt string `json:"prompt"`
-			} `json:"agent"`
-		}
-		json.Unmarshal(data, &cfg)
-		if got := cfg.Agent[config.AgentName].Prompt; got != s.Prompt() {
+		if got := readPrompt(t, c.opts.ConfigPath); got != s.Prompt() {
 			t.Errorf("agent prompt = %q, want the skill's Prompt()", got)
 		}
 		configs = append(configs, c.opts.ConfigPath)

@@ -27,12 +27,14 @@ func setupGitHubEvent(t *testing.T, prNumber int, baseBranch string) {
 
 func setupValidGitHub(t *testing.T) {
 	t.Helper()
+	t.Setenv("OPENCODE_PROVIDER", "anthropic") // platform mode needs a provider (or the opt-in)
 	t.Setenv("GITHUB_TOKEN", "ghp_test123")
 	setupGitHubEvent(t, 1, "main")
 }
 
 func setupValidGitLab(t *testing.T) {
 	t.Helper()
+	t.Setenv("OPENCODE_PROVIDER", "anthropic") // platform mode needs a provider (or the opt-in)
 	t.Setenv("GITLAB_TOKEN", "glpat-test123")
 	t.Setenv("CI_MERGE_REQUEST_IID", "42")
 	t.Setenv("CI_SERVER_URL", "https://gitlab.example.com")
@@ -101,6 +103,7 @@ func TestResolve_EnvOverridesDefault(t *testing.T) {
 func TestResolve_AutoDetectGitHub(t *testing.T) {
 	t.Setenv("GITHUB_ACTIONS", "true")
 	t.Setenv("GITHUB_REPOSITORY", "owner/repo")
+	t.Setenv("OPENCODE_PROVIDER", "anthropic") // platform mode needs a provider (or the opt-in)
 	t.Setenv("GITHUB_TOKEN", "ghp_test123")
 	setupGitHubEvent(t, 42, "main")
 
@@ -129,6 +132,7 @@ func TestResolve_AutoDetectGitLab(t *testing.T) {
 	t.Setenv("CI_PROJECT_ID", "123")
 	t.Setenv("CI_SERVER_URL", "https://gitlab.example.com")
 	t.Setenv("CI_MERGE_REQUEST_TARGET_BRANCH_NAME", "main")
+	t.Setenv("OPENCODE_PROVIDER", "anthropic") // platform mode needs a provider (or the opt-in)
 	t.Setenv("GITLAB_TOKEN", "glpat-test123")
 
 	cfg, err := Resolve(Options{
@@ -183,6 +187,7 @@ func TestResolve_GitHubMissingToken(t *testing.T) {
 }
 
 func TestResolve_GitHubMissingPRNumber(t *testing.T) {
+	t.Setenv("OPENCODE_PROVIDER", "anthropic") // platform mode needs a provider (or the opt-in)
 	t.Setenv("GITHUB_TOKEN", "ghp_test123")
 	// No GITHUB_EVENT_PATH set, so PRNumber = 0
 
@@ -210,6 +215,7 @@ func TestResolve_GitLabMissingToken(t *testing.T) {
 }
 
 func TestResolve_GitLabMissingURL(t *testing.T) {
+	t.Setenv("OPENCODE_PROVIDER", "anthropic") // platform mode needs a provider (or the opt-in)
 	t.Setenv("GITLAB_TOKEN", "glpat-test123")
 	t.Setenv("CI_MERGE_REQUEST_IID", "42")
 	// No CI_SERVER_URL set
@@ -224,6 +230,7 @@ func TestResolve_GitLabMissingURL(t *testing.T) {
 }
 
 func TestResolve_GitLabMissingProjectID(t *testing.T) {
+	t.Setenv("OPENCODE_PROVIDER", "anthropic") // platform mode needs a provider (or the opt-in)
 	t.Setenv("GITLAB_TOKEN", "glpat-test123")
 	t.Setenv("CI_MERGE_REQUEST_IID", "42")
 	t.Setenv("CI_SERVER_URL", "https://gitlab.example.com")

@@ -56,8 +56,15 @@ func TestGenerateOpenCodeConfig(t *testing.T) {
 	if agent.Mode != "primary" {
 		t.Errorf("agent.mode = %q, want %q", agent.Mode, "primary")
 	}
-	if agent.Prompt != "test prompt" {
-		t.Errorf("agent.prompt = %q, want %q", agent.Prompt, "test prompt")
+	promptPath := filepath.Join(filepath.Dir(configPath), "agent-prompt.md")
+	if want := "{file:" + promptPath + "}"; agent.Prompt != want {
+		t.Errorf("agent.prompt = %q, want %q", agent.Prompt, want)
+	}
+	if got, err := os.ReadFile(promptPath); err != nil || string(got) != "test prompt" {
+		t.Errorf("prompt file = %q, %v, want %q", got, err, "test prompt")
+	}
+	if info, err := os.Stat(promptPath); err != nil || info.Mode().Perm() != 0600 {
+		t.Errorf("prompt file mode = %v, %v, want 0600", info, err)
 	}
 	if agent.Steps != 20 {
 		t.Errorf("agent.steps = %d, want %d", agent.Steps, 20)
@@ -221,7 +228,7 @@ func TestGenerateOpenCodeConfig_Cleanup(t *testing.T) {
 	t.Setenv("OPENCODE_MODEL", "claude-sonnet-4")
 	t.Setenv("OPENCODE_API_KEY", "sk-test")
 
-	configPath, cleanup, err := GenerateOpenCodeConfig(10, 0, "", t.TempDir())
+	configPath, cleanup, err := GenerateOpenCodeConfig(10, 0, "a prompt", t.TempDir())
 	if err != nil {
 		t.Fatalf("GenerateOpenCodeConfig() error: %v", err)
 	}
@@ -229,11 +236,66 @@ func TestGenerateOpenCodeConfig_Cleanup(t *testing.T) {
 	if _, err := os.Stat(configPath); err != nil {
 		t.Fatalf("config file should exist: %v", err)
 	}
+	promptPath := filepath.Join(filepath.Dir(configPath), "agent-prompt.md")
+	if _, err := os.Stat(promptPath); err != nil {
+		t.Fatalf("prompt file should exist: %v", err)
+	}
 
 	cleanup()
 
 	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
 		t.Error("config file should be deleted after cleanup")
+	}
+	if _, err := os.Stat(promptPath); !os.IsNotExist(err) {
+		t.Error("prompt file should be deleted after cleanup")
+	}
+}
+
+// opencode expands {env:VAR} and {file:path} over the whole config text, so a
+// prompt written into opencode.json would reach the model changed ({env:}
+// replaced by a secret) or fail the run ({file:} of a missing file). The text
+// is read from a file instead, and opencode does not scan a file's content
+// again.
+func TestGenerateOpenCodeConfig_PromptStaysLiteral(t *testing.T) {
+	t.Setenv("OPENCODE_PROVIDER", "anthropic")
+	t.Setenv("OPENCODE_MODEL", "claude-sonnet-4")
+	prompt := "Never print {env:GITLAB_TOKEN}.\nSee {file:/nonexistent} and \"quotes\"."
+
+	configPath, cleanup, err := GenerateOpenCodeConfig(20, 0, prompt, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, token := range []string{"{env:GITLAB_TOKEN}", "{file:/nonexistent}"} {
+		if bytes.Contains(raw, []byte(token)) {
+			t.Errorf("config holds %q; opencode would expand it", token)
+		}
+	}
+	got, err := os.ReadFile(filepath.Join(filepath.Dir(configPath), "agent-prompt.md"))
+	if err != nil || string(got) != prompt {
+		t.Errorf("prompt file = %q, %v, want the prompt unchanged", got, err)
+	}
+}
+
+func TestGenerateOpenCodeConfig_EmptyPromptHasNoFile(t *testing.T) {
+	t.Setenv("OPENCODE_PROVIDER", "anthropic")
+	t.Setenv("OPENCODE_MODEL", "claude-sonnet-4")
+	configPath, cleanup, err := GenerateOpenCodeConfig(20, 0, "", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	raw, _ := os.ReadFile(configPath)
+	if bytes.Contains(raw, []byte(`"prompt"`)) {
+		t.Errorf("config has a prompt for an empty prompt:\n%s", raw)
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(configPath), "agent-prompt.md")); !os.IsNotExist(err) {
+		t.Errorf("a prompt file exists for an empty prompt (stat error %v)", err)
 	}
 }
 
@@ -571,8 +633,9 @@ func TestGenerateWith_DenySecretFiles(t *testing.T) {
 
 // goldenCIConfig is the exact output of GenerateOpenCodeConfig(20, 0,
 // "test prompt", repo) for a repo with an AGENTS.md, captured before
-// GenerateOpenCodeConfigWith was introduced. %[1]s is the AGENTS.md path, %[2]s
-// the pattern for pergent's temp directories.
+// GenerateOpenCodeConfigWith was introduced, except that the prompt now lives
+// in a file. %[1]s is the AGENTS.md path, %[2]s the pattern for pergent's temp
+// directories, %[3]s the tool-output pattern, %[4]s the prompt file.
 const goldenCIConfig = `{
   "$schema": "https://opencode.ai/config.json",
   "model": "anthropic/claude-sonnet-4",
@@ -596,7 +659,7 @@ const goldenCIConfig = `{
       "mode": "primary",
       "model": "anthropic/claude-sonnet-4",
       "steps": 20,
-      "prompt": "test prompt"
+      "prompt": "{file:%[4]s}"
     }
   },
   "permission": {
@@ -649,7 +712,8 @@ func TestGenerate_Unchanged(t *testing.T) {
 		t.Fatal(err)
 	}
 	toolOutput := filepath.Join(os.TempDir(), DataDirPrefix+"*", "opencode", "tool-output", "*")
-	want := fmt.Sprintf(goldenCIConfig, agentsPath, filepath.Join(os.TempDir(), "pergent-*"), toolOutput)
+	promptPath := filepath.Join(filepath.Dir(configPath), "agent-prompt.md")
+	want := fmt.Sprintf(goldenCIConfig, agentsPath, filepath.Join(os.TempDir(), "pergent-*"), toolOutput, promptPath)
 	if string(got) != want {
 		t.Errorf("CI config changed.\ngot:\n%s\nwant:\n%s", got, want)
 	}
