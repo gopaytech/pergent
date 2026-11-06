@@ -24,8 +24,9 @@ const failedPrefix = "**Review failed:**"
 
 // writeFailureLead writes a failure: the prefix, then lead (context to show
 // before the cause), then the cause and the tail of opencode's stderr. The
-// text is collapsed to one line. In markdown mode it also cannot open an HTML
-// comment, so a model's excerpt can't hide or forge the findings block.
+// first line is collapsed to one line. In markdown mode the credentials are
+// removed; the text is not escaped, because render escapes a failure's lead
+// itself.
 func writeFailureLead(b *strings.Builder, lead string, cause *runner.Cause, markdown bool) {
 	lead = oneLine(lead)
 	var line string
@@ -40,20 +41,11 @@ func writeFailureLead(b *strings.Builder, lead string, cause *runner.Cause, mark
 		line = "The run ended without a review and without a reported cause."
 	}
 	if markdown {
-		line = neutralizeComments(redact.String(line))
+		line = redact.String(line)
 	}
 	fmt.Fprintf(b, "%s %s\n", failedPrefix, line)
 	if cause != nil && len(cause.StderrLines) > 0 {
-		lines := cause.StderrLines
-		if markdown {
-			// The tail is the process's output, not trusted Markdown: no line may
-			// open a comment or close one of the comment's blocks.
-			lines = make([]string, len(cause.StderrLines))
-			for i, l := range cause.StderrLines {
-				lines[i] = strings.ReplaceAll(l, "<", "&lt;")
-			}
-		}
-		text := strings.Join(lines, "\n")
+		text := strings.Join(cause.StderrLines, "\n")
 		fence := "```"
 		for strings.Contains(text, fence) {
 			fence += "`"
@@ -65,16 +57,6 @@ func writeFailureLead(b *strings.Builder, lead string, cause *runner.Cause, mark
 // oneLine collapses all whitespace, newlines included, to single spaces.
 func oneLine(s string) string {
 	return strings.Join(strings.Fields(s), " ")
-}
-
-// layoutTagRe matches the HTML tags the comment layout is built from.
-var layoutTagRe = regexp.MustCompile(`(?i)<(/?(?:details|summary)\b)`)
-
-// neutralizeComments keeps model text from opening an HTML comment or closing
-// or opening one of the comment's collapsible blocks.
-func neutralizeComments(s string) string {
-	s = strings.ReplaceAll(s, "<!--", "&lt;!--")
-	return layoutTagRe.ReplaceAllString(s, "&lt;$1")
 }
 
 // BatchFailureText renders one failed batch as redacted text for the CI log:

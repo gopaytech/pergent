@@ -3,6 +3,7 @@ package render
 import (
 	"fmt"
 	"html"
+	"slices"
 	"sort"
 	"strings"
 	"unicode"
@@ -131,7 +132,7 @@ func writeReason(b *strings.Builder, skills []Skill) {
 	if at < 0 {
 		return
 	}
-	reason := noteText(skills[at].ConfidenceReason)
+	reason := lineText(skills[at].ConfidenceReason)
 	switch {
 	case reason == "" && score.Capped == "":
 		return
@@ -281,7 +282,7 @@ func escapeSummary(s string) string { return html.EscapeString(oneLine(s)) }
 // zero-width joiner after each "@": the title is model text, and a platform
 // turns "@name" into a mention even inside inline HTML.
 func findingTitleHTML(s string) string {
-	return strings.ReplaceAll(escapeSummary(s), "@", "@\u200d")
+	return strings.ReplaceAll(escapeSummary(s), "@", "@"+joiner)
 }
 
 // locationHTML is the finding's location as <code>, linked to the file when
@@ -294,10 +295,23 @@ func locationHTML(f Finding, o Options) string {
 	if o.FileURL == nil {
 		return code
 	}
+	if !repoPath(f.File) {
+		return code
+	}
 	if u := o.FileURL(f.File, f.Line, f.EndLine); safeLinkURL(u) {
 		return `<a href="` + html.EscapeString(u) + `">` + code + "</a>"
 	}
 	return code
+}
+
+// repoPath reports whether a finding's file can be linked: it is a path inside
+// the repository, not an absolute one and with no ".." segment, which could
+// make the link lead anywhere on the host. The file is model text.
+func repoPath(file string) bool {
+	if strings.HasPrefix(file, "/") || strings.HasPrefix(file, `\`) {
+		return false
+	}
+	return !slices.Contains(strings.FieldsFunc(file, func(r rune) bool { return r == '/' || r == '\\' }), "..")
 }
 
 // safeLinkURL reports whether a URL from Options.FileURL can go into a link:
@@ -340,15 +354,17 @@ func writeFindingRow(b *strings.Builder, r findingRow, o Options, withSkill bool
 	}
 	b.WriteString("</summary>\n\n")
 
+	// A blank line between them: a note and an explanation in one paragraph
+	// would share their backticks and definitions.
 	var lead []string
 	if note := o.FindingNote[f.Fingerprint]; note != "" {
-		lead = append(lead, "_"+summaryText(note)+"_")
+		lead = append(lead, "_"+lineText(note)+"_")
 	}
 	if f.Explanation != "" {
 		lead = append(lead, modelText(f.Explanation))
 	}
 	if len(lead) > 0 {
-		b.WriteString(strings.Join(lead, "\n") + "\n\n")
+		b.WriteString(strings.Join(lead, "\n\n") + "\n\n")
 	}
 	if f.SuggestedFix != "" {
 		fix := modelText(f.SuggestedFix)

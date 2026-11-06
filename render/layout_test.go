@@ -270,7 +270,7 @@ func TestFindingsTitleAndNote(t *testing.T) {
 	if !strings.Contains(got, "#### Not on the diff (1)\n\n") {
 		t.Errorf("no custom heading:\n%s", got)
 	}
-	if !strings.Contains(got, "</summary>\n\n_off the &lt;diff>_\nE\n\n") {
+	if !strings.Contains(got, "</summary>\n\n_off the <\u200ddiff>_\n\nE\n\n") {
 		t.Errorf("note not at the top of the body:\n%s", got)
 	}
 }
@@ -612,8 +612,32 @@ func TestUntrustedFileURLWithWhitespaceIsNoLink(t *testing.T) {
 	}
 }
 
+// A finding's file is model text: an absolute path or one with a ".." segment
+// could make a link that leads off the repository, so it is shown, not linked.
+func TestFileURLSkipsAbsoluteAndParentPaths(t *testing.T) {
+	o := Options{FileURL: GitHubFileURL("https://github.com/o/r", "abc1234")}
+	for _, file := range []string{
+		"../../../../evil/repo/blob/main/x.go", "a/../../b.go", "/etc/passwd", "..", "a/..", `a\..\b.go`, `..\b.go`, `\\host\share`,
+	} {
+		s := Skill{Name: "s", Verdict: VerdictHasBlockingIssues, Findings: []Finding{{File: file, Line: 1, Severity: Blocking, Title: "T"}}}
+		got := Comment([]Skill{s}, o)
+		if strings.Contains(got, "<a ") {
+			t.Errorf("%q became a link:\n%s", file, got)
+		}
+		if want := "<code>" + escapeSummary(file) + ":1</code>"; !strings.Contains(got, want) {
+			t.Errorf("%q: location text lost, want %s:\n%s", file, want, got)
+		}
+	}
+	for _, file := range []string{"a.go", "dir/b.go", "dir/..b.go", "dir/a..b/c.go", ".github/ci.yml", "dir/.hidden"} {
+		s := Skill{Name: "s", Verdict: VerdictHasBlockingIssues, Findings: []Finding{{File: file, Line: 1, Severity: Blocking, Title: "T"}}}
+		if got := Comment([]Skill{s}, o); !strings.Contains(got, `<a href="https://github.com/o/r/blob/abc1234/`) {
+			t.Errorf("%q is not linked:\n%s", file, got)
+		}
+	}
+}
+
 func TestNoteTextNeutralizesModelText(t *testing.T) {
-	const j = "\u200d" // the zero-width joiner noteText puts inside live sequences
+	const j = joiner // what lineText puts inside live sequences
 	cases := []struct {
 		name, note string
 		want       string   // the note as it appears in the comment
@@ -624,18 +648,18 @@ func TestNoteTextNeutralizesModelText(t *testing.T) {
 		{"hex entity", "ping &#x40;bob", "ping &" + j + "#x40;bob", []string{"&#x40;"}},
 		{"named entity", "ping &commat;bob", "ping &" + j + "commat;bob", []string{"&commat;"}},
 		{"image", "see ![x](http://e/x.png)", "see !" + j + "[x]" + j + "(http://e/x.png)", []string{"![", "](", "<img"}},
-		{"link", "[click](http://e)", "[click]" + j + "(http://e)", []string{"](http://e)"}},
-		{"wiki link", "[[click|http://e]]", "[" + j + "[click|http://e]]", []string{"[[click"}},
-		{"wiki link run", "[[[click|http://e]]]", "[" + j + "[" + j + "[click|http://e]]]", []string{"[[click", "[[["}},
-		{"image wiki link", "![[click|http://e]]", "!" + j + "[" + j + "[click|http://e]]", []string{"![", "[[click"}},
+		{"link", "[click](http://e)", j + "[click]" + j + "(http://e)", []string{"](http://e)"}},
+		{"wiki link", "[[click|http://e]]", j + "[" + j + "[click|" + j + "http://e]" + j + "]" + j, []string{"[[click"}},
+		{"wiki link run", "[[[click|http://e]]]", j + "[" + j + "[" + j + "[click|" + j + "http://e]" + j + "]" + j + "]" + j, []string{"[[click", "[[["}},
+		{"image wiki link", "![[click|http://e]]", "!" + j + "[" + j + "[click|" + j + "http://e]" + j + "]" + j, []string{"![", "[[click"}},
 		{"html", "<img src=x>", "<" + j + "img src=x>", []string{"<img"}},
 		{"comment", "<!-- x", "<" + j + "!-- x", []string{"<!-- x"}},
 		{"details", "</details>", "<" + j + "/details>", []string{"</details>"}},
 		{"newlines", "line one\n\n# line two", "line one # line two", []string{"\n# line two"}},
 		{"plain", "Dropped `Foo.bar` (not real)", "Dropped `Foo.bar` (not real)", nil},
-		// Code spans show the joiner as nothing, not an entity or a backslash.
-		{"code angle", "Dropped `Map<String, Foo>`", "Dropped `Map<" + j + "String, Foo>`", []string{"&lt;", "&gt;", "Map<String"}},
-		{"code call", "Dropped `handlers[i](ctx)`", "Dropped `handlers[i]" + j + "(ctx)`", []string{`\(`, "](ctx)"}},
+		// A code span is code: it is kept as written, with no entity, backslash or joiner.
+		{"code angle", "Dropped `Map<String, Foo>`", "Dropped `Map<String, Foo>`", []string{"&lt;", "&gt;"}},
+		{"code call", "Dropped `handlers[i](ctx)`", "Dropped `handlers[i](ctx)`", []string{`\(`}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

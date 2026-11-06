@@ -22,10 +22,11 @@ x
 
 **Fix:**
 
-```go
+```
 ​/label ~bug
     // keep this comment
 ```
+
 https://x.example/?key=[REDACTED]&token=[REDACTED]
 
 </details>

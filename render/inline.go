@@ -2,7 +2,6 @@ package render
 
 import (
 	"fmt"
-	"html"
 	"regexp"
 	"strings"
 )
@@ -50,53 +49,18 @@ func InlineFingerprint(body string) (string, bool) {
 	return m[1], true
 }
 
-// fenceRunRe matches a run of 3 or more backticks or tildes.
-var fenceRunRe = regexp.MustCompile("`{3,}|~{3,}")
-
-// defuseSuggestionFences keeps a fence in model text from being a suggestion.
-// The platform offers to apply a fence whose rendered info string starts with
-// "suggestion", and in an inline thread only the one InlineComment builds from
-// Finding.Suggestion may be one. For every run of 3 or more backticks or
-// tildes, anywhere on a line (a fence inside a blockquote, a list item or an
-// indented block counts too), it decodes the rest of the line the way the
-// renderers do (entity and numeric references, leading ASCII whitespace
-// dropped, case ignored); if that starts with "suggestion", it puts "text-"
-// right after the run, so the rendered info string starts with "text-" however
-// it was spelled: "```&#115;uggestion" becomes "```text-&#115;uggestion". It
-// also changes inline prose that happens to contain such a run, which is fine.
-func defuseSuggestionFences(s string) string {
-	var b strings.Builder
-	last := 0
-	for _, m := range fenceRunRe.FindAllStringIndex(s, -1) {
-		rest := s[m[1]:]
-		if i := strings.IndexByte(rest, '\n'); i >= 0 {
-			rest = rest[:i]
-		}
-		// The ASCII white space set is deliberate: it is what CommonMark
-		// renderers trim. A non-ASCII space such as NBSP doesn't make the
-		// fence's language "suggestion", so it needs no defusing.
-		rest = strings.ToLower(strings.TrimLeft(html.UnescapeString(rest), " \t\n\v\f\r"))
-		if strings.HasPrefix(rest, "suggestion") {
-			b.WriteString(s[last:m[1]] + "text-")
-			last = m[1]
-		}
-	}
-	b.WriteString(s[last:])
-	return b.String()
-}
-
 // inlineText prepares multi-line model text for an inline comment: made inert
-// like the summary comment's (code kept as it is), suggestion fences renamed
-// and quick actions defused.
-func inlineText(s string) string {
-	return neutralizeQuickActions(defuseSuggestionFences(modelText(s)))
-}
+// like the summary comment's, and quick actions defused. Its fences have no
+// info string, so none can be a suggestion.
+func inlineText(s string) string { return neutralizeQuickActions(modelText(s)) }
 
 // InlineComment renders one finding as the body of an inline review thread.
 // It ends with InlineMarker(f.Fingerprint) on its own line; the fingerprint
 // must match [0-9a-zA-Z:_-]{1,128}, or InlineFingerprint won't recognise it.
 //
-// Title, explanation and fix are made safe like the summary comment's. The
+// Title, explanation and fix are made safe like the summary comment's (see
+// lineText and blockText); a blank line separates the title from the
+// explanation. The
 // suggestion is not: it is written byte for byte inside a fence longer than
 // any backtick run in it, because escaping would change what the platform
 // applies. A suggestion with a carriage return is left out, as the platform
@@ -106,18 +70,20 @@ func inlineText(s string) string {
 // (a regular expression, not a Markdown parser) can be fooled by fences, HTML
 // and quote regions in the suggestion. The suggestion can't be escaped, so it
 // is shown only as advice in words, in the fix. Suggestion fences in the
-// explanation and fix are renamed (see defuseSuggestionFences).
+// explanation and fix have no info string on their fences (see blockText), so
+// none of them can be one.
 func InlineComment(f Finding, o InlineOptions) string {
 	var b strings.Builder
 	label := "**❌ Blocking: "
 	if f.Severity == Suggestion {
 		label = "**💡 Suggestion: "
 	}
-	b.WriteString(label + noteText(f.Title) + "**\n")
+	// A blank line after the title: in one paragraph its backticks would pair
+	// with the explanation's.
+	b.WriteString(label + lineText(f.Title) + "**\n\n")
 	if f.Explanation != "" {
-		b.WriteString(inlineText(f.Explanation) + "\n")
+		b.WriteString(inlineText(f.Explanation) + "\n\n")
 	}
-	b.WriteString("\n")
 
 	if f.SuggestedFix != "" {
 		fix := inlineText(f.SuggestedFix)

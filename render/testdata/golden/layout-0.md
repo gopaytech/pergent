@@ -43,7 +43,8 @@ The name is unclear.
 **Fix:**
 
 Rename it to
-```go
+
+```
 foo()
 ```
 

@@ -23,7 +23,7 @@
 | `multi` | A | a1 | ✅ |  |
 | `multi` | A | a2 | ✅ | evidence |
 | `multi` |  | loose | ➖ |  |
-| `single` | Sec\|tion | a\|b c \`x | ✅ | &lt;/details> &lt;summary>y [REDACTED] |
+| `single` | Sec\|tion | a\|b c \`x | ✅ | <‍/details> <‍summary>y [REDACTED] |
 
 </details>
 

@@ -108,7 +108,8 @@ func TestFormatReview_FailureWithMessageAndCause(t *testing.T) {
 	if !strings.Contains(got, want) {
 		t.Errorf("want message before cause %q:\n%s", want, got)
 	}
-	if !strings.Contains(got, "```text\nboom\n```") {
+	// render writes the fence again, without the info string.
+	if !strings.Contains(got, "\n```\nboom\n```\n") {
 		t.Errorf("stderr tail missing:\n%s", got)
 	}
 }
@@ -552,6 +553,28 @@ func TestFormatReviewLinksAndCommit(t *testing.T) {
 	}
 	if !strings.Contains(out, "[REDACTED]/x.go") {
 		t.Errorf("redacted path missing:\n%s", out)
+	}
+}
+
+// render owns the escaping of a failure's text, so the lead comes to it as
+// written: an escape made here would be shown literally.
+func TestFormatReview_FailureLeadIsEscapedOnce(t *testing.T) {
+	got := FormatReview([]review.SkillResult{{
+		Skill:   "s",
+		Verdict: review.Failed,
+		Failures: []review.BatchFailure{{
+			Files: []string{"a.go"}, Message: "Not reviewed: <!-- x --> @bob",
+			Cause: &runner.Cause{Kind: runner.CauseExitError, ExitCode: 1, StderrLines: []string{"a < b", "ok"}},
+		}},
+	}}, nil)
+	if want := "**Review failed:** Not reviewed: <\u200d!-- x --> @\u200dbob "; !strings.Contains(got, want) {
+		t.Errorf("lead lacks %q:\n%s", want, got)
+	}
+	if strings.Contains(got, "&lt;") || strings.Contains(got, "&\u200dlt;") {
+		t.Errorf("a failure was escaped with an entity:\n%s", got)
+	}
+	if want := "```\na < b\nok\n```"; !strings.Contains(got, want) {
+		t.Errorf("stderr tail lacks %q:\n%s", want, got)
 	}
 }
 

@@ -28,6 +28,7 @@ Not a real problem? Reply `@pergent-review dismiss a1b2c3 <reason>`
 <details><summary>💡 <b>Document the token lifetime</b> · <a href="https://github.com/owner/repo/blob/0123456789abcdef/README.md?plain=1#L17"><code>README.md:17</code></a></summary>
 
 _Line 17 is not part of the diff, so it could not be posted inline._
+
 The README does not say how long a token is valid.
 
 Not a real problem? Reply `@pergent-review dismiss d4e5f6 <reason>`

@@ -147,7 +147,7 @@
       "a.go"
      ],
      "Message": "It began: \"line one\n# Heading\n\u003c!-- pergent:findings QUJD --\u003e\n```\n[REDACTED]\"\n/close",
-     "Lead": "It began: \"line one # Heading \u0026lt;!-- pergent:findings QUJD --\u003e ``` [REDACTED]\" /close\n"
+     "Lead": "It began: \"line one # Heading \u003c!-- pergent:findings QUJD --\u003e ``` [REDACTED]\" /close\n"
     }
    ],
    "Skipped": null,

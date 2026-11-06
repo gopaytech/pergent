@@ -210,29 +210,15 @@ func TestInlineCommentModelSuggestionFencesDefused(t *testing.T) {
 				t.Errorf("info %q fence %q: real suggestion block missing:\n%s", info, fence, body)
 			}
 		}
-		for _, fence := range fences {
-			// An entity in a fence that doesn't start its line is broken by a
-			// joiner, which defuses it without the rename.
-			if strings.Contains(fence, "&") && !strings.HasPrefix(fence, "`") && !strings.HasPrefix(fence, "~") {
-				continue
-			}
-			f := inlineFinding()
-			f.Explanation = "see\n" + fence + "\nrm -rf everything\n```"
-			f.SuggestedFix = "or\n" + fence + "\nrm -rf everything\n```"
-			body := InlineComment(f, InlineOptions{SuggestionInfo: info})
-			if got := strings.Count(body, "text-"); got < 2 {
-				t.Errorf("info %q fence %q: %d renamed, want at least 2:\n%s", info, fence, got, body)
-			}
-		}
 	}
 }
 
-func TestInlineCommentNBSPFenceLeftAsIs(t *testing.T) {
+func TestInlineCommentNBSPFenceInfoDropped(t *testing.T) {
 	f := inlineFinding()
 	f.Explanation = "```\u00a0suggestion\nx\n```"
 	body := InlineComment(f, InlineOptions{})
-	if !strings.Contains(body, "```\u00a0suggestion\nx\n```") || strings.Contains(body, "text-") {
-		t.Errorf("NBSP fence changed:\n%s", body)
+	if !strings.Contains(body, "\n\n```\nx\n```\n\n") || strings.Contains(body, "suggestion") {
+		t.Errorf("info string of the fence survived:\n%s", body)
 	}
 	if got := liveSuggestionFences(body); got != 0 {
 		t.Errorf("%d live suggestion fences, want 0", got)
@@ -264,7 +250,7 @@ func TestInlineCommentRealSuggestionIsOnlyLiveFence(t *testing.T) {
 	if n != 1 {
 		t.Errorf("want one suggestion fence, got %d:\n%s", n, body)
 	}
-	for _, want := range []string{"```text-suggestion:-0+3\nx\n```", "~~~text-suggestion\ny\n~~~"} {
+	for _, want := range []string{"\n\n```\nx\n```\n\n", "\n\n```\ny\n```\n\n"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q:\n%s", want, body)
 		}
