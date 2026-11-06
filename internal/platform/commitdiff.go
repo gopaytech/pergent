@@ -46,17 +46,23 @@ func CommitDiff(repoPath, base, head string) (unified string, files []string, er
 		return "", nil, fmt.Errorf("git diff --name-only %s %s failed: %w", base, head, gitError(err))
 	}
 
-	// --name-only C-quotes unusual paths ("\303\251.go"); undo it as Split
-	// does, so Files and the split diff name files the same way. Spaces are
-	// not quoted, so only the newline after the last name is dropped.
-	lines := strings.Split(string(names), "\n")
+	return string(out), nameOnlyFiles(names), nil
+}
+
+// nameOnlyFiles reads `git diff --name-only` output. It C-quotes unusual
+// paths ("\303\251.go"); undo it as Split does, so the file list and the split
+// diff name files the same way. Spaces are not quoted, so only the newline
+// after the last name is dropped.
+func nameOnlyFiles(out []byte) []string {
+	lines := strings.Split(string(out), "\n")
 	if len(lines) > 0 && lines[len(lines)-1] == "" {
 		lines = lines[:len(lines)-1]
 	}
+	var files []string
 	for _, name := range lines {
 		files = append(files, diff.Unquote(name))
 	}
-	return string(out), files, nil
+	return files
 }
 
 // GitVersion runs `git version` and parses it with ParseGitVersion.

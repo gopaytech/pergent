@@ -5,7 +5,6 @@ import (
 	"io"
 	"net/http"
 	"os/exec"
-	"strings"
 	"time"
 )
 
@@ -40,12 +39,7 @@ func LocalDiff(repoPath string, ref string) (diff string, changedFiles []string,
 		return "", nil, fmt.Errorf("git diff --name-only failed: %w", err)
 	}
 
-	files := strings.Split(strings.TrimSpace(string(filesOut)), "\n")
-	if len(files) == 1 && files[0] == "" {
-		files = nil
-	}
-
-	return string(diffOut), files, nil
+	return string(diffOut), nameOnlyFiles(filesOut), nil
 }
 
 // readErrorBody extracts up to 512 bytes of the response body for error messages.
