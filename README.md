@@ -45,7 +45,7 @@ Skills and batches run in parallel (see `--concurrency`), all within one time bu
 
 A run gets only its own batch's diff attached. So that a run can see how another changed file changed (a skill with `paths`, or a batch of a big change, would otherwise miss a problem spanning two areas), pergent writes the diff of each reviewable changed file to its own temporary file, plus an index of them, once per review. Nothing is attached: a run that does not cover every such file is told in its message where the index is (batch, cross-batch and verification runs alike), and it can read the index and then the diffs it needs. A run may read them; nothing proves it does. Only files that at least one skill reviews, with no default exclusion, whose path the read rules do not deny (`*.env`, `*.env.*` except `*.env.example`, and in agent mode `*.pem`, `*.key`, `*.tfvars`) and whose diff fits in a batch, are listed. If the files cannot be written, pergent logs a warning and the review runs without them. When you use opencode's own config (no `OPENCODE_PROVIDER`), nothing is written and no run is told about diffs, because only pergent's generated config lets a run read outside the repository.
 
-The agent also picks up project context from the repo root's `AGENTS.md` (or `CLAUDE.md` if there is no `AGENTS.md`).
+The agent also picks up project context from the repo root's `AGENTS.md` (or `CLAUDE.md` if there is no `AGENTS.md`). The file may be a symlink, but only to a regular file inside the checkout that the read rules allow (`CLAUDE.md -> AGENTS.md` is fine). A link that leaves the checkout, does not resolve, or points at a file the read rules deny (such as `prod.env`) is skipped with a warning naming it, and the next name is tried.
 
 ### Agent sandbox
 
