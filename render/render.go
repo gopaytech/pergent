@@ -86,16 +86,18 @@ type Summary struct {
 type Failure struct {
 	Files   []string
 	Message string
-	// Lead is optional markdown for the part of the failure line after the
+	// Lead is optional text for the part of the failure line after the
 	// "Review failed:" prefix, followed by anything that goes below it (the
-	// CLI puts the cause and the tail of opencode's stderr there). It is used
-	// as is, so the caller makes it safe to embed. Empty means Message,
-	// collapsed to one line, is shown.
+	// CLI puts the cause and the tail of opencode's stderr there). It can
+	// carry file names and model or process output, so it is treated as model
+	// text: its fenced code and code spans are kept, the rest is made inert.
+	// Empty means Message, collapsed to one line, is shown.
 	Lead string
 }
 
 // Skipped is a changed file a skill did not review, and the rule that
-// skipped it.
+// skipped it. The rule is caller-owned text, not model text: it is not
+// escaped beyond comments and layout tags.
 type Skipped struct{ Path, Rule string }
 
 // DismissedFinding is a finding someone set aside.
@@ -160,14 +162,17 @@ type Options struct {
 	DismissCommand string
 	// MetaNote is the last part of the meta line, such as how many files this
 	// review covered. The caller formats it; its whitespace, line breaks
-	// included, is collapsed to single spaces. Empty adds nothing.
+	// included, is collapsed to single spaces. Empty adds nothing. Caller-owned
+	// text, not escaped: it must not carry model text.
 	MetaNote string
 	// Version is shown in the footer after "pergent ".
 	Version string
-	// FindingsTitle replaces the "Findings" heading when non-empty.
+	// FindingsTitle replaces the "Findings" heading when non-empty. Caller-owned
+	// text, not escaped.
 	FindingsTitle string
 	// FindingNote maps a finding's fingerprint to a one-line note shown at the
-	// top of that finding's body, such as why it is not an inline comment.
+	// top of that finding's body, such as why it is not an inline comment. It
+	// is shown as text, so it may carry model or file names.
 	FindingNote map[string]string
 }
 
@@ -351,20 +356,27 @@ func writeList(b *strings.Builder, lines []string, limit int) {
 }
 
 // writeFailure writes one failure line, and below it whatever the lead
-// carries.
-func writeFailure(b *strings.Builder, f Failure) {
+// carries. head is what the line starts with. The message is model or file
+// text and is shown as one line of text. The lead is Markdown the caller built
+// from such text (a file name, the model's answer, opencode's output), so it
+// goes through blockText, which keeps its fenced code and spans and breaks
+// the rest. A lead that starts with a fence follows the prefix on the same
+// line, so it starts below it.
+func writeFailure(b *strings.Builder, head string, f Failure) {
 	if f.Lead != "" {
-		fmt.Fprintf(b, "%s %s", failedPrefix, f.Lead)
-		if !strings.HasSuffix(f.Lead, "\n") {
-			b.WriteString("\n")
+		lead := neutralizeComments(blockText(f.Lead))
+		sep := " "
+		if strings.HasPrefix(lead, "```") {
+			sep = "\n\n"
 		}
+		fmt.Fprintf(b, "%s%s%s%s\n", head, failedPrefix, sep, lead)
 		return
 	}
-	line := oneLine(f.Message)
+	line := lineText(f.Message)
 	if line == "" {
 		line = noCauseMessage
 	}
-	fmt.Fprintf(b, "%s %s\n", failedPrefix, neutralizeComments(line))
+	fmt.Fprintf(b, "%s%s %s\n", head, failedPrefix, line)
 }
 
 // dismissedBlocking counts the dismissed findings that would have blocked.
@@ -379,16 +391,20 @@ func dismissedBlocking(ds []DismissedFinding) int {
 }
 
 // writeDismissed writes one line of the Dismissed list: the finding's title
-// and ID, then who dismissed it and why. The reason is someone's free text,
-// so it is collapsed to one line and "<" is escaped, which keeps it from
-// opening HTML, a comment or the layout's collapsible blocks. "@" is broken
-// up too, so re-rendering the comment doesn't mention people again.
+// and ID, then who dismissed it and why. The title is model text and the
+// reason someone's free text; both are shown as lineText does, so they can't
+// open HTML, a comment or the layout's collapsible blocks, and re-rendering
+// the comment doesn't mention people again.
 func writeDismissed(b *strings.Builder, d DismissedFinding) {
-	fmt.Fprintf(b, "- **%s**", neutralizeComments(oneLine(d.Finding.Title)))
+	title, text := wrappedText, lineText
+	if strings.Contains(d.Finding.Title+d.By+d.Reason, "$") {
+		title, text = plainText, plainText // one output line: see lineSpans
+	}
+	fmt.Fprintf(b, "- **%s**", title(d.Finding.Title))
 	if d.Finding.ID != "" {
 		fmt.Fprintf(b, " id %s", codeSpan(d.Finding.ID))
 	}
-	by, reason := mentionSafe(d.By), mentionSafe(d.Reason)
+	by, reason := text(d.By), text(d.Reason)
 	switch {
 	case by != "" && reason != "":
 		fmt.Fprintf(b, " — dismissed by %s: %s\n", by, reason)
@@ -401,29 +417,17 @@ func writeDismissed(b *strings.Builder, d DismissedFinding) {
 	}
 }
 
-// checkCell renders model text for a table cell: one line, "|" escaped so it
-// can't add a column, "<" escaped so it can't open HTML, and backticks
-// escaped when unbalanced so a code span can't run past the cell.
-func checkCell(s string) string {
+// ownCell renders pergent's own text for a table cell: one line, "|" escaped
+// so it can't add a column, "<" escaped so it can't open HTML, and backticks
+// escaped when unbalanced so a code span can't run past the cell. Model text
+// goes through cellText.
+func ownCell(s string) string {
 	s = oneLine(s)
 	if strings.Count(s, "`")%2 == 1 {
 		s = strings.ReplaceAll(s, "`", "\\`")
 	}
 	s = strings.ReplaceAll(s, "|", "\\|")
 	return strings.ReplaceAll(s, "<", "&lt;")
-}
-
-// summaryText renders free text as plain text. It always follows a fixed
-// prefix, so it never starts a line and can't open a code block, heading or
-// HTML block; escaping "<" keeps any HTML in it, comments included, inert.
-func summaryText(s string) string {
-	return strings.ReplaceAll(oneLine(s), "<", "&lt;")
-}
-
-// mentionSafe is summaryText with a zero-width joiner after each "@", which
-// keeps platforms from turning "@name" into a mention.
-func mentionSafe(s string) string {
-	return strings.ReplaceAll(summaryText(s), "@", "@\u200d")
 }
 
 func plural(n int, word string) string {
@@ -448,9 +452,12 @@ func longestBacktickRun(s string) int {
 }
 
 // codeSpan wraps s in an inline code span whose backtick fence is longer than
-// any backtick run inside s.
+// any backtick run inside s. A blank s gives a span of one space.
 func codeSpan(s string) string {
 	s = oneLine(s)
+	if s == "" {
+		return "` `" // a bare pair of backticks is not a span, and would pair with the next one
+	}
 	longest := longestBacktickRun(s)
 	fence := strings.Repeat("`", longest+1)
 	if longest > 0 {
@@ -489,52 +496,6 @@ func neutralizeQuickActions(s string) string {
 	return strings.Join(lines, "\n")
 }
 
-// fenceLine parses a line as a code fence: its marker character, the length
-// of the marker run and whether anything but whitespace follows it.
-func fenceLine(line string) (ch byte, n int, bare bool) {
-	trimmed := strings.TrimLeft(line, " ")
-	if len(line)-len(trimmed) > 3 || len(trimmed) < 3 || (trimmed[0] != '`' && trimmed[0] != '~') {
-		return 0, 0, false
-	}
-	ch = trimmed[0]
-	for n < len(trimmed) && trimmed[n] == ch {
-		n++
-	}
-	if n < 3 {
-		return 0, 0, false
-	}
-	rest := trimmed[n:]
-	if ch == '`' && strings.Contains(rest, "`") {
-		return 0, 0, false
-	}
-	return ch, n, strings.TrimSpace(rest) == ""
-}
-
-// closeFences appends the closing fence for a code fence the text leaves
-// open, so nothing after the text is swallowed by it.
-func closeFences(s string) string {
-	var open byte
-	var openLen int
-	for _, line := range strings.Split(s, "\n") {
-		line = strings.TrimRight(line, "\r")
-		ch, n, bare := fenceLine(line)
-		switch {
-		case ch == 0:
-		case open == 0:
-			open, openLen = ch, n
-		case ch == open && n >= openLen && bare:
-			open = 0
-		}
-	}
-	if open == 0 {
-		return s
-	}
-	return strings.TrimRight(s, "\n") + "\n" + strings.Repeat(string(open), openLen)
-}
-
-// modelText prepares multi-line model text for the comment. "\r" goes first:
-// neutralizeQuickActions removes it from the whole comment later, which would
-// rebuild a comment marker or a fence that the steps here had broken up.
-func modelText(s string) string {
-	return closeFences(neutralizeComments(strings.ReplaceAll(strings.TrimSpace(s), "\r", "")))
-}
+// modelText prepares multi-line model text for the comment: blockText, then
+// neutralizeComments, which still matters for the code that blockText keeps.
+func modelText(s string) string { return neutralizeComments(blockText(s)) }

@@ -22,35 +22,38 @@ x
 
 **Fix:**
 
-```go
+```
 ​/label ~bug
     // keep this comment
 ```
+
 https://x.example/?key=[REDACTED]&token=[REDACTED]
 
 </details>
 
 <details><summary>💡 <b>Bad `name` ``` second line</b> · <code>a.go:1</code> · <code>first</code></summary>
 
-Closes early &lt;/details> and &lt;DETAILS> and &lt;/summary>.
-```go
+Closes early <‍/details> and <‍DETAILS> and <‍/summary>.
+
+```
 func main() {
 ```
 
 **Fix:**
 
-~~~
+```
 unbalanced
-~~~
+```
 
 </details>
 
 <details><summary>💡 <b>Second</b> · <code>b.go:2</code> · <code>first</code></summary>
 
 fine
-````
+
+```
 still open
-````
+```
 
 </details>
 

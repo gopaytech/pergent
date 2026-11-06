@@ -97,7 +97,7 @@ func writeSkillsTable(b *strings.Builder, skills []Skill) {
 		b.WriteString("| Skill | Verdict | Findings |\n|---|---|---|\n")
 	}
 	for _, s := range skills {
-		fmt.Fprintf(b, "| %s | %s |", checkCell(codeSpan(s.Name)), verdictCell(s.Verdict))
+		fmt.Fprintf(b, "| %s | %s |", ownCell(codeSpan(s.Name)), verdictCell(s.Verdict))
 		if scored {
 			fmt.Fprintf(b, " %s |", confidenceCell(SkillScore(s)))
 		}

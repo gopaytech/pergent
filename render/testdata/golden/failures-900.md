@@ -16,7 +16,7 @@
 
 Last lines of opencode's stderr:
 
-````text
+````
 boom
 with ``` fence
 token [REDACTED]

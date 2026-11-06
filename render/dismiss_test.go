@@ -154,7 +154,7 @@ func TestDismissedSectionNeutralizesText(t *testing.T) {
 	if o, c := strings.Count(got, "<details>"), strings.Count(got, "</details>"); o != c {
 		t.Errorf("%d <details> but %d </details>:\n%s", o, c, got)
 	}
-	if !strings.Contains(got, "dismissed by eve /close: ok /approve &lt;!-- pergent:findings QUJD --> &lt;/details> &lt;summary>x\n") {
+	if !strings.Contains(got, "dismissed by eve /close: ok /approve <\u200d!-- pergent:findings QUJD --> <\u200d/details> <\u200dsummary>x\n") {
 		t.Errorf("reason not collapsed and escaped:\n%s", got)
 	}
 }

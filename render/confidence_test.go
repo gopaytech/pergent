@@ -89,7 +89,7 @@ func TestComment_ConfidenceNotScoredWhenAllFailed(t *testing.T) {
 
 func TestComment_ConfidenceReasonIsMentionSafe(t *testing.T) {
 	out := Comment([]Skill{{Name: "a", Verdict: VerdictNoBlockingIssues, Confidence: 5, ConfidenceReason: "ask @bob <b>\nnow"}}, Options{})
-	if !strings.Contains(out, "> ask @‍bob &lt;b> now\n\n") {
+	if !strings.Contains(out, "> ask @\u200dbob <\u200db> now\n\n") {
 		t.Errorf("reason was not made safe:\n%s", out)
 	}
 }

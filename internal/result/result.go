@@ -309,11 +309,17 @@ const asciiPunctuation = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
 
 // escapeMarkdown puts a backslash before every ASCII punctuation character,
 // which CommonMark renders as the character itself, so s can't open a link,
-// an HTML tag, an entity or any other markup.
+// an HTML tag, an entity or any other markup. "@" is the exception: an escaped
+// "@" is still an "@" to a platform, which makes a mention of it, so it gets a
+// zero-width joiner after it instead.
 func escapeMarkdown(s string) string {
 	var b strings.Builder
 	for _, r := range s {
-		if strings.ContainsRune(asciiPunctuation, r) {
+		switch {
+		case r == '@':
+			b.WriteString("@\u200d")
+			continue
+		case strings.ContainsRune(asciiPunctuation, r):
 			b.WriteByte('\\')
 		}
 		b.WriteRune(r)

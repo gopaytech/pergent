@@ -14,7 +14,7 @@
 |---|---|---|---|---|
 | `multi` | A | b1 | ❌ | x |
 | `multi` | B | b2 | ❌ |  |
-| `single` | Sec\|tion | fail | ❌ |  |
+| `single` | Sec&#124;tion | fail | ❌ |  |
 
 > Passed and n/a checks omitted to fit the comment size limit.
 

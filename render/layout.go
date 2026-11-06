@@ -3,6 +3,7 @@ package render
 import (
 	"fmt"
 	"html"
+	"slices"
 	"sort"
 	"strings"
 	"unicode"
@@ -131,7 +132,7 @@ func writeReason(b *strings.Builder, skills []Skill) {
 	if at < 0 {
 		return
 	}
-	reason := mentionSafe(skills[at].ConfidenceReason)
+	reason := lineText(skills[at].ConfidenceReason)
 	switch {
 	case reason == "" && score.Capped == "":
 		return
@@ -165,7 +166,7 @@ func writeFailures(b *strings.Builder, skills []Skill) {
 		switch {
 		case len(r.Failures) > 0:
 			for _, f := range r.Failures {
-				b.WriteString("⚠️ " + prefix)
+				head := "⚠️ " + prefix
 				// Name the files when the reader can't tell which ones failed: the
 				// skill had several batches or there are several failures.
 				if len(f.Files) > 0 && (r.Batches > 1 || len(r.Failures) > 1) {
@@ -173,14 +174,13 @@ func writeFailures(b *strings.Builder, skills []Skill) {
 					for i, file := range f.Files {
 						quoted[i] = codeSpan(file)
 					}
-					fmt.Fprintf(b, "Files %s: ", strings.Join(quoted, ", "))
+					head += fmt.Sprintf("Files %s: ", strings.Join(quoted, ", "))
 				}
-				writeFailure(b, f)
+				writeFailure(b, head, f)
 				b.WriteString("\n")
 			}
 		case r.Verdict == VerdictFailed:
-			b.WriteString("⚠️ " + prefix)
-			writeFailure(b, Failure{})
+			writeFailure(b, "⚠️ "+prefix, Failure{})
 			b.WriteString("\n")
 		}
 	}
@@ -256,7 +256,7 @@ func writeFindings(b *strings.Builder, skills []Skill, o Options, l layout) {
 		// stays text.
 		b.WriteString(detailsDroppedNote + "\n\n<ul>\n")
 		for _, r := range suggestions {
-			fmt.Fprintf(b, "<li>💡 <b>%s</b>%s", escapeSummary(r.Title), locationPart(r.Finding, o))
+			fmt.Fprintf(b, "<li>💡 <b>%s</b>%s", findingTitleHTML(r.Title), locationPart(r.Finding, o))
 			if many {
 				fmt.Fprintf(b, " · <code>%s</code>", escapeSummary(r.skill))
 			}
@@ -278,6 +278,13 @@ func writeFindings(b *strings.Builder, skills []Skill, o Options, l layout) {
 // don't render Markdown there, so it is shown as plain text.
 func escapeSummary(s string) string { return html.EscapeString(oneLine(s)) }
 
+// findingTitleHTML is escapeSummary for a finding's title, which also puts a
+// zero-width joiner after each "@": the title is model text, and a platform
+// turns "@name" into a mention even inside inline HTML.
+func findingTitleHTML(s string) string {
+	return strings.ReplaceAll(escapeSummary(s), "@", "@"+joiner)
+}
+
 // locationHTML is the finding's location as <code>, linked to the file when
 // the caller gave o.FileURL.
 func locationHTML(f Finding, o Options) string {
@@ -288,10 +295,23 @@ func locationHTML(f Finding, o Options) string {
 	if o.FileURL == nil {
 		return code
 	}
+	if !repoPath(f.File) {
+		return code
+	}
 	if u := o.FileURL(f.File, f.Line, f.EndLine); safeLinkURL(u) {
 		return `<a href="` + html.EscapeString(u) + `">` + code + "</a>"
 	}
 	return code
+}
+
+// repoPath reports whether a finding's file can be linked: it is a path inside
+// the repository, not an absolute one and with no ".." segment, which could
+// make the link lead anywhere on the host. The file is model text.
+func repoPath(file string) bool {
+	if strings.HasPrefix(file, "/") || strings.HasPrefix(file, `\`) {
+		return false
+	}
+	return !slices.Contains(strings.FieldsFunc(file, func(r rune) bool { return r == '/' || r == '\\' }), "..")
 }
 
 // safeLinkURL reports whether a URL from Options.FileURL can go into a link:
@@ -325,7 +345,7 @@ func writeFindingRow(b *strings.Builder, r findingRow, o Options, withSkill bool
 	if f.Severity != Suggestion {
 		icon, open = "❌", " open"
 	}
-	fmt.Fprintf(b, "<details%s><summary>%s <b>%s</b>%s", open, icon, escapeSummary(f.Title), locationPart(f, o))
+	fmt.Fprintf(b, "<details%s><summary>%s <b>%s</b>%s", open, icon, findingTitleHTML(f.Title), locationPart(f, o))
 	if withSkill {
 		fmt.Fprintf(b, " · <code>%s</code>", escapeSummary(r.skill))
 	}
@@ -334,15 +354,17 @@ func writeFindingRow(b *strings.Builder, r findingRow, o Options, withSkill bool
 	}
 	b.WriteString("</summary>\n\n")
 
+	// A blank line between them: a note and an explanation in one paragraph
+	// would share their backticks and definitions.
 	var lead []string
 	if note := o.FindingNote[f.Fingerprint]; note != "" {
-		lead = append(lead, "_"+summaryText(note)+"_")
+		lead = append(lead, "_"+wrappedText(note)+"_")
 	}
 	if f.Explanation != "" {
 		lead = append(lead, modelText(f.Explanation))
 	}
 	if len(lead) > 0 {
-		b.WriteString(strings.Join(lead, "\n") + "\n\n")
+		b.WriteString(strings.Join(lead, "\n\n") + "\n\n")
 	}
 	if f.SuggestedFix != "" {
 		fix := modelText(f.SuggestedFix)

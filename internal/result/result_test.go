@@ -170,6 +170,20 @@ func TestErrorResult_CommentEscapesMessage(t *testing.T) {
 	}
 }
 
+// A backslash-escaped "@" renders as "@", which a platform turns into a
+// mention, so the comment breaks it with a zero-width joiner instead.
+func TestErrorResult_CommentBreaksMentions(t *testing.T) {
+	r := ErrorResult(Meta{}, CodeUntrustedInstructions, "instruction file @bob/CLAUDE.md and &#64;carol")
+	const lead = "<!-- pergent -->\n⚠️ **pergent couldn't review this MR:** "
+	want := `instruction file @` + "\u200d" + `bob\/CLAUDE\.md and \&\#64\;carol`
+	if body := strings.TrimPrefix(r.Comment.Markdown, lead); body != want {
+		t.Errorf("escaped message = %q, want %q", body, want)
+	}
+	if strings.Contains(r.Comment.Markdown, `\@`) {
+		t.Errorf("a backslash-escaped @ is a mention:\n%s", r.Comment.Markdown)
+	}
+}
+
 func TestErrorResult_OneLineRedacted(t *testing.T) {
 	t.Setenv("GITLAB_TOKEN", "glpat-secretvalue")
 	r := ErrorResult(Meta{}, CodeInternal, "failed\n  with glpat-secretvalue\ttoken")

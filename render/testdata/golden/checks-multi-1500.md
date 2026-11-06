@@ -14,7 +14,7 @@
 |---|---|---|---|---|
 | `multi` | A | b1 | ❌ | x |
 | `multi` | B | b2 | ❌ |  |
-| `single` | Sec\|tion | fail | ❌ |  |
+| `single` | Sec&#124;tion | fail | ❌ |  |
 
 <details><summary>Checks: 3 of 6 passed, 1 n/a</summary>
 
@@ -23,7 +23,7 @@
 | `multi` | A | a1 | ✅ |  |
 | `multi` | A | a2 | ✅ | evidence |
 | `multi` |  | loose | ➖ |  |
-| `single` | Sec\|tion | a\|b c \`x | ✅ | &lt;/details> &lt;summary>y [REDACTED] |
+| `single` | Sec&#124;tion | a&#124;b c \`x | ✅ | <‍/details> <‍summary>y [REDACTED] |
 
 </details>
 
