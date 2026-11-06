@@ -126,7 +126,11 @@ export OPENCODE_MODEL=claude-sonnet-4       # model to use
 
 **Setup LLM (option B -- use opencode's existing config):**
 
-If you already have opencode configured (e.g., GitHub Copilot, custom `opencode.json`), just don't set any `OPENCODE_*` env vars. pergent will use opencode's own config. In this mode pergent does not generate a config, so the [agent sandbox](#agent-sandbox) above does not apply: opencode runs with whatever agents and permissions your config defines.
+If you already have opencode configured (e.g., GitHub Copilot, custom `opencode.json`), leave `OPENCODE_PROVIDER` (and `OPENCODE_MODEL`) unset. pergent will use opencode's own config. In this mode pergent does not generate a config, so the [agent sandbox](#agent-sandbox) above does not apply: opencode runs with whatever agents and permissions your config defines. pergent attaches the skill's instructions (with the output format) to each run as a file `review-instructions.md`, because they would otherwise live only in the config it did not write.
+
+- With `--local` this needs nothing more: it is your own machine. `OPENCODE_MODEL` without `OPENCODE_PROVIDER` is ignored and logs a warning.
+- **In GitHub or GitLab CI it needs an opt-in: set `PERGENT_USE_OPENCODE_CONFIG=true`.** Without it, an empty `OPENCODE_PROVIDER` is a config error (an unset CI variable expands to an empty one, and the review would silently lose its sandbox). The error also names `OPENCODE_MODEL` when that is set without a provider.
+- **This mode has no sandbox, so do not use it on untrusted changes.** The project config is on, so the change's own `AGENTS.md` and `opencode.json` (agents, plugins, permissions) apply, opencode may run commands, and `GITHUB_TOKEN` / `GITLAB_TOKEN` stay in opencode's environment because it may sign in with one. A pull request from a fork or an outside contributor can use that. pergent logs a warning on every such run. For untrusted changes, set `OPENCODE_PROVIDER` so pergent runs the review in its read-only sandbox.
 
 **Test the connection:**
 
@@ -596,9 +600,9 @@ The result's fields, error codes and examples are in [docs/agent-result-schema.m
 
 | Variable | Description |
 |---|---|
-| `OPENCODE_PROVIDER` | LLM provider (`anthropic`, `openai`, etc.) |
+| `OPENCODE_PROVIDER` | LLM provider (`anthropic`, `openai`, etc.). Required in CI unless `PERGENT_USE_OPENCODE_CONFIG=true` |
 | `OPENCODE_API_KEY` | API key for the LLM provider |
-| `OPENCODE_MODEL` | Model to use (e.g., `claude-sonnet-4`) |
+| `OPENCODE_MODEL` | Model to use (e.g., `claude-sonnet-4`). Ignored, with a warning or an error, when `OPENCODE_PROVIDER` is empty |
 | `OPENCODE_BASE_URL` | Custom API base URL (for LiteLLM, vLLM, Ollama, etc.) |
 | `OPENCODE_NPM` | Override AI SDK package (default: `@ai-sdk/openai-compatible` when `OPENCODE_BASE_URL` is set) |
 
@@ -620,9 +624,15 @@ The result's fields, error codes and examples are in [docs/agent-result-schema.m
 | `PERGENT_CONCURRENCY` | Max opencode runs in flight at once (see `--concurrency`) |
 | `PERGENT_PREVIOUS_REVIEW` | `true`/`false` — attach the previous review's findings as context (explicit `--previous-review` flag wins over this) |
 
+### Own-config mode
+
+| Variable | Description |
+|---|---|
+| `PERGENT_USE_OPENCODE_CONFIG` | `true`/`false` — in GitHub/GitLab CI, allow a review with an empty `OPENCODE_PROVIDER` on opencode's own config. **No sandbox**: do not use on untrusted changes (see [option B](#setup-llm-option-b----use-opencodes-existing-config)). Not needed with `--local`; agent mode always needs a provider |
+
 Config resolution priority: CLI flags > `PERGENT_*` env vars > auto-detect from CI > defaults.
 
-An unset or empty variable means the default. A value that can't be used is a config error that names the variable and the value (`PERGENT_TIMEOUT="600" is not a duration such as 90s or 10m`), not a silent fall back to the default. Numbers must be whole (`PERGENT_MAX_TURNS` and `PERGENT_CONCURRENCY` at least 1, `PERGENT_CONTEXT_LIMIT` not negative), `PERGENT_TIMEOUT` needs a unit, and `PERGENT_PREVIOUS_REVIEW` is `true` or `false`. `--max-turns` below 1 is rejected as well. A flag that is passed wins, and its variable is not read.
+An unset or empty variable means the default. A value that can't be used is a config error that names the variable and the value (`PERGENT_TIMEOUT="600" is not a duration such as 90s or 10m`), not a silent fall back to the default. Numbers must be whole (`PERGENT_MAX_TURNS` and `PERGENT_CONCURRENCY` at least 1, `PERGENT_CONTEXT_LIMIT` not negative), `PERGENT_TIMEOUT` needs a unit, and `PERGENT_PREVIOUS_REVIEW` and `PERGENT_USE_OPENCODE_CONFIG` are `true` or `false`. `--max-turns` below 1 is rejected as well. A flag that is passed wins, and its variable is not read.
 
 ## 🔍 Troubleshooting
 
@@ -688,13 +698,19 @@ If you set `OPENCODE_PROVIDER`, pergent generates a config for opencode. If the 
 unset OPENCODE_PROVIDER OPENCODE_MODEL OPENCODE_BASE_URL OPENCODE_API_KEY
 pergent --local --skill code-review
 ```
+This is for your own machine. In GitHub or GitLab CI the same step needs `PERGENT_USE_OPENCODE_CONFIG=true`, and then the review has no sandbox (see below).
 
 ### Using opencode's existing config (GitHub Copilot, etc.)
 
-If you already have opencode configured (e.g., connected to GitHub Copilot), just don't set any `OPENCODE_*` env vars. pergent will skip config generation and opencode uses its own config:
+If you already have opencode configured (e.g., connected to GitHub Copilot), leave `OPENCODE_PROVIDER` unset. pergent will skip config generation and opencode uses its own config:
 ```bash
 pergent --local --skill code-review
 ```
+In GitHub or GitLab CI, set `PERGENT_USE_OPENCODE_CONFIG=true` as well. Without it pergent stops with `OPENCODE_PROVIDER is not set`. That mode has no sandbox, so do not use it on untrusted changes (see [option B](#setup-llm-option-b----use-opencodes-existing-config)).
+
+### `OPENCODE_PROVIDER is not set` in CI
+
+In GitHub or GitLab CI, an empty `OPENCODE_PROVIDER` stops the review, so a CI variable that was never defined (it expands to an empty string) can't quietly turn the sandbox off. Set `OPENCODE_PROVIDER` and `OPENCODE_MODEL` (and `OPENCODE_API_KEY`), or, if you want opencode's own config and trust every change under review, set `PERGENT_USE_OPENCODE_CONFIG=true`. If the error also says `OPENCODE_MODEL is set without OPENCODE_PROVIDER`, the provider variable is the one that is missing.
 
 ### `Ctrl+C` to cancel
 

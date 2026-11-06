@@ -81,14 +81,15 @@ func scored(t *testing.T, score int, reason string) string {
 
 func newRequest(t *testing.T, f *fake, diffText string, skills ...skill.Skill) Request {
 	t.Helper()
-	t.Setenv("OPENCODE_PROVIDER", "")
+	// A generated config holds the prompt, so a run carries only its own
+	// attachments. Own-config mode (no provider) attaches the prompt too; its
+	// tests unset the provider themselves (ownconfig_test.go).
+	t.Setenv("OPENCODE_PROVIDER", "anthropic")
+	t.Setenv("OPENCODE_MODEL", "test-model")
 	if !diffsWatched {
 		// Most tests pin a run as it is without the changed files' diffs; the
-		// tests of the diffs watch them instead, with a generated config.
+		// tests of the diffs watch them instead.
 		noDiffs(t)
-	} else {
-		t.Setenv("OPENCODE_PROVIDER", "anthropic")
-		t.Setenv("OPENCODE_MODEL", "test-model")
 	}
 	if len(skills) == 0 {
 		skills = []skill.Skill{{Name: "s", Body: "Review it."}}

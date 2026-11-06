@@ -511,8 +511,10 @@ func TestDiffs_OwnConfigModeIsUnchanged(t *testing.T) {
 	if c.opts.ConfigPath != "" {
 		t.Fatalf("ConfigPath = %q, want none in own-config mode", c.opts.ConfigPath)
 	}
-	if c.opts.Message != "Review the attached diff." || len(c.opts.Files) != 2 || c.contents[1] != "- a/one.go\n- b/two.go\n" {
-		t.Errorf("run = %q with %q, want it as before", c.opts.Message, c.contents)
+	// Only the review instructions are new: with no config the prompt is
+	// attached, first, and the message says so (see ownconfig_test.go).
+	if c.opts.Message != "Review the attached diff. "+wantPromptMessage || len(c.opts.Files) != 3 || c.contents[2] != "- a/one.go\n- b/two.go\n" {
+		t.Errorf("run = %q with %q, want it as before plus the instructions", c.opts.Message, c.contents)
 	}
 }
 

@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -65,8 +66,11 @@ type Config struct {
 	Local          bool
 	BaseBranch     string
 	PreviousReview bool
-	GitHub         GitHubConfig
-	GitLab         GitLabConfig
+	// UseOpenCodeConfig is PERGENT_USE_OPENCODE_CONFIG: the opt-in to run on
+	// opencode's own config when OPENCODE_PROVIDER is empty.
+	UseOpenCodeConfig bool
+	GitHub            GitHubConfig
+	GitLab            GitLabConfig
 	// Warnings are non-fatal configuration problems to print before running.
 	Warnings []string
 }
@@ -99,7 +103,18 @@ func Resolve(opts Options) (Config, error) {
 		return Config{}, fmt.Errorf("previous-review requires platform mode (cannot be used with --local)")
 	}
 
+	if cfg.UseOpenCodeConfig, err = resolveBool(false, false, "PERGENT_USE_OPENCODE_CONFIG", false); err != nil {
+		return Config{}, err
+	}
+	// Without a provider pergent writes no opencode config, so none of the
+	// sandbox applies: the model is not pergent's to choose either.
+	noProvider := os.Getenv("OPENCODE_PROVIDER") == ""
+	modelIgnored := noProvider && os.Getenv("OPENCODE_MODEL") != ""
+
 	if cfg.Local {
+		if modelIgnored {
+			cfg.Warnings = append(cfg.Warnings, modelWithoutProvider+" "+modelWithoutProviderFix)
+		}
 		cfg.BaseBranch = opts.BaseBranch
 		if cfg.BaseBranch == "" {
 			cfg.BaseBranch = "main"
@@ -136,8 +151,32 @@ func Resolve(opts Options) (Config, error) {
 		return Config{}, fmt.Errorf("could not detect platform: set --platform or PERGENT_PLATFORM, or run in GitHub Actions / GitLab CI")
 	}
 
+	if noProvider {
+		if !cfg.UseOpenCodeConfig {
+			// An unset CI variable expands to "", so a missing provider is
+			// likelier a mistake than a choice. Running on, the review would
+			// have no sandbox, with the platform token in opencode's
+			// environment and the change's own AGENTS.md and opencode.json
+			// applying.
+			msg := "OPENCODE_PROVIDER is not set. Set OPENCODE_PROVIDER and OPENCODE_MODEL (and OPENCODE_API_KEY) so pergent runs the review in its read-only sandbox. To run on opencode's own config instead, set PERGENT_USE_OPENCODE_CONFIG=true: that mode has no sandbox (the change's own AGENTS.md and opencode.json apply and the platform token stays in opencode's environment), so use it only on changes you trust."
+			if modelIgnored {
+				msg += " OPENCODE_MODEL is set without OPENCODE_PROVIDER, which looks like a missing OPENCODE_PROVIDER."
+			}
+			return Config{}, errors.New(msg)
+		}
+		cfg.Warnings = append(cfg.Warnings, "PERGENT_USE_OPENCODE_CONFIG=true: the review runs on opencode's own config with no sandbox. The change's own AGENTS.md and opencode.json apply and the platform token stays in opencode's environment; do not use this on untrusted changes.")
+		if modelIgnored {
+			cfg.Warnings = append(cfg.Warnings, modelWithoutProvider+" "+modelWithoutProviderFix)
+		}
+	}
+
 	return cfg, nil
 }
+
+const (
+	modelWithoutProvider    = "OPENCODE_MODEL is set but OPENCODE_PROVIDER is not, so pergent ignores OPENCODE_MODEL and opencode uses its own config."
+	modelWithoutProviderFix = "Set OPENCODE_PROVIDER too if you want pergent's sandboxed config."
+)
 
 // ResolveAgent resolves the review settings agent mode uses: Timeout,
 // Concurrency, MaxTurns and ContextLimit (flags > PERGENT_* env > defaults,
