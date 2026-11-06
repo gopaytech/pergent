@@ -51,7 +51,7 @@ The agent also picks up project context from the repo root's `AGENTS.md` (or `CL
 
 When `OPENCODE_PROVIDER` is set, pergent writes a temporary `opencode.json` for each opencode run and points opencode at it with `OPENCODE_CONFIG`. That config:
 
-- defines a `pergent` agent that carries the skill's prompt (its body plus pergent's output-format instructions) and `--max-turns` as its step limit, and makes it the default agent (pergent also passes `--agent pergent`)
+- defines a `pergent` agent that carries the skill's prompt (its body plus pergent's output-format instructions) and `--max-turns` as its step limit, and makes it the default agent (pergent also passes `--agent pergent`). The prompt is written to a file next to `opencode.json` (mode 0600, removed with it) and the config names the file with `{file:...}`, because opencode expands `{env:VAR}` and `{file:path}` anywhere in a config's text: a skill that mentions `{env:GITLAB_TOKEN}` or `{file:missing}` reaches the model exactly as written
 - allows only `read`, `glob`, `grep` and `list`, and denies `edit` (which covers file writes and patches), `bash`, `task`, `skill`, `webfetch` and `websearch`
 - denies reading `*.env` / `*.env.*` files (except `*.env.example`)
 - turns off language servers (`lsp: false`), because opencode's `read` tool starts them whatever the permissions say, and a server can be a program from the reviewed branch (such as `node_modules/.bin/biome`) running with your LLM key in its environment

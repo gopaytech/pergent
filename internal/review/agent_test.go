@@ -28,6 +28,39 @@ type seenConfig struct {
 	read         map[string]string
 }
 
+// readPrompt returns the agent prompt of a generated config while the run is
+// in progress. The config holds a {file:} token for it; the text is in that
+// file, so opencode never expands anything in it.
+func readPrompt(t *testing.T, configPath string) string {
+	t.Helper()
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Errorf("reading config %q: %v", configPath, err)
+		return ""
+	}
+	var cfg struct {
+		Agent map[string]struct {
+			Prompt string `json:"prompt"`
+		} `json:"agent"`
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Errorf("config is not JSON: %v", err)
+		return ""
+	}
+	token := cfg.Agent[config.AgentName].Prompt
+	path, ok := strings.CutPrefix(token, "{file:")
+	path, ok2 := strings.CutSuffix(path, "}")
+	if !ok || !ok2 || !filepath.IsAbs(path) {
+		t.Errorf("agent prompt = %q, want a {file:<absolute path>} token", token)
+		return ""
+	}
+	text, err := os.ReadFile(path)
+	if err != nil {
+		t.Errorf("reading prompt file: %v", err)
+	}
+	return string(text)
+}
+
 // readConfig reads the config of a run while the run is in progress.
 func readConfig(t *testing.T, path string) seenConfig {
 	t.Helper()
@@ -38,10 +71,7 @@ func readConfig(t *testing.T, path string) seenConfig {
 	}
 	var cfg struct {
 		Instructions []string `json:"instructions"`
-		Agent        map[string]struct {
-			Prompt string `json:"prompt"`
-		} `json:"agent"`
-		Permission struct {
+		Permission   struct {
 			Read map[string]string `json:"read"`
 		} `json:"permission"`
 	}
@@ -50,7 +80,7 @@ func readConfig(t *testing.T, path string) seenConfig {
 	}
 	return seenConfig{
 		raw:          string(data),
-		prompt:       cfg.Agent[config.AgentName].Prompt,
+		prompt:       readPrompt(t, path),
 		instructions: cfg.Instructions,
 		read:         cfg.Permission.Read,
 	}
@@ -260,8 +290,12 @@ func TestRun_DefaultUnchanged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if seen[0].raw != string(want) {
-		t.Errorf("config =\n%s\nwant today's\n%s", seen[0].raw, want)
+	// Each config sits in its own temp directory and names its prompt file
+	// there; compare with that directory blanked out.
+	gotRaw := strings.ReplaceAll(seen[0].raw, filepath.Dir(f.calls[0].opts.ConfigPath), "<dir>")
+	wantRaw := strings.ReplaceAll(string(want), filepath.Dir(wantPath), "<dir>")
+	if gotRaw != wantRaw {
+		t.Errorf("config =\n%s\nwant today's\n%s", gotRaw, wantRaw)
 	}
 	if seen[0].prompt != s.Prompt() {
 		t.Errorf("agent prompt = %q, want the skill's Prompt()", seen[0].prompt)
