@@ -18,6 +18,7 @@ import (
 	"github.com/gopaytech/pergent/internal/config"
 	"github.com/gopaytech/pergent/internal/diff"
 	"github.com/gopaytech/pergent/internal/finding"
+	"github.com/gopaytech/pergent/internal/redact"
 	"github.com/gopaytech/pergent/internal/runner"
 	"github.com/gopaytech/pergent/internal/skill"
 )
@@ -758,8 +759,11 @@ func verdict(res SkillResult) Verdict {
 	return NoBlockingIssues
 }
 
-// excerpt returns the first excerptLen characters of s.
+// excerpt returns the first excerptLen characters of s, redacted. The text is
+// redacted before it is cut: a key across the cut would keep its first part,
+// and redaction can only match a whole key.
 func excerpt(s string) string {
+	s = redact.String(s)
 	runes := []rune(s)
 	if len(runes) <= excerptLen {
 		return s
