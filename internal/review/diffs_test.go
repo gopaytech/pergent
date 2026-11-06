@@ -349,7 +349,7 @@ func TestDiffs_PathsSkillGetsSentence(t *testing.T) {
 	if want := "Review the attached diff. " + fmt.Sprintf(diffsMessage, index); c.opts.Message != want {
 		t.Errorf("Message = %q, want %q", c.opts.Message, want)
 	}
-	for _, phrase := range []string{"not attached", "read the index to find its diff", "with an offset", "Read only what this review needs", "untrusted", "an explanation may name another file", "Report findings only on files in this diff"} {
+	for _, phrase := range []string{"are on disk", "read the index to find its diff", "with an offset", "Read only what this review needs", "untrusted", "an explanation may name another file", "Report findings only on files in this diff"} {
 		if !strings.Contains(c.opts.Message, phrase) {
 			t.Errorf("Message = %q, want it to say %q", c.opts.Message, phrase)
 		}
