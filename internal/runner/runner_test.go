@@ -341,6 +341,56 @@ func TestRelativeTo(t *testing.T) {
 	}
 }
 
+// stopCause is a context cause that says why the review stopped, like the
+// one agent mode sets after SIGTERM.
+type stopCause struct{}
+
+func (stopCause) Error() string      { return "stopped by a signal" }
+func (stopCause) StopReason() string { return "the review was cancelled" }
+
+// A run stopped because the review's context ended is a cancellation, not an
+// exit error ("signal: killed"), and it stays failed.
+func TestRun_CancelledByTheReview(t *testing.T) {
+	fakeOpencode(t, fakeAttempt{fixture: "timeout.ndjson", sleep: "30"})
+	ctx, cancel := context.WithCancelCause(context.Background())
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		cancel(stopCause{})
+	}()
+
+	start := time.Now()
+	got := Run(ctx, testOptions(time.Minute))
+	if time.Since(start) > 15*time.Second {
+		t.Errorf("Run() took %s, want it to stop soon after the cancel", time.Since(start))
+	}
+	if got.Status != StatusFailed || got.Cause == nil || got.Cause.Kind != CauseCancelled {
+		t.Fatalf("Run() = %+v, want a cancelled failure", got)
+	}
+	if want := "Not finished: the review was cancelled; opencode was stopped at step 3."; got.Cause.Message() != want {
+		t.Errorf("message = %q, want %q", got.Cause.Message(), want)
+	}
+	if got.Output != "" {
+		t.Errorf("Output = %q, want empty", got.Output)
+	}
+}
+
+// A plain cancel (CI mode's Ctrl+C) has no StopReason.
+func TestRun_CancelledWithoutReason(t *testing.T) {
+	fakeOpencode(t, fakeAttempt{fixture: "timeout.ndjson", sleep: "30"})
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		cancel()
+	}()
+	got := Run(ctx, testOptions(time.Minute))
+	if got.Status != StatusFailed || got.Cause == nil || got.Cause.Kind != CauseCancelled {
+		t.Fatalf("Run() = %+v, want a cancelled failure", got)
+	}
+	if !strings.HasPrefix(got.Cause.Message(), "Not finished: the review was cancelled;") {
+		t.Errorf("message = %q", got.Cause.Message())
+	}
+}
+
 func TestRun_StopsPastStepLimit(t *testing.T) {
 	// opencode asks the model to stop on the last step but doesn't enforce it.
 	fakeOpencode(t, fakeAttempt{fixture: "runaway.ndjson", sleep: "30"})

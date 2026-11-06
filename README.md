@@ -444,7 +444,7 @@ Environment: `OPENCODE_PROVIDER` and `OPENCODE_MODEL` are **required** (a usage 
 
 HTTP delivery never follows redirects. A `409` counts as delivered (the receiver already has the result); `401`, `403`, `413` and other `4xx` replies fail without a retry; `429`, `5xx` and connection errors are retried after 2s, 4s and 8s. Each request times out after 30 seconds, which counts as a connection error. The full table is in the [result schema](docs/agent-result-schema.md#delivery).
 
-After `SIGTERM` or `SIGINT`, pergent stops its opencode runs, fails the unfinished skills with a cause (cancelled, or stopped at the Job deadline if `--timeout` had already run out), and still delivers a `completed` result. Delivery then gets 20 seconds with one retry after 1s, so it fits Kubernetes' 30-second grace period.
+After `SIGTERM` or `SIGINT`, pergent stops its opencode runs and fails the unfinished skills with a cause (cancelled, or stopped at the Job deadline if `--timeout` had already run out). A run already in flight gets the cause `cancelled` with the same reason, never `exit_error`. pergent still delivers a `completed` result. Delivery then gets 20 seconds with one retry after 1s, so it fits Kubernetes' 30-second grace period.
 
 ### Running as a Kubernetes Job
 
