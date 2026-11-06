@@ -156,20 +156,13 @@ func (r *reviewer) verify(ctx context.Context, s skill.Skill, res *SkillResult) 
 
 	files, message := []string{path}, verifyMessage
 	// The run has no diff attached. When one batch's diff covered every file
-	// with a diff, the review needs nothing more; otherwise the list names
-	// the diffs the verifier may read.
+	// with a diff, the review needs nothing more.
 	var own []string
 	if res.Batches == 1 {
 		own = res.Reviewed
 	}
-	if section := r.diffSection(own); section != "" {
-		p := filepath.Join(dir, "changed-files.md")
-		if err := os.WriteFile(p, []byte(r.changedList+section), 0600); err != nil {
-			fail("could not write the findings file: %v", err)
-			return
-		}
-		files = append(files, p)
-		message += " " + verifyDiffsMessage
+	if note := r.diffsNote(verifyDiffsMessage, own); note != "" {
+		message += " " + note
 	}
 	var rejected []finding.Rejected
 	for _, d := range r.req.Dismissals[s.Name] {

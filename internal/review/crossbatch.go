@@ -50,11 +50,9 @@ func (r *reviewer) crossBatch(ctx context.Context, s skill.Skill, res *SkillResu
 		return
 	}
 	defer os.RemoveAll(dir)
-	// The run has no diff of its own, so every file with a diff is named.
-	section := r.diffSection(nil)
 	var files []string
 	for _, a := range []struct{ name, content string }{
-		{"changed-files.md", r.changedList + section},
+		{"changed-files.md", r.changedList},
 		{"batch-findings.json", string(data)},
 	} {
 		p := filepath.Join(dir, a.name)
@@ -66,8 +64,9 @@ func (r *reviewer) crossBatch(ctx context.Context, s skill.Skill, res *SkillResu
 	}
 
 	message := fmt.Sprintf(crossBatchMessage, res.Batches)
-	if section != "" {
-		message += " " + crossDiffsMessage
+	// The run has no diff of its own, so it is told about every diff.
+	if note := r.diffsNote(crossDiffsMessage, nil); note != "" {
+		message += " " + note
 	}
 	if rejected := r.req.Dismissals[s.Name]; len(rejected) > 0 {
 		if p, err := attachRejected(dir, rejected); err != nil {

@@ -144,6 +144,13 @@ func wildcardMatch(pattern, s string) bool {
 	return strings.HasSuffix(s, last)
 }
 
+// GeneratesConfig reports whether GenerateOpenCodeConfigWith writes a config
+// in this environment. Without OPENCODE_PROVIDER it writes none, and opencode
+// runs with its own config, none of the permissions below.
+func GeneratesConfig() bool {
+	return os.Getenv("OPENCODE_PROVIDER") != ""
+}
+
 // GenerateOpenCodeConfig writes a temporary opencode.json for one skill run.
 // contextLimit overrides the model's context window when > 0; otherwise
 // opencode uses the limits from its model registry.
@@ -163,7 +170,7 @@ func GenerateOpenCodeConfigWith(o OpenCodeOptions) (string, func(), error) {
 	model := os.Getenv("OPENCODE_MODEL")
 
 	// If no provider set, skip config generation — opencode uses its own config
-	if provider == "" {
+	if !GeneratesConfig() {
 		noop := func() {}
 		return "", noop, nil
 	}
@@ -239,7 +246,8 @@ func GenerateOpenCodeConfigWith(o OpenCodeOptions) (string, func(), error) {
 			// opencode's default for these two is "ask". `opencode run` rejects
 			// every ask, and a rejection ends the run with no answer; a deny
 			// only fails that one tool call. The model may re-read the files
-			// pergent attaches, which live in pergent-* temp directories.
+			// pergent attaches, and read the diffs and the index it writes for
+			// runs, which all live in pergent-* temp directories.
 			"external_directory": map[string]string{
 				"*":                                      "deny",
 				filepath.Join(os.TempDir(), "pergent-*"): "allow",

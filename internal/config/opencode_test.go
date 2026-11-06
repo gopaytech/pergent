@@ -654,3 +654,19 @@ func TestReadRules_AreTheGeneratedConfigsRules(t *testing.T) {
 		}
 	}
 }
+
+// GeneratesConfig is true exactly when GenerateOpenCodeConfigWith writes a file.
+func TestGeneratesConfig(t *testing.T) {
+	for _, provider := range []string{"", "anthropic"} {
+		t.Setenv("OPENCODE_PROVIDER", provider)
+		t.Setenv("OPENCODE_MODEL", "m")
+		path, cleanup, err := GenerateOpenCodeConfigWith(OpenCodeOptions{Prompt: "p"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		cleanup()
+		if got := GeneratesConfig(); got != (path != "") || got != (provider != "") {
+			t.Errorf("provider %q: GeneratesConfig() = %v, config path %q", provider, got, path)
+		}
+	}
+}
