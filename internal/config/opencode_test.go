@@ -593,3 +593,80 @@ func TestGenerate_Unchanged(t *testing.T) {
 		t.Errorf("CI config changed.\ngot:\n%s\nwant:\n%s", got, want)
 	}
 }
+
+func TestReadDenied(t *testing.T) {
+	tests := []struct {
+		path       string
+		deny, want bool
+	}{
+		{"app/main.go", true, false},
+		{".env", false, true},
+		{"cfg/prod.env", false, true},
+		{"cfg/.env.local", false, true},
+		{"cfg/.env.example", false, false},
+		{"cfg/app.env.example", false, false},
+		{"cfg/app.env.example.bak", false, true},
+		{"keys/id.pem", false, false},
+		{"keys/id.pem", true, true},
+		{"keys/id.key", true, true},
+		{"infra/prod.tfvars", true, true},
+		{"infra/prod.tfvars", false, false},
+		{"docs/pem.md", true, false},
+	}
+	for _, tt := range tests {
+		if got := ReadDenied(tt.path, tt.deny); got != tt.want {
+			t.Errorf("ReadDenied(%q, %v) = %v, want %v", tt.path, tt.deny, got, tt.want)
+		}
+	}
+}
+
+// ReadRules is the one source of the read patterns: the generated config
+// carries exactly it.
+func TestReadRules_AreTheGeneratedConfigsRules(t *testing.T) {
+	t.Setenv("OPENCODE_PROVIDER", "anthropic")
+	t.Setenv("OPENCODE_MODEL", "m")
+	for _, deny := range []bool{false, true} {
+		path, cleanup, err := GenerateOpenCodeConfigWith(OpenCodeOptions{Prompt: "p", DenySecretFiles: deny})
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(path)
+		cleanup()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var cfg struct {
+			Permission struct {
+				Read map[string]string `json:"read"`
+			} `json:"permission"`
+		}
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			t.Fatal(err)
+		}
+		want := ReadRules(deny)
+		if len(cfg.Permission.Read) != len(want) {
+			t.Errorf("deny=%v: config has %d read rules, ReadRules has %d", deny, len(cfg.Permission.Read), len(want))
+		}
+		for k, v := range want {
+			if cfg.Permission.Read[k] != v {
+				t.Errorf("deny=%v: config read[%q] = %q, ReadRules says %q", deny, k, cfg.Permission.Read[k], v)
+			}
+		}
+	}
+}
+
+// GeneratesConfig is true exactly when GenerateOpenCodeConfigWith writes a file.
+func TestGeneratesConfig(t *testing.T) {
+	for _, provider := range []string{"", "anthropic"} {
+		t.Setenv("OPENCODE_PROVIDER", provider)
+		t.Setenv("OPENCODE_MODEL", "m")
+		path, cleanup, err := GenerateOpenCodeConfigWith(OpenCodeOptions{Prompt: "p"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		cleanup()
+		if got := GeneratesConfig(); got != (path != "") || got != (provider != "") {
+			t.Errorf("provider %q: GeneratesConfig() = %v, config path %q", provider, got, path)
+		}
+	}
+}

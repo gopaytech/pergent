@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 )
 
 // AgentName is the opencode agent that carries the skill prompt and step limit.
@@ -81,6 +83,77 @@ type OpenCodeOptions struct {
 	DenySecretFiles bool
 }
 
+// ReadRules returns the generated config's read permission, pattern to
+// "allow" or "deny". Rules are last-match-wins, in the order encoding/json
+// writes the keys (sorted): "*", "*.env", "*.env.*", "*.env.example", then
+// with denySecretFiles "*.key", "*.pem", "*.tfvars". The patterns don't
+// overlap with the earlier ones, so the order only matters relative to "*".
+func ReadRules(denySecretFiles bool) map[string]string {
+	rules := map[string]string{
+		"*":             "allow",
+		"*.env":         "deny",
+		"*.env.*":       "deny",
+		"*.env.example": "allow",
+	}
+	if denySecretFiles {
+		rules["*.key"] = "deny"
+		rules["*.pem"] = "deny"
+		rules["*.tfvars"] = "deny"
+	}
+	return rules
+}
+
+// ReadDenied reports whether the read rules deny reading path (a path in the
+// repository). Like opencode, "*" matches any run of characters, "/"
+// included, and the last matching rule in key order wins. This is the only
+// guard for the review's diff files: they are named by index, so opencode's
+// own read rules never see the path a diff came from. If this ever matched
+// differently from opencode, a denied file's diff could be readable.
+func ReadDenied(path string, denySecretFiles bool) bool {
+	rules := ReadRules(denySecretFiles)
+	keys := make([]string, 0, len(rules))
+	for k := range rules {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	denied := false
+	for _, k := range keys {
+		if wildcardMatch(k, path) {
+			denied = rules[k] == "deny"
+		}
+	}
+	return denied
+}
+
+// wildcardMatch reports whether s matches pattern, where "*" matches any run
+// of characters (possibly empty) and every other character matches itself.
+func wildcardMatch(pattern, s string) bool {
+	parts := strings.Split(pattern, "*")
+	if len(parts) == 1 {
+		return pattern == s
+	}
+	if !strings.HasPrefix(s, parts[0]) {
+		return false
+	}
+	s = s[len(parts[0]):]
+	last := parts[len(parts)-1]
+	for _, p := range parts[1 : len(parts)-1] {
+		i := strings.Index(s, p)
+		if i < 0 {
+			return false
+		}
+		s = s[i+len(p):]
+	}
+	return strings.HasSuffix(s, last)
+}
+
+// GeneratesConfig reports whether GenerateOpenCodeConfigWith writes a config
+// in this environment. Without OPENCODE_PROVIDER it writes none, and opencode
+// runs with its own config, none of the permissions below.
+func GeneratesConfig() bool {
+	return os.Getenv("OPENCODE_PROVIDER") != ""
+}
+
 // GenerateOpenCodeConfig writes a temporary opencode.json for one skill run.
 // contextLimit overrides the model's context window when > 0; otherwise
 // opencode uses the limits from its model registry.
@@ -100,7 +173,7 @@ func GenerateOpenCodeConfigWith(o OpenCodeOptions) (string, func(), error) {
 	model := os.Getenv("OPENCODE_MODEL")
 
 	// If no provider set, skip config generation — opencode uses its own config
-	if provider == "" {
+	if !GeneratesConfig() {
 		noop := func() {}
 		return "", noop, nil
 	}
@@ -131,19 +204,7 @@ func GenerateOpenCodeConfigWith(o OpenCodeOptions) (string, func(), error) {
 		instructions = projectInstructions(o.RepoPath)
 	}
 
-	readRules := map[string]string{
-		"*":             "allow",
-		"*.env":         "deny",
-		"*.env.*":       "deny",
-		"*.env.example": "allow",
-	}
-	if o.DenySecretFiles {
-		// The patterns don't overlap with the earlier ones, so the order only
-		// matters relative to "*".
-		readRules["*.key"] = "deny"
-		readRules["*.pem"] = "deny"
-		readRules["*.tfvars"] = "deny"
-	}
+	readRules := ReadRules(o.DenySecretFiles)
 
 	cfg := openCodeConfig{
 		Schema:       "https://opencode.ai/config.json",
@@ -188,7 +249,8 @@ func GenerateOpenCodeConfigWith(o OpenCodeOptions) (string, func(), error) {
 			// opencode's default for these two is "ask". `opencode run` rejects
 			// every ask, and a rejection ends the run with no answer; a deny
 			// only fails that one tool call. The model may re-read the files
-			// pergent attaches, which live in pergent-* temp directories.
+			// pergent attaches, and read the diffs and the index it writes for
+			// runs, which all live in pergent-* temp directories.
 			"external_directory": map[string]string{
 				"*":                                      "deny",
 				filepath.Join(os.TempDir(), "pergent-*"): "allow",

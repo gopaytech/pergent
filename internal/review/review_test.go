@@ -83,6 +83,14 @@ func scored(t *testing.T, score int, reason string) string {
 func newRequest(t *testing.T, f *fake, diffText string, skills ...skill.Skill) Request {
 	t.Helper()
 	t.Setenv("OPENCODE_PROVIDER", "")
+	if !diffsWatched {
+		// Most tests pin a run as it is without the changed files' diffs; the
+		// tests of the diffs watch them instead, with a generated config.
+		noDiffs(t)
+	} else {
+		t.Setenv("OPENCODE_PROVIDER", "anthropic")
+		t.Setenv("OPENCODE_MODEL", "test-model")
+	}
 	if len(skills) == 0 {
 		skills = []skill.Skill{{Name: "s", Body: "Review it."}}
 	}

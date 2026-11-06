@@ -64,6 +64,10 @@ func (r *reviewer) crossBatch(ctx context.Context, s skill.Skill, res *SkillResu
 	}
 
 	message := fmt.Sprintf(crossBatchMessage, res.Batches)
+	// The run has no diff of its own, so it is told about every diff.
+	if note := r.diffsNote(crossDiffsMessage, nil); note != "" {
+		message += " " + note
+	}
 	if rejected := r.req.Dismissals[s.Name]; len(rejected) > 0 {
 		if p, err := attachRejected(dir, rejected); err != nil {
 			res.noteDismissalsFailed()

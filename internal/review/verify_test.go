@@ -27,7 +27,9 @@ func verifyAnswer(t *testing.T, results ...map[string]any) string {
 }
 
 // isVerifyCall reports whether the run was the verification run.
-func isVerifyCall(c call) bool { return c.opts.Message == verifyMessage }
+// isVerifyCall also matches a verification message that has sentences after
+// verifyMessage (rejected findings, diffs).
+func isVerifyCall(c call) bool { return strings.HasPrefix(c.opts.Message, verifyMessage) }
 
 func titles(fs []finding.Finding) []string {
 	var out []string
