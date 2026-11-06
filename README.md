@@ -58,9 +58,9 @@ When `OPENCODE_PROVIDER` is set, pergent writes a temporary `opencode.json` for 
 - turns off opencode's auto-compaction (`compaction.auto: false`), so a run that fills the model's context fails with the overflow error instead of continuing from a summary
 - leaves the model's context and output limits to opencode's model registry, unless you set `--context-limit`
 
-pergent also sets `OPENCODE_DISABLE_PROJECT_CONFIG=true`, so an `opencode.json` or `.opencode/` directory (agents, plugins, commands) in the reviewed branch can't change these permissions or run plugin code while your platform token and LLM key are in the environment. Because that setting also stops opencode from finding `AGENTS.md` / `CLAUDE.md` by itself, pergent passes the root file to opencode explicitly.
+pergent also sets `OPENCODE_DISABLE_PROJECT_CONFIG=true`, so an `opencode.json` or `.opencode/` directory (agents, plugins, commands) in the reviewed branch can't change these permissions or run plugin code while your LLM key is in the environment. `GITHUB_TOKEN` and `GITLAB_TOKEN` are removed from opencode's environment: only pergent uses them. Because that setting also stops opencode from finding `AGENTS.md` / `CLAUDE.md` by itself, pergent passes the root file to opencode explicitly.
 
-Each opencode run also gets its own empty `XDG_DATA_HOME`, removed when the run ends. opencode creates its SQLite database there on first start, and runs started at the same moment in one fresh directory (a new CI container) race on that setup. The losers exit before the model's first step. Your `auth.json`, if you have one, is copied in, so `opencode auth login` still works.
+Each opencode run also gets its own empty `XDG_DATA_HOME`, removed when the run ends. The agent can read only the `tool-output` folder in it, where opencode saves a long tool result, not the rest (your `auth.json` and the session database). opencode creates its SQLite database there on first start, and runs started at the same moment in one fresh directory (a new CI container) race on that setup. The losers exit before the model's first step. Your `auth.json`, if you have one, is copied in, so `opencode auth login` still works.
 
 ## 🩺 When a review fails
 

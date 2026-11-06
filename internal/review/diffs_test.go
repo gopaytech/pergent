@@ -548,16 +548,17 @@ func TestDiffs_ConfigAllowsTheDirectoryItMade(t *testing.T) {
 	req := newRequest(t, f, patch("a.go", "1"))
 
 	Run(context.Background(), req)
-	if len(allowed) != 1 {
-		t.Fatalf("allowed external directories = %q, want one", allowed)
+	rule := filepath.Join(os.TempDir(), "pergent-*")
+	if !slices.Contains(allowed, rule) {
+		t.Fatalf("allowed external directories = %q, want %q", allowed, rule)
 	}
 	// opencode matches "*" across "/" and asks about <dir>/*: the same depth as
 	// the batch attachments in pergent-batch-*.
-	if ok, err := filepath.Match(allowed[0], dir); err != nil || !ok {
-		t.Errorf("the config allows %q, which does not match the diff directory %s (err %v)", allowed[0], dir, err)
+	if ok, err := filepath.Match(rule, dir); err != nil || !ok {
+		t.Errorf("the config allows %q, which does not match the diff directory %s (err %v)", rule, dir, err)
 	}
-	if allowed[0] != filepath.Join(os.TempDir(), "pergent-*") || filepath.Dir(dir) != filepath.Clean(os.TempDir()) {
-		t.Errorf("allow %q and directory %s, want pergent-* directly in %s", allowed[0], dir, os.TempDir())
+	if filepath.Dir(dir) != filepath.Clean(os.TempDir()) {
+		t.Errorf("directory %s, want it directly in %s", dir, os.TempDir())
 	}
 }
 
