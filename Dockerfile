@@ -28,15 +28,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ripgrep \
     && rm -rf /var/lib/apt/lists/*
 
-# Install opencode: its release names amd64 "x64".
+# Install opencode: its release names amd64 "x64". The checksums are the
+# release assets' digests: change them together with the version.
 ARG OPENCODE_VERSION=1.19.4
+ARG OPENCODE_SHA256_X64=849bd6b3d959a1d2ef200ed1634a51c79a45ca236aa26665d75debd694805cce
+ARG OPENCODE_SHA256_ARM64=8568230ccd847dc93e95b9f6894379077d3e014a16b48040743573e77c23e85f
 RUN case "${TARGETARCH}" in \
-      amd64) opencode_arch=x64 ;; \
-      arm64) opencode_arch=arm64 ;; \
+      amd64) opencode_arch=x64; opencode_sha256="${OPENCODE_SHA256_X64}" ;; \
+      arm64) opencode_arch=arm64; opencode_sha256="${OPENCODE_SHA256_ARM64}" ;; \
       *) echo "unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
     esac \
     && curl -fsSL -o /tmp/opencode.tar.gz \
     "https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-${opencode_arch}.tar.gz" \
+    && echo "${opencode_sha256}  /tmp/opencode.tar.gz" | sha256sum -c - \
     && tar -xzf /tmp/opencode.tar.gz -C /usr/local/bin/ \
     && rm /tmp/opencode.tar.gz \
     && chmod +x /usr/local/bin/opencode \
