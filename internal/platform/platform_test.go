@@ -67,3 +67,43 @@ func TestLocalDiff_IgnoresUserDiffConfig(t *testing.T) {
 		})
 	}
 }
+
+// git C-quotes unusual paths in --name-only ("caf\303\251.go"). LocalDiff must
+// name files the way Split does, or one file shows up as two.
+func TestLocalDiff_UnquotesFileNames(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", "/dev/null")
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	dir := t.TempDir()
+	git(t, dir, "init", "-q", "-b", "main")
+	git(t, dir, "config", "user.email", "test@example.com")
+	git(t, dir, "config", "user.name", "Test")
+	git(t, dir, "commit", "-q", "--allow-empty", "-m", "base")
+	git(t, dir, "branch", "base")
+	for _, n := range []string{"café.go", "my file.go", "plain.go"} {
+		if err := os.WriteFile(filepath.Join(dir, n), []byte("package a\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-q", "-m", "change")
+
+	unified, files, err := LocalDiff(dir, "base")
+	if err != nil {
+		t.Fatalf("LocalDiff() error: %v", err)
+	}
+	slices.Sort(files)
+	if want := []string{"café.go", "my file.go", "plain.go"}; !slices.Equal(files, want) {
+		t.Errorf("files = %q, want %q", files, want)
+	}
+	var paths []string
+	for _, f := range diff.Split(unified) {
+		paths = append(paths, f.Path)
+	}
+	slices.Sort(paths)
+	if !slices.Equal(paths, files) {
+		t.Errorf("Split paths %q differ from files %q", paths, files)
+	}
+}

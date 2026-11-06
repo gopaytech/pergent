@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -74,6 +75,44 @@ func TestBuildCommand(t *testing.T) {
 	}
 	if !hasAgent {
 		t.Errorf("missing --agent %s flag", config.AgentName)
+	}
+}
+
+// opencode needs neither platform token, and a change under review can reach
+// its environment (a /proc/self/environ link, say), so only a run with
+// pergent's generated config, which has opencode use OPENCODE_API_KEY, drops
+// them. opencode's own config may use one to sign in to a provider.
+func TestBuildCommand_PlatformTokens(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "gh-secret")
+	t.Setenv("GITLAB_TOKEN", "gl-secret")
+	has := func(env []string, name string) bool {
+		return slices.ContainsFunc(env, func(kv string) bool { return strings.HasPrefix(kv, name+"=") })
+	}
+
+	generated := BuildCommand(context.Background(), "/tmp/config.json", nil, "m", ".")
+	for _, name := range []string{"GITHUB_TOKEN", "GITLAB_TOKEN"} {
+		if has(generated.Env, name) {
+			t.Errorf("%s in the env of a run with a generated config", name)
+		}
+	}
+	own := BuildCommand(context.Background(), "", nil, "m", ".")
+	for _, name := range []string{"GITHUB_TOKEN", "GITLAB_TOKEN"} {
+		if !has(own.Env, name) {
+			t.Errorf("%s missing from the env of a run with opencode's own config", name)
+		}
+	}
+}
+
+// The config's "pergent-*" rule allows reading everything under a directory it
+// matches, so opencode's data directory (auth.json) must not start that way.
+func TestNewDataDir_OutsideTheTempAllowRule(t *testing.T) {
+	dir, err := newDataDir()
+	if err != nil {
+		t.Fatalf("newDataDir() error: %v", err)
+	}
+	defer os.RemoveAll(dir)
+	if name := filepath.Base(dir); strings.HasPrefix(name, "pergent-") || !strings.HasPrefix(name, config.DataDirPrefix) {
+		t.Errorf("data dir = %q, want %q* and not pergent-*", name, config.DataDirPrefix)
 	}
 }
 
@@ -338,6 +377,99 @@ func TestRelativeTo(t *testing.T) {
 		if got := relativeTo(repo, tt.path); got != tt.want {
 			t.Errorf("relativeTo(%q) = %q, want %q", tt.path, got, tt.want)
 		}
+	}
+}
+
+// opencode starts children (language servers, tools); killing only opencode
+// leaves them running. A timed-out run must take its whole process group.
+func TestRun_TimeoutKillsChildren(t *testing.T) {
+	dir := t.TempDir()
+	pidFile := filepath.Join(dir, "child.pid")
+	bin := filepath.Join(dir, "bin")
+	if err := os.Mkdir(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The child is not exec'd, so it outlives a kill of the shell alone.
+	script := "#!/bin/sh\nsleep 60 &\necho $! > " + pidFile + "\nwait\n"
+	if err := os.WriteFile(filepath.Join(bin, "opencode"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	start := time.Now()
+	got := Run(context.Background(), testOptions(time.Second))
+	if got.Status != StatusFailed || got.Cause == nil || got.Cause.Kind != CauseTimeout {
+		t.Fatalf("Run() = %+v, want a timeout", got)
+	}
+	if d := time.Since(start); d > 8*time.Second {
+		t.Errorf("Run() took %s, want it back soon after the timeout, not after waitDelay", d)
+	}
+
+	data, err := os.ReadFile(pidFile)
+	if err != nil {
+		t.Fatalf("the fake opencode wrote no child pid: %v", err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { syscall.Kill(pid, syscall.SIGKILL) })
+	deadline := time.Now().Add(3 * time.Second)
+	for syscall.Kill(pid, 0) == nil {
+		if time.Now().After(deadline) {
+			t.Fatalf("child process %d is still running after the run ended", pid)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// stopCause is a context cause that says why the review stopped, like the
+// one agent mode sets after SIGTERM.
+type stopCause struct{}
+
+func (stopCause) Error() string      { return "stopped by a signal" }
+func (stopCause) StopReason() string { return "the review was cancelled" }
+
+// A run stopped because the review's context ended is a cancellation, not an
+// exit error ("signal: killed"), and it stays failed.
+func TestRun_CancelledByTheReview(t *testing.T) {
+	fakeOpencode(t, fakeAttempt{fixture: "timeout.ndjson", sleep: "30"})
+	ctx, cancel := context.WithCancelCause(context.Background())
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		cancel(stopCause{})
+	}()
+
+	start := time.Now()
+	got := Run(ctx, testOptions(time.Minute))
+	if time.Since(start) > 15*time.Second {
+		t.Errorf("Run() took %s, want it to stop soon after the cancel", time.Since(start))
+	}
+	if got.Status != StatusFailed || got.Cause == nil || got.Cause.Kind != CauseCancelled {
+		t.Fatalf("Run() = %+v, want a cancelled failure", got)
+	}
+	if want := "Not finished: the review was cancelled; opencode was stopped at step 3."; got.Cause.Message() != want {
+		t.Errorf("message = %q, want %q", got.Cause.Message(), want)
+	}
+	if got.Output != "" {
+		t.Errorf("Output = %q, want empty", got.Output)
+	}
+}
+
+// A plain cancel (CI mode's Ctrl+C) has no StopReason.
+func TestRun_CancelledWithoutReason(t *testing.T) {
+	fakeOpencode(t, fakeAttempt{fixture: "timeout.ndjson", sleep: "30"})
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		cancel()
+	}()
+	got := Run(ctx, testOptions(time.Minute))
+	if got.Status != StatusFailed || got.Cause == nil || got.Cause.Kind != CauseCancelled {
+		t.Fatalf("Run() = %+v, want a cancelled failure", got)
+	}
+	if !strings.HasPrefix(got.Cause.Message(), "Not finished: the review was cancelled;") {
+		t.Errorf("message = %q", got.Cause.Message())
 	}
 }
 

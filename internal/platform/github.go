@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
 	"strings"
+
+	"github.com/gopaytech/pergent/internal/diff"
 )
 
 type GitHub struct {
@@ -59,9 +60,8 @@ func (g *GitHub) FetchDiff() (string, []string, error) {
 		return "", nil, fmt.Errorf("reading diff: %w", err)
 	}
 
-	diff := string(data)
-	files := parseDiffFiles(diff)
-	return diff, files, nil
+	unified := string(data)
+	return unified, parseDiffFiles(unified), nil
 }
 
 func (g *GitHub) FindComment(marker string) (int64, string, error) {
@@ -133,16 +133,15 @@ func (g *GitHub) UpdateComment(commentID int64, body string) error {
 	return nil
 }
 
-var diffFileRegex = regexp.MustCompile(`^diff --git a/(.+) b/`)
-
-func parseDiffFiles(diff string) []string {
+// parseDiffFiles lists the files of a unified diff, named as diff.Split names
+// them: a rename lists its new path and quoted paths are unquoted.
+func parseDiffFiles(unified string) []string {
 	var files []string
 	seen := make(map[string]bool)
-	for _, line := range strings.Split(diff, "\n") {
-		matches := diffFileRegex.FindStringSubmatch(line)
-		if len(matches) >= 2 && !seen[matches[1]] {
-			files = append(files, matches[1])
-			seen[matches[1]] = true
+	for _, f := range diff.Split(unified) {
+		if f.Path != "" && !seen[f.Path] {
+			files = append(files, f.Path)
+			seen[f.Path] = true
 		}
 	}
 	return files
