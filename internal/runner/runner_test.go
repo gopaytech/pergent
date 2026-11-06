@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -338,6 +339,49 @@ func TestRelativeTo(t *testing.T) {
 		if got := relativeTo(repo, tt.path); got != tt.want {
 			t.Errorf("relativeTo(%q) = %q, want %q", tt.path, got, tt.want)
 		}
+	}
+}
+
+// opencode starts children (language servers, tools); killing only opencode
+// leaves them running. A timed-out run must take its whole process group.
+func TestRun_TimeoutKillsChildren(t *testing.T) {
+	dir := t.TempDir()
+	pidFile := filepath.Join(dir, "child.pid")
+	bin := filepath.Join(dir, "bin")
+	if err := os.Mkdir(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The child is not exec'd, so it outlives a kill of the shell alone.
+	script := "#!/bin/sh\nsleep 60 &\necho $! > " + pidFile + "\nwait\n"
+	if err := os.WriteFile(filepath.Join(bin, "opencode"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	start := time.Now()
+	got := Run(context.Background(), testOptions(time.Second))
+	if got.Status != StatusFailed || got.Cause == nil || got.Cause.Kind != CauseTimeout {
+		t.Fatalf("Run() = %+v, want a timeout", got)
+	}
+	if d := time.Since(start); d > 8*time.Second {
+		t.Errorf("Run() took %s, want it back soon after the timeout, not after waitDelay", d)
+	}
+
+	data, err := os.ReadFile(pidFile)
+	if err != nil {
+		t.Fatalf("the fake opencode wrote no child pid: %v", err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { syscall.Kill(pid, syscall.SIGKILL) })
+	deadline := time.Now().Add(3 * time.Second)
+	for syscall.Kill(pid, 0) == nil {
+		if time.Now().After(deadline) {
+			t.Fatalf("child process %d is still running after the run ended", pid)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
 

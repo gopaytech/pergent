@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/gopaytech/pergent/internal/config"
@@ -113,6 +114,21 @@ func BuildCommand(ctx context.Context, configPath string, files []string, messag
 	cmd := exec.CommandContext(ctx, "opencode", args...)
 	cmd.Dir = repoPath
 	cmd.WaitDelay = waitDelay
+	// opencode starts children (language servers, tools). Put them in one
+	// process group and kill the group, or a killed run leaves them running
+	// and holding opencode's pipes.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		// The group id is opencode's pid (Setpgid).
+		err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		if errors.Is(err, syscall.ESRCH) {
+			return os.ErrProcessDone
+		}
+		if err != nil {
+			return cmd.Process.Kill()
+		}
+		return nil
+	}
 
 	env := os.Environ()
 	if configPath != "" {
