@@ -42,6 +42,33 @@ func TestPathRuleOrder(t *testing.T) {
 	}
 }
 
+// As in .gitattributes, the last matching line decides, and a line can unset
+// the attribute (-attr, attr=false) or reset it to unspecified (!attr).
+func TestPathRuleLastMatchWins(t *testing.T) {
+	tests := []struct {
+		name, attrs, path, want string
+	}{
+		{"unset after set", "gen/** linguist-generated\ngen/keep.go -linguist-generated\n", "gen/keep.go", ""},
+		{"unset after set, other file stays", "gen/** linguist-generated\ngen/keep.go -linguist-generated\n", "gen/other.go", "generated"},
+		{"=false after set", "gen/** linguist-generated\ngen/keep.go linguist-generated=false\n", "gen/keep.go", ""},
+		{"reset after set", "gen/** linguist-generated\ngen/keep.go !linguist-generated\n", "gen/keep.go", ""},
+		{"set again after unset", "*.go -linguist-generated\n*.go linguist-generated\n", "a.go", "generated"},
+		{"=true after =false", "*.go linguist-generated=false\n*.go linguist-generated=true\n", "a.go", "generated"},
+		{"last token on a line wins", "*.go linguist-generated -linguist-generated\n", "a.go", ""},
+		{"last token on a line wins, set", "*.go -linguist-generated linguist-generated\n", "a.go", "generated"},
+		{"unset line that does not match", "gen/** linguist-generated\nother/** -linguist-generated\n", "gen/a.go", "generated"},
+		{"other attributes on the line", "gen/** -diff linguist-generated=false linguist-vendored\n", "gen/a.go", ""},
+		{"macro line is not a pattern", "[attr]mine linguist-generated\n", "tmine", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ParseAttributes([]byte(tt.attrs)).PathRule(tt.path); got != tt.want {
+				t.Errorf("PathRule(%q) = %q, want %q", tt.path, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestDecide(t *testing.T) {
 	tests := []struct {
 		name           string
