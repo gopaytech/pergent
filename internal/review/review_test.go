@@ -19,6 +19,7 @@ import (
 	"github.com/gopaytech/pergent/internal/finding"
 	"github.com/gopaytech/pergent/internal/runner"
 	"github.com/gopaytech/pergent/internal/skill"
+	"github.com/gopaytech/pergent/render"
 )
 
 // call is what the fake runner saw in one run. Contents holds each attached
@@ -479,6 +480,68 @@ func TestRun_RepairRunFailureKeepsFormatContext(t *testing.T) {
 	}
 	if fl.Cause == nil || fl.Cause.Kind != runner.CauseNoAnswer {
 		t.Errorf("Cause = %+v, want the repair run's cause", fl.Cause)
+	}
+}
+
+func TestAssignFingerprints(t *testing.T) {
+	const prevFP = "abcdefabcdef"
+	prev := []finding.Finding{
+		{File: "a.go", Line: 10, Title: "Old title", Fingerprint: prevFP},
+		{File: "a.go", Line: 40, Title: "Old title", Fingerprint: prevFP},
+	}
+	tests := []struct {
+		name     string
+		file     string
+		line     int
+		fp       string
+		wantKept bool
+	}{
+		{name: "reworded on the same line keeps it", file: "a.go", line: 10, fp: prevFP, wantKept: true},
+		{name: "matches any previous finding with that fingerprint", file: "a.go", line: 40, fp: prevFP, wantKept: true},
+		{name: "on another file is computed", file: "b.go", line: 10, fp: prevFP},
+		{name: "on another line is computed", file: "a.go", line: 11, fp: prevFP},
+		{name: "without a line is computed", file: "a.go", fp: prevFP},
+		{name: "unknown is computed", file: "a.go", line: 10, fp: "unknown12345"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			in := finding.Finding{File: tt.file, Line: tt.line, Title: "New title", Fingerprint: tt.fp}
+			got := assignFingerprints("s", []finding.Finding{in}, prev)[0].Fingerprint
+			want := finding.Fingerprint("s", tt.file, "New title")
+			if tt.wantKept {
+				want = prevFP
+			}
+			if got != want {
+				t.Errorf("Fingerprint = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+// A dismissal is keyed by fingerprint, so a new blocking finding that reuses a
+// dismissed one's fingerprint must not be set aside with it: the skill would
+// turn clean, and a caller could approve the change.
+func TestRun_ReusedFingerprintDoesNotInheritDismissal(t *testing.T) {
+	const dismissedFP = "abcdefabcdef"
+	prev := finding.Finding{File: "old.go", Line: 1, Severity: finding.Blocking, Title: "Old", Explanation: "e", Fingerprint: dismissedFP}
+	fresh := finding.Finding{File: "cmd/a.go", Line: 1, Severity: finding.Blocking, Title: "SQL injection", Explanation: "e", Fingerprint: dismissedFP}
+
+	f := &fake{}
+	f.respond = func(int, call) runner.RunResult { return completed(answer(t, fresh)) }
+	req := newRequest(t, f, patch("cmd/a.go", "x"))
+	req.Previous = map[string][]finding.Finding{"s": {prev}}
+	r := Run(context.Background(), req)[0]
+	if len(r.Findings) != 1 {
+		t.Fatalf("findings = %+v, want one", r.Findings)
+	}
+
+	got := r.Findings[0]
+	decided := render.ApplyDismissals(
+		[]render.Skill{{Name: "s", Verdict: render.VerdictHasBlockingIssues, Findings: []render.Finding{{File: got.File, Line: got.Line, Severity: render.Blocking, Title: got.Title, Fingerprint: got.Fingerprint}}}},
+		[]render.Dismissal{{Fingerprint: dismissedFP, Severity: "blocking"}},
+	)
+	if decided[0].Verdict != render.VerdictHasBlockingIssues {
+		t.Errorf("Verdict after the dismissal = %q, want %q", decided[0].Verdict, render.VerdictHasBlockingIssues)
 	}
 }
 

@@ -366,6 +366,13 @@ func TestPrepareAgent_Codes(t *testing.T) {
 			t.Errorf("prepareAgent() error = %+v, want %s", e, result.CodeUsage)
 		}
 	})
+	t.Run("skills_invalid for a scope pattern that can never match", func(t *testing.T) {
+		dir := skillsDir(t, map[string]string{"x.md": "---\npaths:\n  - api/\n---\nBody.\n"})
+		in := mustParse(t, agentArgs(repo, base, head, dir))
+		if e := prepareAgent(&in, quietLog); e == nil || e.Code != result.CodeSkillsInvalid || !strings.Contains(e.Message, "api/**") {
+			t.Errorf("prepareAgent() error = %+v, want %s naming the fix", e, result.CodeSkillsInvalid)
+		}
+	})
 	t.Run("skills_invalid for a folder without SKILL.md", func(t *testing.T) {
 		dir := skillsDir(t, map[string]string{"x.md": "X.\n", "folder/README.md": "Not a skill.\n"})
 		in := mustParse(t, agentArgs(repo, base, head, dir))

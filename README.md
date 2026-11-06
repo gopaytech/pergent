@@ -260,7 +260,7 @@ cross_batch: true
 | `exclude` | Glob patterns for files the skill skips even though they are in scope. |
 | `cross_batch` | `true` adds one extra run, after all batches, that looks for problems spanning batches (for example conflicting changes in different directories). It only runs when the change needed more than one batch. Default `false`. |
 
-Patterns use `/`-separated paths from the repo root. `*` matches within one path segment and `**` matches any number of segments. A pattern with no `/` (such as `*.proto`) matches the file name at any depth.
+Patterns use `/`-separated paths from the repo root. `*` matches within one path segment and `**` matches any number of segments. A pattern with no `/` (such as `*.proto`) matches the file name at any depth. A pattern with bad glob syntax, or one that can never match a file (`api/`, `/api/**`, `./api/**`), is an error when the skill loads, because the skill would otherwise report a clean review on every change. For a directory, use `api/**`.
 
 ### Default exclusions
 
@@ -353,7 +353,7 @@ A comment that would exceed the platform's size limit (65,536 characters on GitH
 
 ## 🔄 Previous review as context
 
-By default each run reviews from scratch. With `--previous-review` (or `PERGENT_PREVIOUS_REVIEW=true`), pergent fetches the review comment it posted on the previous run, reads the findings from its hidden findings block, and attaches each skill's findings to that skill's runs alongside the diff. The agent is instructed to stay consistent with them, focus on what changed since, drop findings the new commits resolve, and reuse a finding's fingerprint when it still applies. A skill with no previous findings gets nothing attached.
+By default each run reviews from scratch. With `--previous-review` (or `PERGENT_PREVIOUS_REVIEW=true`), pergent fetches the review comment it posted on the previous run, reads the findings from its hidden findings block, and attaches each skill's findings to that skill's runs alongside the diff. The agent is instructed to stay consistent with them, focus on what changed since, drop findings the new commits resolve, and reuse a finding's fingerprint when it still applies. pergent keeps a reused fingerprint only on the same file and line as the previous finding, so a new finding can't take over an old one's identity or its dismissal. A skill with no previous findings gets nothing attached.
 
 pergent stays stateless, the PR/MR comment is the only persistent state. First runs (no existing comment) behave exactly as before. Requires platform mode (not available with `--local`).
 

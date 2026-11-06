@@ -1,6 +1,8 @@
 package scope
 
 import (
+	"errors"
+	"fmt"
 	"path"
 	"strings"
 )
@@ -43,6 +45,29 @@ func matchSegments(pat, segs []string) bool {
 		pat, segs = pat[1:], segs[1:]
 	}
 	return len(segs) == 0
+}
+
+// CheckPattern returns an error for a pattern with bad glob syntax or one that
+// can never match a path from the repo root. Match reports both as no match,
+// so without this check a mistake silently turns a skill's scope off. "api/"
+// is the likely one: a directory is "api/**".
+func CheckPattern(pattern string) error {
+	if pattern == "" {
+		return errors.New("pattern is empty")
+	}
+	dir := strings.TrimSuffix(pattern, "/")
+	for _, seg := range strings.Split(dir, "/") {
+		if seg == "" || seg == "." || seg == ".." {
+			return fmt.Errorf(`pattern %q can never match a file: paths start at the repo root, with no empty, "." or ".." segment`, pattern)
+		}
+		if _, err := path.Match(seg, ""); err != nil {
+			return fmt.Errorf("pattern %q: %w", pattern, err)
+		}
+	}
+	if dir != pattern {
+		return fmt.Errorf("pattern %q can never match a file: for a directory use %q", pattern, pattern+"**")
+	}
+	return nil
 }
 
 // MatchAny reports whether p matches any of patterns.

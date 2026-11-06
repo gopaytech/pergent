@@ -701,18 +701,25 @@ func (r *reviewer) runWithPrompt(ctx context.Context, s skill.Skill, label, prom
 	}), nil
 }
 
-// assignFingerprints keeps a finding's fingerprint when it matches one of
-// the previous findings and computes it otherwise.
+// assignFingerprints computes each finding's fingerprint, unless the model
+// reused one from a previous finding on the same file and line. That keeps the
+// identity of a finding it reworded, which the hash alone would lose. The
+// place must match because a dismissal is keyed by fingerprint: a new finding
+// elsewhere must not inherit one and turn the skill clean.
 func assignFingerprints(skillName string, fs, prev []finding.Finding) []finding.Finding {
-	known := make(map[string]bool, len(prev))
+	type placed struct {
+		fingerprint, file string
+		line              int
+	}
+	known := make(map[placed]bool, len(prev))
 	for _, p := range prev {
 		if p.Fingerprint != "" {
-			known[p.Fingerprint] = true
+			known[placed{p.Fingerprint, p.File, p.Line}] = true
 		}
 	}
 	out := make([]finding.Finding, len(fs))
 	for i, f := range fs {
-		if !known[f.Fingerprint] {
+		if !known[placed{f.Fingerprint, f.File, f.Line}] {
 			f.Fingerprint = finding.Fingerprint(skillName, f.File, f.Title)
 		}
 		out[i] = f
