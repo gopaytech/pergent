@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 )
 
@@ -90,7 +91,8 @@ func TestGenerateOpenCodeConfig(t *testing.T) {
 		t.Fatalf("permission.external_directory = %v, want object", cfg.Permission["external_directory"])
 	}
 	attachments := filepath.Join(os.TempDir(), "pergent-*")
-	wantExternal := map[string]string{"*": "deny", attachments: "allow"}
+	toolOutput := filepath.Join(os.TempDir(), DataDirPrefix+"*", "opencode", "tool-output", "*")
+	wantExternal := map[string]string{"*": "deny", attachments: "allow", toolOutput: "allow"}
 	for pattern, action := range wantExternal {
 		if external[pattern] != action {
 			t.Errorf("permission.external_directory[%q] = %v, want %q", pattern, external[pattern], action)
@@ -289,6 +291,63 @@ func TestGenerateOpenCodeConfig_LSPOff(t *testing.T) {
 				t.Errorf("lsp = %v, want false", raw["lsp"])
 			}
 		})
+	}
+}
+
+// external_directory is decided by the last matching rule. opencode's data
+// directory holds auth.json and the session database, so a run may read only
+// the tool output opencode itself points it at, not the rest.
+func TestGenerateOpenCodeConfig_ExternalDirectory(t *testing.T) {
+	t.Setenv("OPENCODE_PROVIDER", "anthropic")
+	t.Setenv("OPENCODE_MODEL", "claude-sonnet-4")
+
+	path, cleanup, err := GenerateOpenCodeConfigWith(OpenCodeOptions{MaxTurns: 20})
+	if err != nil {
+		t.Fatalf("GenerateOpenCodeConfigWith() error: %v", err)
+	}
+	defer cleanup()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading config: %v", err)
+	}
+	var raw struct {
+		Permission struct {
+			ExternalDirectory map[string]string `json:"external_directory"`
+		} `json:"permission"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("parsing config JSON: %v", err)
+	}
+	rules := raw.Permission.ExternalDirectory
+	keys := make([]string, 0, len(rules))
+	for k := range rules {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	allowed := func(dir string) bool {
+		// opencode checks a file outside the repo as its directory plus "/*".
+		pattern, got := filepath.Join(dir, "*"), false
+		for _, k := range keys {
+			if wildcardMatch(k, pattern) {
+				got = rules[k] == "allow"
+			}
+		}
+		return got
+	}
+
+	dataDir := filepath.Join(os.TempDir(), DataDirPrefix+"abc123")
+	for dir, want := range map[string]bool{
+		filepath.Join(os.TempDir(), "pergent-batch-abc123"): true,
+		filepath.Join(os.TempDir(), "pergent-diffs-abc123"): true,
+		filepath.Join(dataDir, "opencode", "tool-output"):   true,
+		filepath.Join(dataDir, "opencode"):                  false,
+		dataDir:                                             false,
+		filepath.Join(os.TempDir(), "someone-else"):         false,
+		"/etc": false,
+	} {
+		if got := allowed(dir); got != want {
+			t.Errorf("allowed(%q) = %v, want %v", dir, got, want)
+		}
 	}
 }
 
@@ -546,6 +605,7 @@ const goldenCIConfig = `{
     "edit": "deny",
     "external_directory": {
       "*": "deny",
+      "%[3]s": "allow",
       "%[2]s": "allow"
     },
     "glob": "allow",
@@ -588,7 +648,8 @@ func TestGenerate_Unchanged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := fmt.Sprintf(goldenCIConfig, agentsPath, filepath.Join(os.TempDir(), "pergent-*"))
+	toolOutput := filepath.Join(os.TempDir(), DataDirPrefix+"*", "opencode", "tool-output", "*")
+	want := fmt.Sprintf(goldenCIConfig, agentsPath, filepath.Join(os.TempDir(), "pergent-*"), toolOutput)
 	if string(got) != want {
 		t.Errorf("CI config changed.\ngot:\n%s\nwant:\n%s", got, want)
 	}
