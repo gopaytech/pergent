@@ -120,7 +120,7 @@ type answer struct {
 	LeftOut          json.RawMessage `json:"left_out"`
 	Confidence       json.RawMessage `json:"confidence"`
 	ConfidenceReason json.RawMessage `json:"confidence_reason"`
-	Findings         *[]rawFinding   `json:"findings"`
+	Findings         json.RawMessage `json:"findings"`
 }
 
 // rawFinding is a Finding whose end_line and suggestion are decoded loosely
@@ -144,26 +144,27 @@ type rawCheck struct {
 	Detail  json.RawMessage `json:"detail"`
 }
 
+// errNoFindingsKey marks a block that is not an answer at all.
+var errNoFindingsKey = errors.New(`json block has no "findings" key`)
+
 // ParseAnswer extracts the summary and findings from the model's final
-// answer. It looks at every ```json fenced block, from last to first, and
-// returns the first block that parses and validates.
+// answer: the last ```json fenced block with a "findings" key. Only readable
+// objects without that key are passed over. A bad or unreadable block is an
+// error, not a reason to look further back: an earlier block may be an example
+// of the output shape, and taking it would turn a real answer into a clean pass.
 func ParseAnswer(text string) (Answer, error) {
 	blocks := JSONBlocks(text)
 	if len(blocks) == 0 {
 		return Answer{}, errors.New("no json code block found in the answer")
 	}
 
-	var lastErr error
 	for i := len(blocks) - 1; i >= 0; i-- {
 		a, err := parseBlock(blocks[i])
-		if err == nil {
-			return a, nil
-		}
-		if lastErr == nil {
-			lastErr = err
+		if !errors.Is(err, errNoFindingsKey) {
+			return a, err
 		}
 	}
-	return Answer{}, lastErr
+	return Answer{}, errNoFindingsKey
 }
 
 func parseBlock(block JSONBlock) (Answer, error) {
@@ -175,10 +176,17 @@ func parseBlock(block JSONBlock) (Answer, error) {
 		return Answer{}, fmt.Errorf("invalid json: %w", err)
 	}
 	if a.Findings == nil {
-		return Answer{}, errors.New(`json block has no "findings" key`)
+		return Answer{}, errNoFindingsKey
 	}
-	findings := make([]Finding, 0, len(*a.Findings))
-	for i, rf := range *a.Findings {
+	var raw []rawFinding
+	if err := json.Unmarshal(a.Findings, &raw); err != nil {
+		return Answer{}, fmt.Errorf("invalid json: %w", err)
+	}
+	if raw == nil {
+		return Answer{}, errors.New(`"findings" is null, want a list`)
+	}
+	findings := make([]Finding, 0, len(raw))
+	for i, rf := range raw {
 		if err := validate(rf.Finding); err != nil {
 			return Answer{}, fmt.Errorf("finding %d: %w", i, err)
 		}

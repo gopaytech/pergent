@@ -33,3 +33,33 @@ func TestDedup_KeepsFirst(t *testing.T) {
 		t.Errorf("got[1].Explanation = %q, want %q", got[1].Explanation, "second")
 	}
 }
+
+func TestDedup_BlockingBeatsSuggestion(t *testing.T) {
+	in := []Finding{
+		{File: "a.go", Line: 3, Severity: Suggestion, Title: "Nil Deref", Explanation: "suggestion"},
+		{File: "b.go", Line: 1, Severity: Suggestion, Title: "other", Explanation: "second"},
+		{File: "a.go", Line: 3, Severity: Blocking, Title: "nil deref", Explanation: "blocking"},
+	}
+	got := Dedup(in)
+	if len(got) != 2 {
+		t.Fatalf("len(Dedup) = %d, want 2", len(got))
+	}
+	if got[0].Severity != Blocking || got[0].Explanation != "blocking" {
+		t.Errorf("got[0] = %+v, want the blocking finding in the first one's place", got[0])
+	}
+	if got[1].Explanation != "second" {
+		t.Errorf("got[1].Explanation = %q, want %q", got[1].Explanation, "second")
+	}
+}
+
+func TestDedup_BlockingStaysOverLaterSuggestion(t *testing.T) {
+	in := []Finding{
+		{File: "a.go", Line: 3, Severity: Blocking, Title: "t", Explanation: "blocking"},
+		{File: "a.go", Line: 3, Severity: Suggestion, Title: "t", Explanation: "suggestion"},
+		{File: "a.go", Line: 3, Severity: Blocking, Title: "t", Explanation: "later blocking"},
+	}
+	got := Dedup(in)
+	if len(got) != 1 || got[0].Explanation != "blocking" {
+		t.Errorf("Dedup = %+v, want only the first blocking finding", got)
+	}
+}

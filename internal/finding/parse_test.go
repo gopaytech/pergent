@@ -43,6 +43,36 @@ func TestParseAnswer(t *testing.T) {
 			wantLen: 0,
 		},
 		{
+			name: "bad finding in the last block does not fall back to an earlier block",
+			answer: "Shape:\n" + fence + "json\n" + `{"findings":[]}` + "\n" + fence +
+				"\nAnswer:\n" + fence + "json\n" + `{"findings":[{"file":"a.go","severity":"high","title":"t","explanation":"e"}]}` + "\n" + fence,
+			wantErr: "severity",
+		},
+		{
+			name: "cut-off last block does not fall back to an earlier block",
+			answer: "Shape:\n" + fence + "json\n" + `{"findings":[]}` + "\n" + fence +
+				"\nAnswer:\n" + fence + "json\n" + `{"findings":[{"file":"a.go","sever`,
+			wantErr: "invalid json",
+		},
+		{
+			name: "null findings in the last block does not fall back to an earlier block",
+			answer: "Shape:\n" + fence + "json\n" + `{"findings":[]}` + "\n" + fence +
+				"\nAnswer:\n" + fence + "json\n" + `{"findings":null}` + "\n" + fence,
+			wantErr: "findings",
+		},
+		{
+			name: "findings of the wrong type in the last block does not fall back to an earlier block",
+			answer: "Shape:\n" + fence + "json\n" + `{"findings":[]}` + "\n" + fence +
+				"\nAnswer:\n" + fence + "json\n" + `{"findings":"none"}` + "\n" + fence,
+			wantErr: "invalid json",
+		},
+		{
+			name: "block without a findings key after the answer is skipped",
+			answer: fence + "json\n" + `{"findings":[{"file":"a.go","severity":"blocking","title":"t","explanation":"e"}]}` + "\n" + fence +
+				"\nFor reference:\n" + fence + "json\n" + `{"other":1}` + "\n" + fence,
+			wantLen: 1,
+		},
+		{
 			name:    "no json block",
 			answer:  "just prose, nothing fenced",
 			wantErr: "no json code block",

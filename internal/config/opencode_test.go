@@ -259,6 +259,39 @@ func TestGenerateOpenCodeConfig_ProviderWithoutModel(t *testing.T) {
 	}
 }
 
+// A language server is a program from the reviewed repo (opencode prefers its
+// node_modules/.bin/biome), started by the read tool whatever the permissions
+// say. Older opencode turns them on when lsp is unset, so false must be explicit.
+func TestGenerateOpenCodeConfig_LSPOff(t *testing.T) {
+	t.Setenv("OPENCODE_PROVIDER", "anthropic")
+	t.Setenv("OPENCODE_MODEL", "claude-sonnet-4")
+
+	for name, opts := range map[string]OpenCodeOptions{
+		"default":  {MaxTurns: 20},
+		"hardened": {MaxTurns: 20, ExplicitInstructions: true, DenySecretFiles: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			path, cleanup, err := GenerateOpenCodeConfigWith(opts)
+			if err != nil {
+				t.Fatalf("GenerateOpenCodeConfigWith() error: %v", err)
+			}
+			defer cleanup()
+
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("reading config: %v", err)
+			}
+			var raw map[string]any
+			if err := json.Unmarshal(data, &raw); err != nil {
+				t.Fatalf("parsing config JSON: %v", err)
+			}
+			if lsp, ok := raw["lsp"].(bool); !ok || lsp {
+				t.Errorf("lsp = %v, want false", raw["lsp"])
+			}
+		})
+	}
+}
+
 func TestGenerateOpenCodeConfig_LimitsAndCompaction(t *testing.T) {
 	t.Setenv("OPENCODE_PROVIDER", "anthropic")
 	t.Setenv("OPENCODE_MODEL", "claude-sonnet-4")
@@ -531,7 +564,8 @@ const goldenCIConfig = `{
   },
   "compaction": {
     "auto": false
-  }
+  },
+  "lsp": false
 }`
 
 func TestGenerate_Unchanged(t *testing.T) {

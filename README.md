@@ -52,6 +52,7 @@ When `OPENCODE_PROVIDER` is set, pergent writes a temporary `opencode.json` for 
 - defines a `pergent` agent that carries the skill's prompt (its body plus pergent's output-format instructions) and `--max-turns` as its step limit, and makes it the default agent (pergent also passes `--agent pergent`)
 - allows only `read`, `glob`, `grep` and `list`, and denies `edit` (which covers file writes and patches), `bash`, `task`, `skill`, `webfetch` and `websearch`
 - denies reading `*.env` / `*.env.*` files (except `*.env.example`)
+- turns off language servers (`lsp: false`), because opencode's `read` tool starts them whatever the permissions say, and a server can be a program from the reviewed branch (such as `node_modules/.bin/biome`) running with your LLM key in its environment
 - turns off opencode's auto-compaction (`compaction.auto: false`), so a run that fills the model's context fails with the overflow error instead of continuing from a summary
 - leaves the model's context and output limits to opencode's model registry, unless you set `--context-limit`
 

@@ -21,6 +21,7 @@ type openCodeConfig struct {
 	Agent        map[string]openCodeAgent    `json:"agent"`
 	Permission   map[string]any              `json:"permission"`
 	Compaction   openCodeCompaction          `json:"compaction"`
+	LSP          bool                        `json:"lsp"`
 }
 
 type openCodeCompaction struct {
@@ -200,6 +201,12 @@ func GenerateOpenCodeConfigWith(o OpenCodeOptions) (string, func(), error) {
 		// review. With it off, an overflow ends the run with a
 		// ContextOverflowError, which pergent reports as the failure cause.
 		Compaction: openCodeCompaction{Auto: false},
+		// The read tool starts language servers whatever the permissions say,
+		// and a server can be a program from the reviewed repo (opencode prefers
+		// its node_modules/.bin/biome), running with the LLM key in its
+		// environment. opencode 1.19 leaves them off when this is unset, but
+		// older versions turn them on, and so can a global config.
+		LSP: false,
 	}
 
 	tmpDir, err := os.MkdirTemp("", "pergent-*")
