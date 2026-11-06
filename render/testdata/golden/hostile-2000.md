@@ -26,7 +26,7 @@ x
 ​/label ~bug
     // keep this comment
 ```
-https://x.example/?key=[REDACTED]&‍token=[REDACTED]
+https://x.example/?key=[REDACTED]&token=[REDACTED]
 
 </details>
 

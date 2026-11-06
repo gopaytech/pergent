@@ -351,20 +351,22 @@ func writeList(b *strings.Builder, lines []string, limit int) {
 }
 
 // writeFailure writes one failure line, and below it whatever the lead
-// carries.
-func writeFailure(b *strings.Builder, f Failure) {
+// carries. head is what the line starts with. The message is model or file
+// text, so it is shown as noteText does. The lead is Markdown from the caller
+// but can carry such text (a file name, the model's answer, opencode's
+// output), so it is made inert like a finding's body, code kept as it is. It
+// goes through proseText together with head: a fence in the lead follows the
+// prefix, so it opens nothing.
+func writeFailure(b *strings.Builder, head string, f Failure) {
 	if f.Lead != "" {
-		fmt.Fprintf(b, "%s %s", failedPrefix, f.Lead)
-		if !strings.HasSuffix(f.Lead, "\n") {
-			b.WriteString("\n")
-		}
+		fmt.Fprintf(b, "%s\n", modelText(head+failedPrefix+" "+f.Lead))
 		return
 	}
-	line := oneLine(f.Message)
+	line := noteText(f.Message)
 	if line == "" {
 		line = noCauseMessage
 	}
-	fmt.Fprintf(b, "%s %s\n", failedPrefix, neutralizeComments(line))
+	fmt.Fprintf(b, "%s%s %s\n", head, failedPrefix, line)
 }
 
 // dismissedBlocking counts the dismissed findings that would have blocked.
@@ -402,15 +404,20 @@ func writeDismissed(b *strings.Builder, d DismissedFinding) {
 	}
 }
 
+// cellReplacer is noteTextReplacer without "<", which checkCell escapes.
+var cellReplacer = strings.NewReplacer(concat(mentionPairs, ampPairs, linkPairs)...)
+
 // checkCell renders model text for a table cell: one line, "|" escaped so it
-// can't add a column, "<" escaped so it can't open HTML, and backticks
-// escaped when unbalanced so a code span can't run past the cell.
+// can't add a column, "<" escaped so it can't open HTML, backticks escaped
+// when unbalanced so a code span can't run past the cell, and the rest as
+// noteText does so it can't ping anyone or render an image or link.
 func checkCell(s string) string {
 	s = oneLine(s)
 	if strings.Count(s, "`")%2 == 1 {
 		s = strings.ReplaceAll(s, "`", "\\`")
 	}
 	s = strings.ReplaceAll(s, "|", "\\|")
+	s = breakWikiLinks(cellReplacer.Replace(s))
 	return strings.ReplaceAll(s, "<", "&lt;")
 }
 

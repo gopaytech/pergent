@@ -211,24 +211,32 @@ func writeNotes(b *strings.Builder, skills []Skill) {
 	}
 }
 
-// noteTextReplacer makes model text in a note inert by putting a zero-width
-// joiner inside every sequence that does something: "@" and "&" (a mention,
-// also as "&#64;" or "&commat;"), "<" (HTML), "![" (an image), "](" (a link)
-// and "[[" (a wiki link on GitLab). A joiner, not an entity or a backslash,
-// because those show up literally inside a code span; backticks stay, so a
-// plain note may use code spans. ">" is inert once "<" is broken.
-var noteTextReplacer = strings.NewReplacer(
-	"@", "@\u200d",
-	"&", "&\u200d",
-	"<", "<\u200d",
-	"![", "!\u200d[",
-	"](", "]\u200d(",
+// The sequences model text must not contain, each with the zero-width joiner
+// put inside it: "@" (a mention), "&" (also as "&#64;" or "&commat;"), "<"
+// (HTML), "![" (an image), "](" (a link). A joiner, not an entity or a
+// backslash, because those show up literally inside a code span; backticks
+// stay, so a plain note may use code spans. ">" is inert once "<" is broken.
+// "[[" (a wiki link on GitLab) is handled by breakWikiLinks.
+var (
+	mentionPairs = []string{"@", "@\u200d"}
+	ampPairs     = []string{"&", "&\u200d"}
+	anglePairs   = []string{"<", "<\u200d"}
+	linkPairs    = []string{"![", "!\u200d[", "](", "]\u200d("}
 )
 
-// inertText puts the zero-width joiner inside every sequence of s that does
-// something (see noteTextReplacer). It keeps the line breaks of s.
-func inertText(s string) string {
-	s = noteTextReplacer.Replace(s)
+// noteTextReplacer breaks all of them.
+var noteTextReplacer = strings.NewReplacer(concat(mentionPairs, ampPairs, anglePairs, linkPairs)...)
+
+func concat(lists ...[]string) []string {
+	var all []string
+	for _, l := range lists {
+		all = append(all, l...)
+	}
+	return all
+}
+
+// breakWikiLinks puts a joiner inside every "[[".
+func breakWikiLinks(s string) string {
 	// A replacer pass doesn't overlap, so "[[[" keeps a "[[" after one pass.
 	for strings.Contains(s, "[[") {
 		s = strings.ReplaceAll(s, "[[", "[\u200d[")
@@ -239,7 +247,7 @@ func inertText(s string) string {
 // noteText renders a note on one line as text only. The caller puts a fixed
 // pergent prefix before it (a quote marker, and the skill name with several
 // skills), so it never starts a block.
-func noteText(n string) string { return inertText(oneLine(n)) }
+func noteText(n string) string { return breakWikiLinks(noteTextReplacer.Replace(oneLine(n))) }
 
 // fileRow is a path of the review and what each skill did with it.
 type fileRow struct {

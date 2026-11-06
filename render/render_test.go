@@ -86,7 +86,7 @@ func TestFailureLeadOrMessage(t *testing.T) {
 	}}
 	got := render.Comment(skills, render.Options{})
 	for _, want := range []string{
-		"\u26a0\ufe0f **Review failed:** Plain &lt;!-- pergent:findings x --> message\n\n",
+		"\u26a0\ufe0f **Review failed:** Plain <\u200d!-- pergent:findings x --> message\n\n",
 		"\u26a0\ufe0f **Review failed:** Lead text\n\nBelow it\n\n",
 		"\u26a0\ufe0f **Review failed:** The run ended without a review and without a reported cause.\n\n",
 	} {

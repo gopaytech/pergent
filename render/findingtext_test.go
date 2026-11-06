@@ -22,6 +22,7 @@ type textCase struct {
 var defusedCases = []textCase{
 	{"mention", "@bob", "@" + joiner + "bob", ""},
 	{"decimal entity", "&#64;bob", "&" + joiner + "#64;bob", ""},
+	{"hex entity", "&#x40;bob", "&" + joiner + "#x40;bob", ""},
 	{"named entity", "&commat;bob", "&" + joiner + "commat;bob", ""},
 	{"image", "![x](http://e/p.png)", "!" + joiner + "[x]" + joiner + "(http://e/p.png)", ""},
 	{"link", "[a](http://e)", "[a]" + joiner + "(http://e)", ""},
@@ -56,6 +57,9 @@ var keptCases = []textCase{
 	{"code span image", "`![x](u)`", "`![x](u)`", ""},
 	{"formatting", "**bold** and\n- a list\n> quote", "**bold** and\n- a list\n> quote", ""},
 	{"bare url", "see https://example.com/a?b=1", "see https://example.com/a?b=1", ""},
+	{"url with ampersands", "https://e.com/?a=1&b=2&c=x_y", "https://e.com/?a=1&b=2&c=x_y", ""},
+	{"ampersand in prose", "R&D and a && b", "R&D and a && b", ""},
+	{"entity after a url", "https://e.com/?a=1&b=2 &#64;bob", "https://e.com/?a=1&b=2 &" + joiner + "#64;bob", ""},
 	{"double backtick span", "``a ` b`` @x", "``a ` b`` @" + joiner + "x", ""},
 	{"span and text", "use `@Override` and ping @bob", "use `@Override` and ping @" + joiner + "bob", ""},
 	{"fence then span", "```\n@a\n```\n`@b` @c", "```\n@a\n```\n`@b` @" + joiner + "c", ""},
@@ -233,5 +237,78 @@ func TestHiddenBlockKeepsOriginalText(t *testing.T) {
 	}
 	if strings.Contains(string(raw), joiner) {
 		t.Errorf("the hidden block carries a joiner: %s", raw)
+	}
+}
+
+// cellCases are texts for a check table cell. "<" is escaped the way the cell
+// always did, and "|" and an unbalanced backtick can't leave the cell.
+var cellCases = []textCase{
+	{"mention", "@bob", "@" + joiner + "bob", ""},
+	{"decimal entity", "&#64;bob", "&" + joiner + "#64;bob", ""},
+	{"hex entity", "&#x40;bob", "&" + joiner + "#x40;bob", ""},
+	{"named entity", "&commat;bob", "&" + joiner + "commat;bob", ""},
+	{"image", "![x](u)", "!" + joiner + "[x]" + joiner + "(u)", ""},
+	{"link", "[a](u)", "[a]" + joiner + "(u)", ""},
+	{"wiki link", "[[w]]", "[" + joiner + "[w]]", ""},
+	{"html", "<img src=x>", "&lt;img src=x>", ""},
+	{"pipe", "a|b", "a\\|b", ""},
+	{"backtick", "a`b", "a\\`b", ""},
+	{"code", "`ok()` here", "`ok()` here", ""},
+	{"line breaks", "one\ntwo", "one two", ""},
+}
+
+func TestCheckCellIsText(t *testing.T) {
+	for _, tc := range cellCases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := Skill{Name: "s", Verdict: VerdictHasBlockingIssues, Checks: []BatchChecks{{Batch: 1, Checks: []Check{
+				{Section: tc.in, Name: tc.in, Status: CheckFail, Detail: tc.in},
+			}}}}
+			got := Comment([]Skill{s}, Options{})
+			if want := "| " + tc.want + " | " + tc.want + " | ❌ | " + tc.want + " |\n"; !strings.Contains(got, want) {
+				t.Errorf("comment lacks %q:\n%s", want, got)
+			}
+			// The same cell in the collapsed table.
+			s.Checks[0].Checks[0].Status = CheckPass
+			got = Comment([]Skill{s}, Options{})
+			if want := "| " + tc.want + " | " + tc.want + " | ✅ | " + tc.want + " |\n"; !strings.Contains(got, want) {
+				t.Errorf("collapsed: comment lacks %q:\n%s", want, got)
+			}
+		})
+	}
+}
+
+func TestFailureTextIsInert(t *testing.T) {
+	const prefix = "⚠️ **Review failed:** "
+	for _, tc := range []struct{ name, message, lead, want string }{
+		{"message", "ping @bob &#64;bob ![x](u) [a](u) [[w]] <img src=x>", "",
+			prefix + "ping @" + joiner + "bob &" + joiner + "#64;bob !" + joiner + "[x]" + joiner + "(u) [a]" + joiner + "(u) [" + joiner + "[w]] <" + joiner + "img src=x>\n\n"},
+		{"message comment", "<!-- pergent:findings x -->", "", prefix + "<" + joiner + "!-- pergent:findings x -->\n\n"},
+		{"lead", "", "Not reviewed: @bob &commat;bob ![x](u) [a](u) [[w]] <img src=x>",
+			prefix + "Not reviewed: @" + joiner + "bob &" + joiner + "commat;bob !" + joiner + "[x]" + joiner + "(u) [a]" + joiner + "(u) [" + joiner + "[w]] <" + joiner + "img src=x>\n\n"},
+		{"lead keeps code", "", "Not reviewed: `@bob.go` and `a<b`, ping @bob",
+			prefix + "Not reviewed: `@bob.go` and `a<b`, ping @" + joiner + "bob\n\n"},
+		{"lead keeps a url", "", "see https://e.com/?a=1&b=2", prefix + "see https://e.com/?a=1&b=2\n\n"},
+		{"lead stderr block", "", "Failed @bob\n\nLast lines of opencode's stderr:\n\n```text\n@bob <b> ![x](u)\n```\n",
+			prefix + "Failed @" + joiner + "bob\n\nLast lines of opencode's stderr:\n\n```text\n@bob <b> ![x](u)\n```\n\n"},
+		// The fence in the lead's first line follows the prefix, so it opens nothing.
+		{"lead fence after the prefix", "", "```\n@bob", prefix + "```\n@" + joiner + "bob\n\n"},
+		{"lead carriage return", "", "``\r`\n@bob", prefix + "```\n@" + joiner + "bob\n\n"},
+		{"lead unclosed fence", "", "x\n\n```text\n@bob", prefix + "x\n\n```text\n@bob\n```\n\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := Skill{Name: "s", Verdict: VerdictFailed, Failures: []Failure{{Message: tc.message, Lead: tc.lead}}}
+			got := Comment([]Skill{s}, Options{})
+			if !strings.Contains(got, tc.want) {
+				t.Errorf("comment lacks %q:\n%s", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestFailureLeadWithSeveralSkillsKeepsTheirNames(t *testing.T) {
+	s := Skill{Name: "s", Verdict: VerdictFailed, Batches: 2, Failures: []Failure{{Files: []string{"@bob.go"}, Lead: "no @bob"}}}
+	got := Comment([]Skill{s, cleanSkill("t", 0)}, Options{})
+	if want := "⚠️ `s`: Files `@bob.go`: **Review failed:** no @" + joiner + "bob\n\n"; !strings.Contains(got, want) {
+		t.Errorf("comment lacks %q:\n%s", want, got)
 	}
 }

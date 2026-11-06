@@ -165,7 +165,7 @@ func writeFailures(b *strings.Builder, skills []Skill) {
 		switch {
 		case len(r.Failures) > 0:
 			for _, f := range r.Failures {
-				b.WriteString("⚠️ " + prefix)
+				head := "⚠️ " + prefix
 				// Name the files when the reader can't tell which ones failed: the
 				// skill had several batches or there are several failures.
 				if len(f.Files) > 0 && (r.Batches > 1 || len(r.Failures) > 1) {
@@ -173,14 +173,13 @@ func writeFailures(b *strings.Builder, skills []Skill) {
 					for i, file := range f.Files {
 						quoted[i] = codeSpan(file)
 					}
-					fmt.Fprintf(b, "Files %s: ", strings.Join(quoted, ", "))
+					head += fmt.Sprintf("Files %s: ", strings.Join(quoted, ", "))
 				}
-				writeFailure(b, f)
+				writeFailure(b, head, f)
 				b.WriteString("\n")
 			}
 		case r.Verdict == VerdictFailed:
-			b.WriteString("⚠️ " + prefix)
-			writeFailure(b, Failure{})
+			writeFailure(b, "⚠️ "+prefix, Failure{})
 			b.WriteString("\n")
 		}
 	}

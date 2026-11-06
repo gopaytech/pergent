@@ -1,6 +1,9 @@
 package render
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
 
 // proseText makes multi-line model text inert like noteText does, but leaves
 // code as it is: fenced blocks and code spans stay byte for byte, so `@Override`
@@ -57,6 +60,21 @@ func fenceOpen(line string) (ch byte, n int) {
 	return ch, n
 }
 
+// proseReplacer is noteTextReplacer without "&": prose breaks it only where it
+// starts an entity (see entityStartRe), so a URL with a query keeps its "&".
+var proseReplacer = strings.NewReplacer(concat(mentionPairs, anglePairs, linkPairs)...)
+
+// entityStartRe matches the start of a character reference: "&#", or "&" and a
+// name up to ";".
+var entityStartRe = regexp.MustCompile(`&(#|[A-Za-z0-9]+;)`)
+
+// proseInert is noteText for text that keeps its line breaks and its "&" that
+// start no entity.
+func proseInert(s string) string {
+	s = entityStartRe.ReplaceAllString(s, "&\u200d${1}")
+	return breakWikiLinks(proseReplacer.Replace(s))
+}
+
 // proseBlock makes the lines of one block of text inert, in place.
 func proseBlock(lines []string) {
 	spans := make([][][2]int, len(lines))
@@ -69,16 +87,16 @@ func proseBlock(lines []string) {
 	}
 	for i, line := range lines {
 		if spans == nil {
-			lines[i] = inertText(line)
+			lines[i] = proseInert(line)
 			continue
 		}
 		var b strings.Builder
 		last := 0
 		for _, sp := range spans[i] {
-			b.WriteString(inertText(line[last:sp[0]]) + line[sp[0]:sp[1]])
+			b.WriteString(proseInert(line[last:sp[0]]) + line[sp[0]:sp[1]])
 			last = sp[1]
 		}
-		lines[i] = b.String() + inertText(line[last:])
+		lines[i] = b.String() + proseInert(line[last:])
 	}
 }
 

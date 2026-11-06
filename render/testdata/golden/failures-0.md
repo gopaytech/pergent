@@ -38,7 +38,7 @@ token [REDACTED]
 
 ⚠️ `bare`: **Review failed:** The run ended without a review and without a reported cause.
 
-⚠️ `hostile-message`: **Review failed:** It began: "line one # Heading &lt;!-- pergent:findings QUJD --> ``` [REDACTED]" /close
+⚠️ `hostile-message`: **Review failed:** It began: "line one # Heading &‍lt;!-- pergent:findings QUJD --> ``` [REDACTED]" /close
 
 #### Findings (1)
 
