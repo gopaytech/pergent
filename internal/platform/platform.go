@@ -13,6 +13,11 @@ var httpClient = &http.Client{Timeout: 30 * time.Second}
 
 type Platform interface {
 	FetchDiff() (diff string, changedFiles []string, err error)
+	// FindComment returns pergent's own comment: the first one whose body
+	// starts with marker AND whose author is the token's own identity (see
+	// the implementations). A note by anyone else is never returned, however
+	// it looks, so it is never updated and never read for findings. It
+	// returns ID 0 when there is none, and an error when the lookup failed.
 	FindComment(marker string) (commentID int64, body string, err error)
 	CreateComment(body string) error
 	UpdateComment(commentID int64, body string) error

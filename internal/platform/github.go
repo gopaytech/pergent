@@ -15,6 +15,10 @@ type GitHub struct {
 	Repo     string
 	PRNumber int
 	APIURL   string
+
+	// The token's own identity, read once by FindComment.
+	identityRead bool
+	selfID       int64 // 0 when the token cannot read /user
 }
 
 func (g *GitHub) apiURL() string {
@@ -64,7 +68,46 @@ func (g *GitHub) FetchDiff() (string, []string, error) {
 	return diff, files, nil
 }
 
+// readIdentity learns who the token posts as, once per run. GitHub Actions'
+// GITHUB_TOKEN (and an App installation token) cannot call /user: it answers
+// 401, 403 or 404, and then selfID stays 0 and FindComment accepts only a
+// Bot author (a person cannot post as a Bot). Any other failure is an error,
+// not a guess, so the caller can retry.
+func (g *GitHub) readIdentity() error {
+	if g.identityRead {
+		return nil
+	}
+	resp, err := g.do("GET", "/user", "", nil)
+	if err != nil {
+		return fmt.Errorf("reading the token's identity: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case 200:
+		var u struct {
+			ID int64 `json:"id"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&u); err != nil || u.ID == 0 {
+			return fmt.Errorf("reading the token's identity: no user id in the response")
+		}
+		g.selfID = u.ID
+	case 401, 403, 404:
+		g.selfID = 0
+	default:
+		return fmt.Errorf("reading the token's identity: status %d%s", resp.StatusCode, readErrorBody(resp))
+	}
+	g.identityRead = true
+	return nil
+}
+
+// FindComment returns the first comment that starts with marker and was
+// posted by the token's own identity, or, when that is unreadable, by a Bot.
+// It pages on past comments by anyone else.
 func (g *GitHub) FindComment(marker string) (int64, string, error) {
+	if err := g.readIdentity(); err != nil {
+		return 0, "", err
+	}
 	page := 1
 	for {
 		path := fmt.Sprintf("/repos/%s/issues/%d/comments?per_page=100&page=%d", g.Repo, g.PRNumber, page)
@@ -82,6 +125,10 @@ func (g *GitHub) FindComment(marker string) (int64, string, error) {
 		var comments []struct {
 			ID   int64  `json:"id"`
 			Body string `json:"body"`
+			User *struct {
+				ID   int64  `json:"id"`
+				Type string `json:"type"`
+			} `json:"user"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&comments); err != nil {
 			resp.Body.Close()
@@ -90,7 +137,10 @@ func (g *GitHub) FindComment(marker string) (int64, string, error) {
 		resp.Body.Close()
 
 		for _, c := range comments {
-			if strings.Contains(c.Body, marker) {
+			if !strings.HasPrefix(c.Body, marker) || c.User == nil {
+				continue
+			}
+			if (g.selfID != 0 && c.User.ID == g.selfID) || (g.selfID == 0 && c.User.Type == "Bot") {
 				return c.ID, c.Body, nil
 			}
 		}

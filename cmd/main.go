@@ -186,11 +186,7 @@ func main() {
 	// Post or update comment
 	commentID := prevCommentID
 	if !cfg.PreviousReview || prevLookupFailed {
-		var findErr error
-		commentID, _, findErr = plat.FindComment(marker)
-		if findErr != nil {
-			log.Printf("warning: could not search for existing comment: %v", findErr)
-		}
+		commentID = commentToUpdate(plat, marker, commentLookupRetryDelay)
 	}
 
 	if commentID != 0 {
@@ -206,6 +202,29 @@ func main() {
 	}
 
 	fmt.Fprintf(os.Stderr, "Done.\n")
+}
+
+// commentLookupRetryDelay is how long commentToUpdate waits before it looks
+// for pergent's comment a second time.
+var commentLookupRetryDelay = 3 * time.Second
+
+// commentToUpdate returns the ID of pergent's own comment, 0 when there is
+// none. A failed lookup is tried once more after delay (a blip is the usual
+// cause); if it fails again the review is posted as a new comment anyway,
+// because a visible new result beats a stale one, and the log says a
+// duplicate may appear.
+func commentToUpdate(plat platform.Platform, marker string, delay time.Duration) int64 {
+	id, _, err := plat.FindComment(marker)
+	if err != nil {
+		log.Printf("warning: could not search for existing comment: %v; trying once more in %s", err, delay)
+		time.Sleep(delay)
+		id, _, err = plat.FindComment(marker)
+	}
+	if err != nil {
+		log.Printf("warning: could not search for existing comment: %v; posting a new comment, so a duplicate may appear", err)
+		return 0
+	}
+	return id
 }
 
 // commentLimit is the most characters a platform accepts in one comment

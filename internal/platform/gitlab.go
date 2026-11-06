@@ -18,6 +18,9 @@ type GitLab struct {
 	URL       string
 	ProjectID string
 	MRIID     int
+
+	// The token's own user ID, read once by FindComment.
+	selfID int64
 }
 
 func (gl *GitLab) do(method, path string, body io.Reader) (*http.Response, error) {
@@ -169,7 +172,40 @@ func quotePath(p string) string {
 	return strconv.Quote(p)
 }
 
+// readIdentity learns who the token posts as, once per run. The api scope that
+// posting notes needs also covers /user, for project and group tokens too. A
+// narrower token (a fine-grained one without read_user) fails here, and that
+// is a failed lookup: the caller retries, then posts a new comment. Nothing is
+// guessed, because matching on the marker alone would let anyone's note pass.
+func (gl *GitLab) readIdentity() error {
+	if gl.selfID != 0 {
+		return nil
+	}
+	resp, err := gl.do("GET", "/api/v4/user", nil)
+	if err != nil {
+		return fmt.Errorf("reading the token's identity: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("reading the token's identity: status %d%s", resp.StatusCode, readErrorBody(resp))
+	}
+	var u struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&u); err != nil || u.ID == 0 {
+		return fmt.Errorf("reading the token's identity: no user id in the response")
+	}
+	gl.selfID = u.ID
+	return nil
+}
+
+// FindComment returns the first note that starts with marker and was posted
+// by the token's own user. It pages on past notes by anyone else.
 func (gl *GitLab) FindComment(marker string) (int64, string, error) {
+	if err := gl.readIdentity(); err != nil {
+		return 0, "", err
+	}
 	page := 1
 	for {
 		path := fmt.Sprintf("/api/v4/projects/%s/merge_requests/%d/notes?per_page=100&page=%d", gl.ProjectID, gl.MRIID, page)
@@ -185,8 +221,11 @@ func (gl *GitLab) FindComment(marker string) (int64, string, error) {
 		}
 
 		var notes []struct {
-			ID   int64  `json:"id"`
-			Body string `json:"body"`
+			ID     int64  `json:"id"`
+			Body   string `json:"body"`
+			Author *struct {
+				ID int64 `json:"id"`
+			} `json:"author"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&notes); err != nil {
 			resp.Body.Close()
@@ -195,7 +234,7 @@ func (gl *GitLab) FindComment(marker string) (int64, string, error) {
 		resp.Body.Close()
 
 		for _, n := range notes {
-			if strings.Contains(n.Body, marker) {
+			if strings.HasPrefix(n.Body, marker) && n.Author != nil && n.Author.ID == gl.selfID {
 				return n.ID, n.Body, nil
 			}
 		}
