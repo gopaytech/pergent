@@ -80,7 +80,7 @@ func InlineComment(f Finding, o InlineOptions) string {
 	}
 	// A blank line after the title: in one paragraph its backticks would pair
 	// with the explanation's.
-	b.WriteString(label + lineText(f.Title) + "**\n\n")
+	b.WriteString(label + wrappedText(f.Title) + "**\n\n")
 	if f.Explanation != "" {
 		b.WriteString(inlineText(f.Explanation) + "\n\n")
 	}

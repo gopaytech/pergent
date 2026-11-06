@@ -396,7 +396,7 @@ func dismissedBlocking(ds []DismissedFinding) int {
 // open HTML, a comment or the layout's collapsible blocks, and re-rendering
 // the comment doesn't mention people again.
 func writeDismissed(b *strings.Builder, d DismissedFinding) {
-	fmt.Fprintf(b, "- **%s**", lineText(d.Finding.Title))
+	fmt.Fprintf(b, "- **%s**", wrappedText(d.Finding.Title))
 	if d.Finding.ID != "" {
 		fmt.Fprintf(b, " id %s", codeSpan(d.Finding.ID))
 	}
@@ -448,9 +448,12 @@ func longestBacktickRun(s string) int {
 }
 
 // codeSpan wraps s in an inline code span whose backtick fence is longer than
-// any backtick run inside s.
+// any backtick run inside s. A blank s gives a span of one space.
 func codeSpan(s string) string {
 	s = oneLine(s)
+	if s == "" {
+		return "` `" // a bare pair of backticks is not a span, and would pair with the next one
+	}
 	longest := longestBacktickRun(s)
 	fence := strings.Repeat("`", longest+1)
 	if longest > 0 {

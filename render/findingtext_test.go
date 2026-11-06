@@ -27,6 +27,21 @@ var lineCases = []textCase{
 	{"edge space is no span", "` a`", "\\` a\\`"},
 	{"escaped backtick", "\\` @bob \\`", "\\` @" + joiner + "bob \\`"},
 	{"code span", "use `@Override` and `a<b|c`", "use `@Override` and `a<b|c`"},
+	{"code span in parentheses and before punctuation", "(`a`), see `b`.", "(`a`), see `b`."},
+	// A span is kept only where it starts after the line, a space, a tab or "(",
+	// and ends before the line's end, a space, a tab or one of ").,:;!?";
+	// otherwise a URL or math could take its backtick, and every backtick on
+	// the line is stray.
+	{"span in a url", "https://e.com/`a @bob` x", "https://e.com/\\`a @" + joiner + "bob\\` x"},
+	{"span in a word", "x`a`", "x\\`a\\`"},
+	{"span in bold", "**`a`**", "**\\`a\\`**"},
+	{"span in math", "$`$ @bob`", "$\\`$ @" + joiner + "bob\\`"},
+	{"span in inline math", "$x`y$ @bob`z`", "$x\\`y$ @" + joiner + "bob\\`z\\`"},
+	{"one span too many", "`a` and x`b`", "\\`a\\` and x\\`b\\`"},
+	{"escaped opener", "\\`@bob`", "\\`@" + joiner + "bob\\`"},
+	{"backtick run after a span", "`a`` @bob", "\\`a\\`\\` @" + joiner + "bob"},
+	{"escaped backslash before a backtick", "\\\\`@bob`", "\\\\\\`@" + joiner + "bob\\`"},
+	{"doubled redaction token", "[[REDACTED]]", joiner + "[" + joiner + "[REDACTED]" + joiner + "]" + joiner},
 	{"redaction token", "token [REDACTED] here", "token [REDACTED] here"},
 	{"redaction token link", "[REDACTED](http://e)", joiner + "[REDACTED]" + joiner + "(http://e)"},
 	{"redaction token definition", "[REDACTED]: http://e", joiner + "[REDACTED]" + joiner + ": http://e"},
@@ -54,6 +69,10 @@ var blockCases = []textCase{
 	{"carriage return in a closer", "```\n@a\n``\r`\n@bob", "```\n@a\n```\n\n@" + joiner + "bob"},
 	{"closer with a no-break space", "```\nx\n```\u00a0\n```\n@bob", "````\nx\n```\u00a0\n````\n\n@" + joiner + "bob"},
 	{"info string with a backtick", "``` `x\n@bob", "\\`\\`\\` \\`x\n@" + joiner + "bob"},
+	{"indent of the first line", "  ```\n  a\n  ```", "```\na\n```"},
+	{"info string of two words", "~~~ not a fence in prose", "~" + joiner + "~" + joiner + "~" + joiner + " not a fence in prose"},
+	{"info string of two words, backticks", "```go title=x\n@bob\n```", "\\`\\`\\`go title=x\n@" + joiner + "bob\n\n```\n```"},
+	{"indented quote marker", "x\n  >>>", "x\n  >" + joiner + ">>"},
 	{"indented four", "x\n    ```\n@bob", "x\n    \\`\\`\\`\n@" + joiner + "bob"},
 	{"fence after text", "see\n```\ncode\n```\nand", "see\n\n```\ncode\n```\n\nand"},
 	{"fence between blank lines", "see\n\n```\ncode\n```\n\nand", "see\n\n```\ncode\n```\n\nand"},
@@ -86,14 +105,43 @@ func TestLineText(t *testing.T) {
 	}
 }
 
+// Text between pergent's own characters keeps a span only away from the edges
+// of the line: "**`a`**" would put a backtick next to a star.
+func TestWrappedText(t *testing.T) {
+	for _, tc := range []textCase{
+		{"span at the start", "`a` b", "\\`a\\` b"},
+		{"span at the end", "x `a`", "x \\`a\\`"},
+		{"span inside", "x `a` y", "x `a` y"},
+		{"span before punctuation", "x `a`, y", "x `a`, y"},
+		{"mention", "@bob", "@" + joiner + "bob"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := wrappedText(tc.in); got != tc.want {
+				t.Errorf("wrappedText(%q)\n got %q\nwant %q", tc.in, got, tc.want)
+			}
+		})
+	}
+	f := Finding{Fingerprint: "fp1", Severity: Blocking, Title: "use `a`"}
+	if got, want := InlineComment(f, InlineOptions{}), "**❌ Blocking: use \\`a\\`**\n\n"; !strings.HasPrefix(got, want) {
+		t.Errorf("comment starts %q, want prefix %q", head(got), want)
+	}
+	s := hostileSkill(Finding{Explanation: "e"})
+	if got, want := Comment(s, Options{FindingNote: map[string]string{"fp1": "see `a`"}}), "_see \\`a\\`_\n\ne"; !strings.Contains(got, want) {
+		t.Errorf("comment lacks %q:\n%s", want, got)
+	}
+}
+
 func TestCellText(t *testing.T) {
 	for _, tc := range []textCase{
-		{"pipe", "a|b", `a\|b`},
-		{"pipe in a span", "`a|b`", "`a\\|b`"},
+		{"pipe", "a|b", "a&#124;b"},
+		{"pipe in a span", "`a|b`", "\\`a&#124;b\\`"},
+		{"escaped pipe", "a\\|b", "a\\\\&#124;b"},
+		{"escaped pipe in a span", "`a\\| @bob`", "\\`a\\\\&#124; @" + joiner + "bob\\`"},
 		{"html", "<img src=x>", "<" + joiner + "img src=x>"},
 		{"mention", "@bob", "@" + joiner + "bob"},
+		{"entity", "&#124;", "&" + joiner + "#124;"},
 		{"stray backtick", "a`b", "a\\`b"},
-		{"code", "`ok()` here", "`ok()` here"},
+		{"no span", "`ok()` here", "\\`ok()\\` here"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := cellText(tc.in); got != tc.want {
@@ -153,6 +201,9 @@ func TestFindingTextInInlineComment(t *testing.T) {
 
 func TestFindingTitleInInlineCommentIsText(t *testing.T) {
 	for _, tc := range lineCases {
+		if strings.Contains(tc.in, "`") {
+			continue // a title is wrapped: see TestWrappedText
+		}
 		t.Run(tc.name, func(t *testing.T) {
 			f := Finding{Fingerprint: "fp1", Severity: Blocking, Title: tc.in}
 			if got, want := InlineComment(f, InlineOptions{}), "**❌ Blocking: "+tc.want+"**\n\n"; !strings.HasPrefix(got, want) {
@@ -181,11 +232,15 @@ func TestFindingNoteAndExplanationAreSeparateParagraphs(t *testing.T) {
 func TestDismissedTextIsInert(t *testing.T) {
 	for _, tc := range lineCases {
 		t.Run(tc.name, func(t *testing.T) {
+			title, titleWant := tc.in, tc.want
+			if strings.Contains(tc.in, "`") {
+				title, titleWant = "T", "T" // a title is wrapped: see TestWrappedText
+			}
 			s := Skill{Name: "s", Verdict: VerdictNoBlockingIssues, Dismissed: []DismissedFinding{
-				{Finding: Finding{ID: "abc123", Severity: Suggestion, Title: tc.in}, By: tc.in, Reason: tc.in},
+				{Finding: Finding{ID: "abc123", Severity: Suggestion, Title: title}, By: tc.in, Reason: tc.in},
 			}}
 			got := Comment([]Skill{s}, Options{})
-			want := "- **" + tc.want + "** id `abc123` — dismissed by " + tc.want + ": " + tc.want + "\n"
+			want := "- **" + titleWant + "** id `abc123` — dismissed by " + tc.want + ": " + tc.want + "\n"
 			if !strings.Contains(got, want) {
 				t.Errorf("comment lacks %q:\n%s", want, got)
 			}
@@ -228,14 +283,45 @@ func TestCheckCellIsText(t *testing.T) {
 			if row := "| " + want + " | " + want + " | ❌ | " + want + " |\n"; !strings.Contains(got, row) {
 				t.Errorf("comment lacks %q:\n%s", row, got)
 			}
-			// Every pipe of the row but its own is escaped, so the row has
-			// five cells' worth of delimiters, whatever the text holds.
+			// Every pipe of the text is an entity, so the row has five pipes of
+			// its own, whatever the text holds.
 			for _, line := range strings.Split(got, "\n") {
-				if strings.HasPrefix(line, "| "+want) && strings.Count(strings.ReplaceAll(line, `\|`, ""), "|") != 5 {
+				if strings.HasPrefix(line, "| "+want) && strings.Count(line, "|") != 5 {
 					t.Errorf("row has a stray pipe: %q", line)
 				}
 			}
 		})
+	}
+}
+
+// A bare URL keeps its link where its characters are plain ("&" in a query
+// too), and loses it where one of them is a delimiter pergent breaks. That
+// cost is accepted: a link in model text is a link someone else chose.
+func TestBareUrlsKeepOrLoseTheirLink(t *testing.T) {
+	for _, in := range []string{
+		"https://e.com/path?a=1&b=2", "https://e.com/a/b-c_d.html#frag", "http://e.com:8080/a~b(c)", "www.e.com/a",
+	} {
+		if got := modelText("see " + in + " now"); got != "see "+in+" now" {
+			t.Errorf("%q changed: %q", in, got)
+		}
+	}
+	for _, in := range []string{
+		"https://medium.com/@user/post", "https://e.com/a?x[]=1", "http://[::1]:8080/", "https://e.com/a|b", "https://e.com/x?a=1&#frag",
+	} {
+		got := modelText("see " + in + " now")
+		if !strings.Contains(got, joiner) || strings.ReplaceAll(got, joiner, "") != "see "+in+" now" {
+			t.Errorf("%q: got %q, want it with joiners only", in, got)
+		}
+	}
+}
+
+func TestCodeSpan(t *testing.T) {
+	for in, want := range map[string]string{
+		"a.go": "`a.go`", "": "` `", " \u00a0 ": "` `", "a`b": "`` a`b ``", "`": "`` ` ``", "``a": "``` ``a ```",
+	} {
+		if got := codeSpan(in); got != want {
+			t.Errorf("codeSpan(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
 

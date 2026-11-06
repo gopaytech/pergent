@@ -83,6 +83,14 @@ var hostileCorpus = []string{
 	"> ```suggestion\nx\n> ```", "text ```suggestion:-0+3", "```&#115;uggestion\nx\n```", "> ```&#115;uggestion",
 	"`a` `b",
 	"https://e.com/?a=1&b=2 and https://e.com/@bob",
+	// N2, N3: a URL or math may take a span's backtick.
+	"https://e.com/`a @bob` x", "www.e.com/`a ![x](http://e/p.png) b` c", "$`$ @bob`", "$x`y$ @bob`z`",
+	// N4: a backslash before a pipe in a cell, alone and in a span.
+	"a\\|b", "`a\\| @bob`",
+	// N6: spans next to backslashes and other backticks, an indented ">>>".
+	"\\`@bob`", "`a`` @bob", "\\\\`@bob`", "  >>>", "x\n  >>>\n```\n>>>\n```",
+	// N7, N10: a doubled redaction token, an info string that is not a word.
+	"[[REDACTED]]", "![REDACTED](http://e)", "~~~ not a fence in prose", "```go title=x\n@bob ![x](u)\n```", "  ```\n  a\n  ```\n@bob",
 }
 
 // surface is one place model text goes in the comment. out puts a and b in it
@@ -168,14 +176,25 @@ func checkCommentWith(section, name, detail string) string {
 	return Comment([]Skill{s}, Options{})
 }
 
-// between returns the part of out from the start mark to the end mark.
+// between returns the part of out from the start mark to the end mark, and
+// the line after it when that is the closing line of a fence the end mark is in.
 func between(out string) (string, bool) {
 	i := strings.Index(out, startMark)
 	j := strings.LastIndex(out, endMark)
 	if i < 0 || j < i {
 		return "", false
 	}
-	return out[i+len(startMark) : j], true
+	end := j
+	if rest := out[j+len(endMark):]; strings.HasPrefix(rest, "\n") {
+		line := rest[1:]
+		if k := strings.IndexByte(line, '\n'); k >= 0 {
+			line = line[:k]
+		}
+		if len(line) >= 3 && strings.Trim(line, "`") == "" {
+			end = j + len(endMark) + 1 + len(line)
+		}
+	}
+	return out[i+len(startMark) : end], true
 }
 
 // isEscaped reports whether the byte at i is escaped by an odd number of
@@ -202,10 +221,15 @@ func entityStartAt(s string, i int) bool {
 	return n > 0 && n < len(rest) && rest[n] == ';'
 }
 
-// liveDelimiters returns what is live in region once pergent's own fences
-// and the code spans are taken out, and how many of each it took out. A cell
-// escapes "|" with a backslash instead of a joiner.
-func liveDelimiters(region string, cell bool) (problems []string, fences, spans int) {
+// isFenceLine reports whether line is a line of only backticks, 3 or more.
+func isFenceLine(line string) bool { return len(line) >= 3 && strings.Trim(line, "`") == "" }
+
+// liveDelimiters returns what is live in region once pergent's own fences and
+// the code spans text may keep are taken out: the problems found, the number
+// of fences taken out and the content of the spans. A fence still open at the
+// end is a problem. A cell keeps no span and has no raw "|": its pipes are the
+// entity "&#124;", which pergent writes.
+func liveDelimiters(region string, cell bool) (problems []string, fences int, spans []string) {
 	fenceLen := 0
 	for _, line := range strings.Split(region, "\n") {
 		if fenceLen > 0 {
@@ -216,7 +240,7 @@ func liveDelimiters(region string, cell bool) (problems []string, fences, spans 
 		}
 		// pergent's fence: only backticks, at least 3, at column 0. Text can't
 		// make one, because its backticks are escaped.
-		if len(line) >= 3 && strings.Trim(line, "`") == "" {
+		if isFenceLine(line) {
 			fenceLen = len(line)
 			fences++
 			continue
@@ -234,6 +258,8 @@ func liveDelimiters(region string, cell bool) (problems []string, fences, spans 
 				}
 				j := strings.IndexByte(rest, '`')
 				switch {
+				case cell:
+					bad("backtick in a cell")
 				case i > 0 && line[i-1] == '`':
 					bad("backtick run")
 				case j <= 0:
@@ -242,8 +268,12 @@ func liveDelimiters(region string, cell bool) (problems []string, fences, spans 
 					bad("backtick run")
 				case rest[0] == ' ' || rest[j-1] == ' ':
 					bad("span with an edge space")
+				case i > 0 && !strings.ContainsRune(" \t(", rune(line[i-1])):
+					bad("span opens inside a word")
+				case j+1 < len(rest) && !strings.ContainsRune(" \t).,:;!?", rune(rest[j+1])):
+					bad("span closes inside a word")
 				default:
-					spans++
+					spans = append(spans, rest[:j])
 					i += j + 1 // to the closer
 				}
 			case '~':
@@ -255,7 +285,8 @@ func liveDelimiters(region string, cell bool) (problems []string, fences, spans 
 					bad("live " + string(c))
 				}
 			case '[':
-				if tok := "[REDACTED]"; strings.HasPrefix(line[i:], tok) && !strings.ContainsAny(line[i+len(tok):][:min(1, len(line[i+len(tok):]))], "([:") {
+				if tok := "[REDACTED]"; strings.HasPrefix(line[i:], tok) && (i == 0 || line[i-1] != '[') &&
+					!strings.ContainsAny(line[i+len(tok):][:min(1, len(line[i+len(tok):]))], "([:") {
 					i += len(tok) - 1
 					break
 				}
@@ -267,34 +298,66 @@ func liveDelimiters(region string, cell bool) (problems []string, fences, spans 
 					bad("live ]")
 				}
 			case '|':
-				switch {
-				case cell && !isEscaped(line, i):
-					bad("live | in a cell")
-				case !cell && !strings.HasPrefix(rest, joiner):
+				if cell || !strings.HasPrefix(rest, joiner) {
 					bad("live |")
 				}
 			case '&':
-				if entityStartAt(line, i) && !strings.HasPrefix(rest, joiner) {
+				switch {
+				case cell && strings.HasPrefix(rest, "#124;") && !isEscaped(line, i):
+					i += len("#124;")
+				case entityStartAt(line, i) && !strings.HasPrefix(rest, joiner):
 					bad("live entity")
 				}
 			}
 			i++
 		}
 	}
+	if fenceLen > 0 {
+		problems = append(problems, "a fence is still open at the end")
+	}
 	return problems, fences, spans
+}
+
+// layoutProblems checks the whole comment: every fence closes, the layout's
+// tags and markers are outside the fences, and none is inside one.
+func layoutProblems(out string) []string {
+	var problems []string
+	fenceLen := 0
+	for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
+		switch {
+		case fenceLen > 0 && line == strings.Repeat("`", fenceLen):
+			fenceLen = 0
+		case fenceLen > 0:
+			for _, tag := range []string{"<details", "</details", "<summary", "</summary", "<!--", "<sub>"} {
+				if strings.Contains(strings.ToLower(line), tag) {
+					problems = append(problems, tag+" inside a fence: "+line)
+				}
+			}
+		default:
+			// The real suggestion fence has an info string, so it is not all backticks.
+			if n := len(line) - len(strings.TrimLeft(line, "`")); n >= 3 && !strings.Contains(line[n:], "`") {
+				fenceLen = n
+			}
+		}
+	}
+	if fenceLen > 0 {
+		problems = append(problems, "a fence is open at the end of the comment")
+	}
+	return problems
 }
 
 func TestLiveDelimitersChecker(t *testing.T) {
 	for _, bad := range []string{
 		"@bob", "<img>", "[a]" + joiner + "(b)", joiner + "[a](b)", "`x", "`a` `b", "``a``", "` a`", "&#64;", "&commat;", "a|b",
-		"x\n```\n@bob", // not our fence: it never closes, but the line before is text
+		"x\n```\n@bob ![x](http://e/p.png)", // an unclosed fence
+		"https://e.com/`a @bob`", "x`a`", "`a`x", "$`a`$ y", "~~~", joiner + "[[REDACTED]]", "[REDACTED](u)",
 	} {
-		if p, _, _ := liveDelimiters(bad, false); len(p) == 0 && bad != "x\n```\n@bob" {
+		if p, _, _ := liveDelimiters(bad, false); len(p) == 0 {
 			t.Errorf("checker accepts %q", bad)
 		}
 	}
 	for _, good := range []string{
-		"@" + joiner + "bob", "<" + joiner + "img>", joiner + "[a]" + joiner + "(b)", "`@bob` and `a<b`", "\\`", "R&D & a&b=1",
+		"@" + joiner + "bob", "<" + joiner + "img>", joiner + "[a]" + joiner + "(b)", "`@bob` and `a<b`", "(`a`)", "`a`, `b`.", "\\`", "R&D & a&b=1",
 		"[REDACTED] ok", joiner + "[REDACTED]" + joiner + ": x", "\\[x", "a|" + joiner + "b",
 		"x\n```\n@bob ![x](u)\n```\ny",
 	} {
@@ -302,20 +365,36 @@ func TestLiveDelimitersChecker(t *testing.T) {
 			t.Errorf("checker flags %q: %v", good, p)
 		}
 	}
-	if p, _, _ := liveDelimiters("a\\|b", true); len(p) != 0 {
-		t.Errorf("checker flags an escaped pipe in a cell: %v", p)
+	for _, bad := range []string{"a|b", "a\\|b", "`a`", "a\\&#124;b"} {
+		if p, _, _ := liveDelimiters(bad, true); len(p) == 0 {
+			t.Errorf("checker accepts %q in a cell", bad)
+		}
 	}
-	if p, _, _ := liveDelimiters("a|b", true); len(p) == 0 {
-		t.Error("checker accepts a live pipe in a cell")
+	if p, _, _ := liveDelimiters("a&#124;b \\` c", true); len(p) != 0 {
+		t.Errorf("checker flags a cell's own pipe: %v", p)
 	}
-	if _, f, s := liveDelimiters("`a` b\n```\n@x\n```\n`c`", false); f != 1 || s != 2 {
-		t.Errorf("checker counts %d fences and %d spans, want 1 and 2", f, s)
+	if _, f, s := liveDelimiters("`a` b\n```\n@x\n```\n`c`", false); f != 1 || len(s) != 2 {
+		t.Errorf("checker counts %d fences and %v spans, want 1 and 2", f, s)
+	}
+	for _, bad := range []string{"```\n</details>\n```", "```\nx", "a\n```\n<!-- x -->\n```"} {
+		if len(layoutProblems(bad)) == 0 {
+			t.Errorf("layout check accepts %q", bad)
+		}
+	}
+	if p := layoutProblems("<details>\n\n```\n&lt;/details>\n```\n\n</details>\n<!-- x -->"); len(p) != 0 {
+		t.Errorf("layout check flags a good comment: %v", p)
 	}
 }
 
 func TestNoLiveDelimitersOutsideOurContainers(t *testing.T) {
-	var fences, spans, texts int
+	var fences, modelSpans, texts int
 	bad := 0
+	report := func(format string, args ...any) {
+		if bad < 12 {
+			bad++
+			t.Errorf(format, args...)
+		}
+	}
 	for _, sf := range surfaces {
 		for _, a := range hostileCorpus {
 			bs := []string{""}
@@ -328,27 +407,105 @@ func TestNoLiveDelimitersOutsideOurContainers(t *testing.T) {
 				if !ok {
 					t.Fatalf("%s: marks missing for %q, %q:\n%s", sf.name, a, b, out)
 				}
-				problems, f, s := liveDelimiters(region, sf.cell)
-				fences, spans, texts = fences+f, spans+s, texts+1
-				if len(problems) > 0 && bad < 12 {
-					bad++
-					t.Errorf("%s: %q, %q: %v\nregion: %q", sf.name, a, b, problems[:min(3, len(problems))], region)
-				}
-				if sf.cell {
-					continue
-				}
-				// The layout is not swallowed by an open fence or a block.
-				if o, c := strings.Count(out, "<details"), strings.Count(out, "</details>"); o != c {
-					if bad < 12 {
-						bad++
-						t.Errorf("%s: %q, %q: %d <details, %d </details>", sf.name, a, b, o, c)
+				problems, f, spans := liveDelimiters(region, sf.cell)
+				fences, texts = fences+f, texts+1
+				for _, content := range spans {
+					if content != "abc123" { // pergent's own: the ID of a dismissed finding
+						modelSpans++
 					}
+				}
+				if len(problems) > 0 {
+					report("%s: %q, %q: %v\nregion: %q", sf.name, a, b, problems[:min(3, len(problems))], region)
+				}
+				if p := layoutProblems(out); len(p) > 0 {
+					report("%s: %q, %q: %v", sf.name, a, b, p[:min(3, len(p))])
 				}
 			}
 		}
 	}
-	// The check is not vacuous: it saw fences, spans and a lot of text.
-	if fences < 100 || spans < 100 || texts < 10000 {
-		t.Errorf("only %d fences, %d spans and %d texts were checked", fences, spans, texts)
+	// The check is not vacuous: it saw fences, spans of the model's and a lot of text.
+	if fences < 100 || modelSpans < 100 || texts < 10000 {
+		t.Errorf("only %d fences, %d model spans and %d texts were checked", fences, modelSpans, texts)
+	}
+}
+
+// parseSpans reads s the way CommonMark reads code spans: a run of n backticks
+// is closed by the next run of exactly n. It returns the text outside the
+// spans, the content of each span (one space off each end when both have one,
+// unless it is all spaces) and whether every run was matched.
+func parseSpans(s string) (outside string, spans []string, ok bool) {
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		if s[i] != '`' {
+			b.WriteByte(s[i])
+			i++
+			continue
+		}
+		n := 0
+		for i+n < len(s) && s[i+n] == '`' {
+			n++
+		}
+		end := -1
+		for j := i + n; j < len(s); {
+			if s[j] != '`' {
+				j++
+				continue
+			}
+			m := 0
+			for j+m < len(s) && s[j+m] == '`' {
+				m++
+			}
+			if m == n {
+				end = j
+				break
+			}
+			j += m
+		}
+		if end < 0 {
+			return b.String(), spans, false
+		}
+		content := s[i+n : end]
+		if len(content) > 1 && content[0] == ' ' && content[len(content)-1] == ' ' && strings.Trim(content, " ") != "" {
+			content = content[1 : len(content)-1]
+		}
+		spans = append(spans, content)
+		i = end + n
+	}
+	return b.String(), spans, true
+}
+
+// A failure names its files in code spans, and the names are the PR's: a blank
+// one, or one with backticks, must not leave the next name outside its span.
+func TestFailureFilesAreSpans(t *testing.T) {
+	names := []string{
+		" ", "\u00a0", "", "<img src=x>`a", "@bob`x", "`", "``", "a``b", "```a", "a`", "`a", "x", "![x](u)", "a b", "`` ``", "``` ```",
+	}
+	check := func(files ...string) {
+		s := Skill{Name: "s", Verdict: VerdictFailed, Batches: 2, Failures: []Failure{{Files: files, Message: "m"}}}
+		out := Comment([]Skill{s}, Options{})
+		i := strings.Index(out, "Files ")
+		j := strings.Index(out, ": **Review failed:**")
+		if i < 0 || j < i {
+			t.Fatalf("files %q: no Files line:\n%s", files, out)
+		}
+		outside, spans, ok := parseSpans(out[i+len("Files ") : j])
+		want := make([]string, len(files))
+		for k, f := range files {
+			if want[k] = oneLine(f); want[k] == "" {
+				want[k] = " "
+			}
+		}
+		if !ok || outside != strings.Repeat(", ", len(files)-1) || strings.Join(spans, "\x00") != strings.Join(want, "\x00") {
+			t.Errorf("files %q: outside %q and spans %q (matched: %v), want spans %q", files, outside, spans, ok, want)
+		}
+	}
+	check(" ", "<img src=x>`a")
+	check(" ", "@bob`x")
+	for _, a := range names {
+		check(a)
+		for _, b := range names {
+			check(a, b)
+			check(b, a, b)
+		}
 	}
 }

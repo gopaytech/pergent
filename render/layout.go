@@ -358,7 +358,7 @@ func writeFindingRow(b *strings.Builder, r findingRow, o Options, withSkill bool
 	// would share their backticks and definitions.
 	var lead []string
 	if note := o.FindingNote[f.Fingerprint]; note != "" {
-		lead = append(lead, "_"+lineText(note)+"_")
+		lead = append(lead, "_"+wrappedText(note)+"_")
 	}
 	if f.Explanation != "" {
 		lead = append(lead, modelText(f.Explanation))
