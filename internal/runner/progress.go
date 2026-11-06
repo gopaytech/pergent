@@ -1,7 +1,6 @@
 package runner
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -35,10 +34,9 @@ func (pw *progressWriter) Write(p []byte) (n int, err error) {
 	}
 	pw.partial = append([]byte(nil), data[end+1:]...)
 
-	scanner := bufio.NewScanner(bytes.NewReader(data[:end+1]))
-	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
-	for scanner.Scan() {
-		line := scanner.Bytes()
+	// Lines are split here, not scanned: a line over the parser's limit must
+	// not hide the steps after it, or the step limit stops being enforced.
+	for _, line := range bytes.Split(data[:end+1], []byte{'\n'}) {
 		if len(line) == 0 {
 			continue
 		}

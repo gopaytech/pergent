@@ -68,7 +68,9 @@ type Cause struct {
 	ExitErr     string
 	StderrLines []string
 
-	// no_answer details.
+	// no_answer details. OutputUnread is set when the parse stopped at a line
+	// over the limit, so the rest of the output was never read.
+	OutputUnread      bool
 	FinishReason      string
 	EndedMidStep      bool
 	Compacted         bool
@@ -145,6 +147,9 @@ func (c Cause) Message() string {
 
 	case CauseNoAnswer:
 		switch {
+		case c.OutputUnread:
+			msg = fmt.Sprintf("opencode's output has a line over %d MB, which pergent does not read. It stopped reading after %s, so the rest of the run, including any review, was not seen.",
+				maxOutputLine>>20, plural(c.Steps, "step"))
 		case c.Compacted:
 			msg = fmt.Sprintf("opencode compacted the context at %s tokens after %s, and the run ended before the model produced a review.",
 				FormatInt(c.CompactedAtTokens), plural(c.CompactedAtStep, "step"))
@@ -249,6 +254,15 @@ func classify(a attempt, opts Options, elapsed time.Duration) (Status, *Cause) {
 	if opts.StepLimit > 0 && t.Steps >= opts.StepLimit {
 		c := base
 		c.Kind = CauseStepLimit
+		return StatusFailed, &c
+	}
+
+	// The parse stopped at a line over the limit while the output went on, so
+	// what was read says nothing about how the run ended.
+	if t.ReadErr != "" {
+		c := base
+		c.Kind = CauseNoAnswer
+		c.OutputUnread = true
 		return StatusFailed, &c
 	}
 

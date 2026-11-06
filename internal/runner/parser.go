@@ -7,6 +7,9 @@ import (
 	"strings"
 )
 
+// maxOutputLine is the longest line of opencode's output pergent parses.
+const maxOutputLine = 16 * 1024 * 1024
+
 // NDJSON event types from `opencode run --format json` (opencode 1.19.x).
 // Each line is {"type", "timestamp", "sessionID", ...}; the event types are
 // step_start, step_finish, text, reasoning, tool_use (completed or failed tool
@@ -114,6 +117,10 @@ type Transcript struct {
 	LastToolTarget string
 	// Errors are opencode's error events, in order.
 	Errors []EventError
+	// ReadErr is why the parse stopped before the end of the output (a line
+	// over maxOutputLine), empty when all of it was read. The output went on
+	// past that point, so nothing in the transcript is trusted as an answer.
+	ReadErr string
 	// Usage sums part.tokens.input and part.tokens.output over all
 	// step_finish events.
 	Usage Usage
@@ -159,7 +166,7 @@ func ParseOutput(stdout []byte) Transcript {
 	var prevStepTokens int
 
 	scanner := bufio.NewScanner(bytes.NewReader(stdout))
-	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxOutputLine)
 
 	for scanner.Scan() {
 		line := scanner.Bytes()
@@ -233,6 +240,12 @@ func ParseOutput(stdout []byte) Transcript {
 			}
 			t.Errors = append(t.Errors, e)
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		// The scanner stopped, but the stream went on. An answer found before
+		// that point may be followed by more steps, errors or a new turn.
+		t.ReadErr = err.Error()
+		t.Answer = ""
 	}
 	return t
 }
