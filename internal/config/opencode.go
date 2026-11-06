@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 )
 
 // AgentName is the opencode agent that carries the skill prompt and step limit.
@@ -81,6 +83,67 @@ type OpenCodeOptions struct {
 	DenySecretFiles bool
 }
 
+// ReadRules returns the generated config's read permission, pattern to
+// "allow" or "deny". Rules are last-match-wins, in the order encoding/json
+// writes the keys (sorted): "*", "*.env", "*.env.*", "*.env.example", then
+// with denySecretFiles "*.key", "*.pem", "*.tfvars". The patterns don't
+// overlap with the earlier ones, so the order only matters relative to "*".
+func ReadRules(denySecretFiles bool) map[string]string {
+	rules := map[string]string{
+		"*":             "allow",
+		"*.env":         "deny",
+		"*.env.*":       "deny",
+		"*.env.example": "allow",
+	}
+	if denySecretFiles {
+		rules["*.key"] = "deny"
+		rules["*.pem"] = "deny"
+		rules["*.tfvars"] = "deny"
+	}
+	return rules
+}
+
+// ReadDenied reports whether the read rules deny reading path (a path in the
+// repository). Like opencode, "*" matches any run of characters, "/"
+// included, and the last matching rule in key order wins.
+func ReadDenied(path string, denySecretFiles bool) bool {
+	rules := ReadRules(denySecretFiles)
+	keys := make([]string, 0, len(rules))
+	for k := range rules {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	denied := false
+	for _, k := range keys {
+		if wildcardMatch(k, path) {
+			denied = rules[k] == "deny"
+		}
+	}
+	return denied
+}
+
+// wildcardMatch reports whether s matches pattern, where "*" matches any run
+// of characters (possibly empty) and every other character matches itself.
+func wildcardMatch(pattern, s string) bool {
+	parts := strings.Split(pattern, "*")
+	if len(parts) == 1 {
+		return pattern == s
+	}
+	if !strings.HasPrefix(s, parts[0]) {
+		return false
+	}
+	s = s[len(parts[0]):]
+	last := parts[len(parts)-1]
+	for _, p := range parts[1 : len(parts)-1] {
+		i := strings.Index(s, p)
+		if i < 0 {
+			return false
+		}
+		s = s[i+len(p):]
+	}
+	return strings.HasSuffix(s, last)
+}
+
 // GenerateOpenCodeConfig writes a temporary opencode.json for one skill run.
 // contextLimit overrides the model's context window when > 0; otherwise
 // opencode uses the limits from its model registry.
@@ -131,19 +194,7 @@ func GenerateOpenCodeConfigWith(o OpenCodeOptions) (string, func(), error) {
 		instructions = projectInstructions(o.RepoPath)
 	}
 
-	readRules := map[string]string{
-		"*":             "allow",
-		"*.env":         "deny",
-		"*.env.*":       "deny",
-		"*.env.example": "allow",
-	}
-	if o.DenySecretFiles {
-		// The patterns don't overlap with the earlier ones, so the order only
-		// matters relative to "*".
-		readRules["*.key"] = "deny"
-		readRules["*.pem"] = "deny"
-		readRules["*.tfvars"] = "deny"
-	}
+	readRules := ReadRules(o.DenySecretFiles)
 
 	cfg := openCodeConfig{
 		Schema:       "https://opencode.ai/config.json",
