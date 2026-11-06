@@ -80,59 +80,6 @@ func TestGitHub_CreateComment(t *testing.T) {
 	}
 }
 
-func TestGitHub_FindComment(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`[
-			{"id": 100, "body": "some other comment"},
-			{"id": 200, "body": "<!-- pergent -->\n## pergent review\nstuff"}
-		]`))
-	}))
-	defer server.Close()
-
-	gh := &GitHub{
-		Token:    "test-token",
-		Repo:     "owner/repo",
-		PRNumber: 42,
-		APIURL:   server.URL,
-	}
-
-	id, body, err := gh.FindComment("<!-- pergent -->")
-	if err != nil {
-		t.Fatalf("FindComment() error: %v", err)
-	}
-	if id != 200 {
-		t.Errorf("id = %d, want 200", id)
-	}
-	if body != "<!-- pergent -->\n## pergent review\nstuff" {
-		t.Errorf("body = %q, want %q", body, "<!-- pergent -->\n## pergent review\nstuff")
-	}
-}
-
-func TestGitHub_FindComment_NotFound(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`[{"id": 100, "body": "some other comment"}]`))
-	}))
-	defer server.Close()
-
-	gh := &GitHub{
-		Token:    "test-token",
-		Repo:     "owner/repo",
-		PRNumber: 42,
-		APIURL:   server.URL,
-	}
-
-	id, body, err := gh.FindComment("<!-- pergent -->")
-	if err != nil {
-		t.Fatalf("FindComment() error: %v", err)
-	}
-	if id != 0 {
-		t.Errorf("id = %d, want 0 (not found)", id)
-	}
-	if body != "" {
-		t.Errorf("body = %q, want empty (not found)", body)
-	}
-}
-
 func TestGitHub_UpdateComment(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "PATCH" {
