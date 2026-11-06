@@ -1,7 +1,11 @@
 package main
 
 import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -211,5 +215,62 @@ func TestScrubCheckout_MissingRepoPathIsAWarning(t *testing.T) {
 	scrubCheckout(config.Config{Platform: "github", RepoPath: filepath.Join(t.TempDir(), "nope")}, logger)
 	if !strings.Contains(logs.String(), "warning") {
 		t.Errorf("log = %q, want a warning", logs)
+	}
+}
+
+// The tests above call scrubCheckout directly; this one covers main calling
+// it, so a change to main can't drop the scrub without a test failing. main
+// runs in a process of its own, against a fake GitLab and a stub opencode.
+func TestMain_ScrubsLinksInPlatformMode(t *testing.T) {
+	if root := os.Getenv("PERGENT_TEST_SCRUB_REPO"); root != "" {
+		os.Args = []string{"pergent", "--platform", "gitlab", "--skill", "code-review", "--repo-path", root}
+		main()
+		return
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/user"):
+			fmt.Fprint(w, `{"id":1}`)
+		case strings.HasSuffix(r.URL.Path, "/diffs"):
+			fmt.Fprint(w, `[{"old_path":"a.go","new_path":"a.go","diff":"@@ -1 +1 @@\n-a\n+b\n"}]`)
+		case r.Method == http.MethodPost:
+			w.WriteHeader(http.StatusCreated)
+			fmt.Fprint(w, `{"id":2}`)
+		default:
+			fmt.Fprint(w, `[]`)
+		}
+	}))
+	defer srv.Close()
+	stubOpencode(t, "", "")
+
+	root, outside := t.TempDir(), filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(outside, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "leak.txt")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=^TestMain_ScrubsLinksInPlatformMode$")
+	cmd.Env = append(os.Environ(),
+		"PERGENT_TEST_SCRUB_REPO="+root,
+		"GITLAB_TOKEN=test-token",
+		"CI_SERVER_URL="+srv.URL,
+		"CI_PROJECT_ID=1",
+		"CI_MERGE_REQUEST_IID=1",
+		"OPENCODE_PROVIDER=anthropic",
+		"OPENCODE_MODEL=claude-sonnet-4",
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("main() failed: %v\n%s", err, out)
+	}
+	if _, err := os.Lstat(link); !os.IsNotExist(err) {
+		t.Errorf("the link is still there (Lstat error %v):\n%s", err, out)
+	}
+	if _, err := os.Stat(outside); err != nil {
+		t.Errorf("the link's target is gone: %v", err)
 	}
 }
