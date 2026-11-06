@@ -199,7 +199,7 @@ Each entry of `findings`:
 | Field | Type | Meaning |
 |---|---|---|
 | `id` | string | Short ID, unique within this result. See below. |
-| `fingerprint` | string | Stable identity of the finding across runs, 12 hex characters. Derived from the skill, the file and the normalised title, so it survives line moves. |
+| `fingerprint` | string | Stable identity of the finding across runs, 12 hex characters. Derived from the skill, the file and the normalised title, so it survives line moves. A finding the model reworded keeps the previous fingerprint only on the same file and line. |
 | `file` | string | Path from the repo root. |
 | `line` | number | Line in the head version. Omitted when the finding has none. |
 | `end_line` | number | Last line of the range that starts at `line`. Omitted when not given. |
@@ -251,7 +251,7 @@ Credentials are redacted from every string of the result before it leaves pergen
 | `commit_missing` | 3 | `--base` or `--head` is not in the checkout. |
 | `head_mismatch` | 3 | The checkout's `HEAD` is not `--head`. |
 | `diff_failed` | 3 | `git diff` between the two commits failed. |
-| `skills_invalid` | 3 | A skill file or `--skills-dir` could not be loaded, including a folder in `--skills-dir` without a `SKILL.md`. |
+| `skills_invalid` | 3 | A skill file or `--skills-dir` could not be loaded, including a folder in `--skills-dir` without a `SKILL.md` and a `paths` or `exclude` pattern with bad glob syntax or that can never match a file. |
 | `untrusted_instructions` | 3 | The checkout has instruction files below its root, a symlink to its root, or a symlink to outside it, and `--scrub-instructions` was not passed. |
 | `internal` | 3 | Anything else: git older than 2.40, a failure while scrubbing, or a result over 10 MB that checks and summaries could not shrink enough. |
 

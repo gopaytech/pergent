@@ -409,3 +409,32 @@ func TestLoadDir_FolderWithoutSkillMd(t *testing.T) {
 		})
 	}
 }
+
+func TestLoad_BadScopePattern(t *testing.T) {
+	tests := []struct {
+		name    string
+		field   string
+		pattern string
+	}{
+		{name: "directory in paths", field: "paths", pattern: "api/"},
+		{name: "bad glob in paths", field: "paths", pattern: `"api/[x"`},
+		{name: "directory in exclude", field: "exclude", pattern: "api/"},
+		{name: "bad glob in exclude", field: "exclude", pattern: `"[x"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "s.md")
+			content := "---\n" + tt.field + ":\n  - " + tt.pattern + "\n---\nReview.\n"
+			if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+				t.Fatal(err)
+			}
+			_, err := Load(path)
+			if err == nil {
+				t.Fatal("Load() error = nil, want an error")
+			}
+			if !strings.Contains(err.Error(), tt.field) {
+				t.Errorf("error = %q, want it to name %q", err, tt.field)
+			}
+		})
+	}
+}
