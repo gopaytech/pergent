@@ -7,6 +7,9 @@ import (
 	"strings"
 )
 
+// maxOpened caps Transcript.Opened.
+const maxOpened = 500
+
 // maxOutputLine is the longest line of opencode's output pergent parses.
 const maxOutputLine = 16 * 1024 * 1024
 
@@ -115,6 +118,12 @@ type Transcript struct {
 	// reported, e.g. "read" and a file path.
 	LastTool       string
 	LastToolTarget string
+	// Opened are the paths that a completed read, grep, glob or list call
+	// worked on (its filePath or path argument), in order, at most maxOpened.
+	// A call opencode refused (a denied read) ended in the error state and is
+	// not counted. A call with no path argument is not counted either: it
+	// worked on the working directory.
+	Opened []string
 	// Errors are opencode's error events, in order.
 	Errors []EventError
 	// ReadErr is why the parse stopped before the end of the output (a line
@@ -226,6 +235,14 @@ func ParseOutput(stdout []byte) Transcript {
 			t.LastToolTarget = ""
 			if event.Part.State != nil {
 				t.LastToolTarget = toolTarget(event.Part.State.Input)
+				if event.Part.State.Status == "completed" && len(t.Opened) < maxOpened {
+					switch event.Part.Tool {
+					case "read", "grep", "glob", "list":
+						if p := openedPath(event.Part.State.Input); p != "" {
+							t.Opened = append(t.Opened, p)
+						}
+					}
+				}
 			}
 
 		case "error":
@@ -260,6 +277,17 @@ func isFinalReason(reason string) bool {
 		return false
 	}
 	return true
+}
+
+// openedPath is the file or directory a read, grep, glob or list call was
+// pointed at: its filePath or path argument, not its pattern.
+func openedPath(input map[string]any) string {
+	for _, key := range []string{"filePath", "path"} {
+		if v, ok := input[key].(string); ok && v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // toolTarget picks the file, directory or pattern a tool call worked on.

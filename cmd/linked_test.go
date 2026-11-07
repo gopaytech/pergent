@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/gopaytech/pergent/internal/config"
+	"github.com/gopaytech/pergent/internal/finding"
 	"github.com/gopaytech/pergent/internal/result"
 	"github.com/gopaytech/pergent/internal/review"
 )
@@ -24,8 +25,8 @@ func writeLinkedFile(t *testing.T, content string) string {
 func TestReadLinkedRepos(t *testing.T) {
 	t.Run("a valid file", func(t *testing.T) {
 		p := writeLinkedFile(t, `[
-		  {"name":"billing","path":"/work/linked-1","watched":["api/","render/*.go"],"can_block":true},
-		  {"name":"web","path":"","watched":["api/"],"can_block":false,"error":"clone failed: timed out"}
+		  {"name":"billing","path":"/work/linked-1","watched":["api/**","render/*.go"],"can_block":true},
+		  {"name":"web","path":"","watched":["api/**"],"can_block":false,"error":"clone failed: timed out"}
 		]`)
 		logger, logs := bufferLog()
 		got, err := readLinkedRepos(p, logger)
@@ -33,11 +34,11 @@ func TestReadLinkedRepos(t *testing.T) {
 			t.Fatalf("readLinkedRepos() error: %v", err)
 		}
 		want := []review.LinkedRepo{
-			{Name: "billing", Path: "/work/linked-1", Watched: []string{"api/", "render/*.go"}, CanBlock: true},
-			{Name: "web", Watched: []string{"api/"}, Error: "clone failed: timed out"},
+			{Name: "billing", Path: "/work/linked-1", Watched: []string{"api/**", "render/*.go"}, CanBlock: true},
+			{Name: "web", Watched: []string{"api/**"}, Error: "clone failed: timed out"},
 		}
 		if len(got) != 2 || got[0].Name != want[0].Name || got[0].Path != want[0].Path || !got[0].CanBlock ||
-			strings.Join(got[0].Watched, ",") != "api/,render/*.go" || got[0].Error != "" ||
+			strings.Join(got[0].Watched, ",") != "api/**,render/*.go" || got[0].Error != "" ||
 			got[1].Name != "web" || got[1].Error != want[1].Error || got[1].CanBlock {
 			t.Errorf("got %+v, want %+v", got, want)
 		}
@@ -146,7 +147,7 @@ func TestPrepareAgent_LinkedRepos(t *testing.T) {
 		clone := t.TempDir()
 		writeFile(t, clone, "main.go", "package main\n")
 		writeFile(t, clone, ".env", "KEY=1\n")
-		p := writeLinkedFile(t, `[{"name":"billing","path":`+jsonString(clone)+`,"watched":["api/"],"can_block":true}]`)
+		p := writeLinkedFile(t, `[{"name":"billing","path":`+jsonString(clone)+`,"watched":["api/**"],"can_block":true}]`)
 		in := mustParse(t, agentArgs(repo, base, head, oneSkill(t), "--linked-repos", p))
 		logger, logs := bufferLog()
 		if e := prepareAgent(&in, logger); e != nil {
@@ -311,7 +312,7 @@ func TestScrubLinkedRemovesDeniedFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := scrubLinked([]review.LinkedRepo{{Name: "billing", Path: clone, Watched: []string{"api/"}, CanBlock: true}}, deniedForLinked, quietLog)
+	got := scrubLinked([]review.LinkedRepo{{Name: "billing", Path: clone, Watched: []string{"api/**"}, CanBlock: true}}, deniedForLinked, quietLog)
 
 	if len(got) != 1 || got[0].Error != "" || got[0].Name != "billing" || got[0].Path != clone || !got[0].CanBlock {
 		t.Fatalf("scrubLinked() = %+v, want the entry back unchanged with no error", got)
@@ -572,4 +573,47 @@ func TestPrepareAgent_LinkedPathsThatWidenTheSandbox(t *testing.T) {
 			t.Errorf("prepareAgent() = %+v, Linked = %+v", e, in.Linked)
 		}
 	})
+}
+
+func TestReadLinkedReposChecksWatchedPatterns(t *testing.T) {
+	for _, w := range []string{`"api/"`, `"../x/**"`, `"[a"`, `""`} {
+		content := `[{"name":"good","path":"/work/linked-1","watched":["api/**"]},{"name":"bad","path":"/work/linked-2","watched":["render/**",` + w + `]}]`
+		got, err := readLinkedRepos(writeLinkedFile(t, content), quietLog)
+		if err != nil || len(got) != 2 || got[0].Error != "" || got[1].Error == "" {
+			t.Errorf("watched %s: got %+v, %v, want only the second entry failed", w, got, err)
+		}
+	}
+}
+
+// An unset or root $HOME names no directory a clone could widen into.
+func TestPrepareAgent_RootHomeIsIgnored(t *testing.T) {
+	repo, base, head := agentRepo(t, nil)
+	p := writeLinkedFile(t, `[{"name":"billing","path":`+jsonString(t.TempDir())+`}]`)
+	in := mustParse(t, agentArgs(repo, base, head, oneSkill(t), "--linked-repos", p))
+	in.home = "/"
+	if e := prepareAgent(&in, quietLog); e != nil || in.Linked[0].Error != "" {
+		t.Errorf("prepareAgent() = %+v, Linked = %+v, want the clone accepted", e, in.Linked)
+	}
+}
+
+func TestPrepareAgent_PreviousKeepsTheImpactCaller(t *testing.T) {
+	repo, base, head := agentRepo(t, nil)
+	caller := &finding.Caller{Repo: "billing", File: "svc/client.go", Line: 8}
+	prev := result.Result{SchemaVersion: result.SchemaVersion, Status: result.StatusCompleted, Skills: []result.Skill{
+		{Name: "impact", Findings: []result.Finding{{Fingerprint: "abc123def456", File: "a.go", Line: 3, Severity: "blocking", Title: "Bug", Linked: caller}}},
+		{Name: "review", Findings: []result.Finding{{Fingerprint: "def123abc456", File: "a.go", Line: 3, Severity: "blocking", Title: "Bug", Linked: caller}}},
+	}}
+	data, _ := json.Marshal(prev)
+	path := filepath.Join(t.TempDir(), "previous.json")
+	writeFile(t, filepath.Dir(path), "previous.json", string(data))
+	in := mustParse(t, agentArgs(repo, base, head, oneSkill(t), "--previous", path))
+	if e := prepareAgent(&in, quietLog); e != nil {
+		t.Fatalf("prepareAgent() error: %+v", e)
+	}
+	if got := in.Previous["impact"]; len(got) != 1 || got[0].Linked == nil || *got[0].Linked != *caller {
+		t.Errorf("Previous[impact] = %+v, want the caller kept", got)
+	}
+	if got := in.Previous["review"]; len(got) != 1 || got[0].Linked != nil {
+		t.Errorf("Previous[review] = %+v, want no caller on a skill's finding", got)
+	}
 }

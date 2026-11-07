@@ -298,9 +298,7 @@ func Run(ctx context.Context, req Request) []SkillResult {
 	wg.Wait()
 	if len(req.Linked) > 0 && !reserved {
 		// After the skills, within the same budget and run limit.
-		if res, ran := r.impact(ctx); ran {
-			results = append(results, res)
-		}
+		results = append(results, r.impact(ctx))
 	}
 	return results
 }

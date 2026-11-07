@@ -10,7 +10,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -634,7 +636,16 @@ func (r *impactRun) run(t *testing.T) func(context.Context, runner.Options) runn
 			r.checks++
 		}
 		r.mu.Unlock()
-		return inner(ctx, o)
+		res := inner(ctx, o)
+		if strings.HasPrefix(o.LogPrefix, "[impact ") {
+			// The check read a clone: the message lists them as "name" at "path".
+			for _, m := range regexp.MustCompile(`" at ("(?:[^"\\]|\\.)*")`).FindAllStringSubmatch(o.Message, -1) {
+				if p, err := strconv.Unquote(m[1]); err == nil {
+					res.Opened = append(res.Opened, filepath.Join(p, "main.go"))
+				}
+			}
+		}
+		return res
 	}
 }
 

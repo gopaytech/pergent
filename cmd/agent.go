@@ -862,10 +862,21 @@ func readPrevious(path string, logger *log.Logger) map[string][]finding.Finding 
 				Explanation:  f.Explanation,
 				SuggestedFix: f.SuggestedFix,
 				Fingerprint:  f.Fingerprint,
+				// Only the impact check has callers, so a skill's is not read.
+				Linked: callerFor(s.Name, f.Linked),
 			})
 		}
 	}
 	return previous
+}
+
+// callerFor is the caller of a previous finding of skill name: kept only for
+// the impact check's own.
+func callerFor(name string, c *finding.Caller) *finding.Caller {
+	if name != review.ImpactSkill {
+		return nil
+	}
+	return c
 }
 
 // readCarried reads the files a previous review covers, per skill name. An

@@ -14,6 +14,7 @@ import (
 	"github.com/gopaytech/pergent/internal/checkout"
 	"github.com/gopaytech/pergent/internal/redact"
 	"github.com/gopaytech/pergent/internal/review"
+	"github.com/gopaytech/pergent/scope"
 )
 
 // maxLinked is the most linked repositories a review takes.
@@ -63,6 +64,16 @@ func readLinkedRepos(path string, logger *log.Logger) ([]review.LinkedRepo, erro
 		}
 		if repos[i].Error != "" {
 			logger.Printf("warning: --linked-repos %q: %s: %q", r.Name, repos[i].Error, r.Path)
+			continue
+		}
+		// A pattern that can never match would leave the link out of every
+		// narrowing without a word; scope.Match reports it as no match.
+		for _, w := range r.Watched {
+			if err := scope.CheckPattern(w); err != nil {
+				repos[i].Error = "a watched path is not a valid pattern"
+				logger.Printf("warning: --linked-repos %q: %s: %q: %v", r.Name, repos[i].Error, w, err)
+				break
+			}
 		}
 	}
 	if len(repos) > 0 {
@@ -100,15 +111,21 @@ func linkedOutside(root string, repos []review.LinkedRepo, in *agentInputs, logg
 
 	// What a clone may not be, or hold.
 	var holds []string
-	for _, p := range append([]string{os.TempDir(), in.home, in.configHome}, "/") {
-		if p != "" {
+	for _, p := range []string{os.TempDir(), in.home, in.configHome, "/"} {
+		// An unset or root $HOME says nothing about where the home is; "/" is
+		// in the list already.
+		if p != "" && filepath.Clean(p) != string(filepath.Separator) {
 			holds = append(holds, p)
 		}
 	}
+	holds = append(holds, string(filepath.Separator))
 	// What a clone may not overlap, either way.
 	overlaps := map[string]string{}
 	for _, i := range trustedInputs(in) {
-		overlaps[i.path] = i.flag
+		// $HOME and $XDG_CONFIG_HOME are in holds: a clone below them is fine.
+		if !strings.HasPrefix(i.flag, "$") {
+			overlaps[i.path] = i.flag
+		}
 	}
 	if p := in.Target.Path; p != "" && p != "-" {
 		overlaps[p] = "--result"

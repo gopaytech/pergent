@@ -1,10 +1,13 @@
 package runner
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 const fixtureReview = "## Review\n\n- **[service/handler.go:42]** The error from `Save` is discarded, so a failed write still returns 200.\n\nNo other issues found."
@@ -237,5 +240,50 @@ func TestParseOutput_Usage(t *testing.T) {
 	got := ParseOutput([]byte(stdout))
 	if want := (Usage{Input: 30, Output: 8}); got.Usage != want {
 		t.Errorf("Usage = %+v, want %+v", got.Usage, want)
+	}
+}
+
+func TestParseOutput_OpenedPaths(t *testing.T) {
+	ev := func(tool, status, input string) string {
+		return `{"type":"tool_use","part":{"type":"tool","tool":"` + tool + `","state":{"status":"` + status + `","input":` + input + `}}}` + "\n"
+	}
+	stdout := `{"type":"step_start","part":{"type":"step-start"}}` + "\n" +
+		ev("read", "completed", `{"filePath":"/work/linked-1/a.go"}`) +
+		ev("read", "error", `{"filePath":"/work/linked-2/denied.go"}`) +
+		ev("grep", "completed", `{"pattern":"/work/linked-3/x","path":"/work/linked-1/svc"}`) +
+		ev("grep", "completed", `{"pattern":"/work/linked-3/x"}`) +
+		ev("glob", "completed", `{"pattern":"**/*.go","path":"/work/linked-1"}`) +
+		ev("list", "completed", `{"path":"/work/linked-1"}`) +
+		ev("edit", "completed", `{"filePath":"/work/linked-1/b.go"}`) +
+		ev("read", "completed", `{}`) +
+		`{"type":"step_finish","part":{"type":"step-finish","reason":"stop","tokens":{"input":1,"output":1}}}` + "\n"
+	got := ParseOutput([]byte(stdout)).Opened
+	want := []string{"/work/linked-1/a.go", "/work/linked-1/svc", "/work/linked-1", "/work/linked-1"}
+	if !slices.Equal(got, want) {
+		t.Errorf("Opened = %q, want %q: only a completed read, grep, glob or list with a path", got, want)
+	}
+}
+
+func TestParseOutput_OpenedIsCapped(t *testing.T) {
+	var b strings.Builder
+	for i := 0; i < maxOpened+50; i++ {
+		b.WriteString(`{"type":"tool_use","part":{"tool":"read","state":{"status":"completed","input":{"filePath":"/x"}}}}` + "\n")
+	}
+	if got := len(ParseOutput([]byte(b.String())).Opened); got != maxOpened {
+		t.Errorf("len(Opened) = %d, want %d", got, maxOpened)
+	}
+}
+
+func TestRun_ReportsOpenedPaths(t *testing.T) {
+	fakeOpencode(t, fakeAttempt{stdout: `{"type":"step_start","part":{"type":"step-start"}}
+{"type":"tool_use","part":{"type":"tool","tool":"read","state":{"status":"completed","input":{"filePath":"/work/linked-1/a.go"}}}}
+{"type":"step_finish","part":{"type":"step-finish","reason":"tool-calls","tokens":{"input":1,"output":1}}}
+{"type":"step_start","part":{"type":"step-start"}}
+{"type":"text","part":{"type":"text","text":"Done."}}
+{"type":"step_finish","part":{"type":"step-finish","reason":"stop","tokens":{"input":1,"output":1}}}
+`})
+	got := Run(context.Background(), testOptions(time.Minute))
+	if got.Status != StatusCompleted || !slices.Equal(got.Opened, []string{"/work/linked-1/a.go"}) {
+		t.Errorf("Run() = %+v, want it to report the path it read", got)
 	}
 }
