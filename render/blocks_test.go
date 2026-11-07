@@ -413,6 +413,39 @@ func bulkSkills() ([]Skill, []string) {
 	return []Skill{s}, files
 }
 
+// sweepLimits returns the size limits worth trying for these options: every
+// byte up to just past the last shrink step's size, where the last cut works,
+// and above that each step's size and one byte either side. Between those,
+// Comment returns one step's whole render, so nothing else can differ.
+func sweepLimits(skills []Skill, os ...Options) []int {
+	seen := map[int]bool{}
+	var limits []int
+	add := func(n int) {
+		if n >= 100 && !seen[n] {
+			seen[n] = true
+			limits = append(limits, n)
+		}
+	}
+	for _, o := range os {
+		steps := append([]layout{{listLimit: -1}}, shrinkSteps...)
+		for i, l := range steps {
+			n := len(render(skills, o, l))
+			if i == len(steps)-1 {
+				for k := 100; k <= n+1; k++ {
+					add(k)
+				}
+			}
+			add(n - 1)
+			add(n)
+			add(n + 1)
+			if i == 0 {
+				add(n + 50)
+			}
+		}
+	}
+	return limits
+}
+
 func TestCustomOrderAtEverySize(t *testing.T) {
 	skills, files := bulkSkills()
 	layouts := map[string][]Block{
@@ -428,8 +461,7 @@ func TestCustomOrderAtEverySize(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			custom := Options{ChangedFiles: files, Layout: layout}
-			full := max(len(Comment(skills, custom)), len(Comment(skills, def)))
-			for limit := 100; limit <= full+50; limit++ {
+			for _, limit := range sweepLimits(skills, custom, def) {
 				o := custom
 				o.MaxLen = limit
 				got := Comment(skills, o)
@@ -444,6 +476,37 @@ func TestCustomOrderAtEverySize(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestNilLayoutMatchesDefaultAtEverySize(t *testing.T) {
+	bulk, bulkFiles := bulkSkills()
+	cases := map[string]struct {
+		skills []Skill
+		files  []string
+	}{
+		"layout skill": {[]Skill{layoutSkill("code-review")}, layoutFiles},
+		"bulk":         {bulk, bulkFiles},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			nilOpts := Options{ChangedFiles: c.files}
+			setOpts := Options{ChangedFiles: c.files, Layout: DefaultLayout()}
+			for _, limit := range sweepLimits(c.skills, nilOpts) {
+				nilOpts.MaxLen, setOpts.MaxLen = limit, limit
+				if a, b := Comment(c.skills, nilOpts), Comment(c.skills, setOpts); a != b {
+					t.Fatalf("limit %d: nil and DefaultLayout() differ:\n%s\n---\n%s", limit, a, b)
+				}
+			}
+		})
+	}
+}
+
+// TestDefaultNoteOrderAtTheCut pins the last cut of the default layout: its
+// notes keep the order the blocks have, so the dismissed note comes before the
+// check tables note.
+func TestDefaultNoteOrderAtTheCut(t *testing.T) {
+	got := Comment([]Skill{layoutSkill("code-review")}, Options{MaxLen: 632})
+	inOrder(t, got, "1 dismissed finding omitted", "Check tables omitted")
 }
 
 func TestFailedCutLeavesItsNote(t *testing.T) {

@@ -225,8 +225,9 @@ type layout struct {
 	openFindings  bool // suggestions start open
 	openDismissed bool
 	openFiles     bool
-	// defaultOrder writes the layout's blocks in DefaultLayout's order, the
-	// details right after findings: the last-resort cut uses it.
+	// defaultOrder writes the layout's blocks in DefaultLayout's order, and with
+	// checks left out puts the details right after findings, not at summary:
+	// the last-resort cut uses it. For the default layout it changes nothing.
 	defaultOrder bool
 	// listLimit caps the files list; -1 means no cap.
 	listLimit int
@@ -331,10 +332,9 @@ func render(skills []Skill, o Options, l layout) string {
 	// else at summary after any single summary, else right after findings.
 	detailsAt := BlockFindings
 	switch {
-	case l.defaultOrder:
 	case hasChecks:
 		detailsAt = BlockChecks
-	case hasSummary:
+	case hasSummary && !l.defaultOrder:
 		detailsAt = BlockSummary
 	}
 
