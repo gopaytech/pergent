@@ -8,25 +8,21 @@
 | `multi` | ✅ No blocking issues | none |
 | `single` | ✅ No blocking issues | none |
 
-**Failed checks (3)**
+#### `single`
 
-| Skill | Area | Check | Status | Detail |
-|---|---|---|---|---|
-| `multi` | A | b1 | ❌ | x |
-| `multi` | B | b2 | ❌ |  |
-| `single` | Sec&#124;tion | fail | ❌ |  |
+**Summary:** Sum.
 
-> Passed and n/a checks omitted to fit the comment size limit.
-
-> `multi`: 2 failed checks have no matching finding; the verdict is based on findings.
-> `multi`: 3 checks beyond the first 60 per answer were not shown.
-> `multi`: Verification dropped 1 of 1 blocking finding: Not real (it is handled upstream)
-> `multi`: another note
+> Check tables omitted to fit the comment size limit.
 
 <details><summary>Files (1)</summary>
 
 - `a.go` — reviewed by `multi`
 
 </details>
+
+> `multi`: 2 failed checks have no matching finding; the verdict is based on findings.
+> `multi`: 3 checks beyond the first 60 per answer were not shown.
+> `multi`: Verification dropped 1 of 1 blocking finding: Not real (it is handled upstream)
+> `multi`: another note
 
 > Findings were too large to store for the next run; --previous-review will treat the next run as a first review.

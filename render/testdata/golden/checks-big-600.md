@@ -3,6 +3,8 @@
 
 <sub>60 of 61 checks passed · 1 blocking</sub>
 
+**Summary:** Sum.
+
 #### Findings (1)
 
 <details open><summary>❌ <b>Broken</b> · <code>x.go:1</code></summary>

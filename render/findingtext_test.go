@@ -301,14 +301,20 @@ func TestCheckCellIsText(t *testing.T) {
 				{Section: tc.in, Name: tc.in, Status: CheckFail, Detail: tc.in},
 			}}}}
 			got := Comment([]Skill{s}, Options{})
-			if row := "| " + want + " | " + want + " | ❌ | " + want + " |\n"; !strings.Contains(got, row) {
+			if row := "| " + want + " | ❌ | " + want + " |\n"; !strings.Contains(got, row) {
 				t.Errorf("comment lacks %q:\n%s", row, got)
 			}
-			// Every pipe of the text is an entity, so the row has five pipes of
+			// Every pipe of the text is an entity, so the row has four pipes of
 			// its own, whatever the text holds.
 			for _, line := range strings.Split(got, "\n") {
-				if strings.HasPrefix(line, "| "+want) && strings.Count(line, "|") != 5 {
+				if strings.HasPrefix(line, "| "+want) && strings.Count(line, "|") != 4 {
 					t.Errorf("row has a stray pipe: %q", line)
+				}
+			}
+			// The area is a heading, so it is a line of text after the prefix.
+			if oneLine(tc.in) != "" {
+				if heading := "\n#### " + lineText(tc.in) + "\n\n"; !strings.Contains(got, heading) {
+					t.Errorf("comment lacks the heading %q:\n%s", heading, got)
 				}
 			}
 		})

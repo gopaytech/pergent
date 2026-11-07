@@ -158,7 +158,25 @@ var surfaces = []surface{
 		s := Skill{Name: "s", Verdict: VerdictNoBlockingIssues, Notes: []string{startMark + " " + a + " " + endMark}}
 		return Comment([]Skill{s}, Options{})
 	}},
-	{name: "check section", cell: true, out: func(a, _ string) string { return checkCommentWith(startMark+" "+a+" "+endMark, "n", "d") }},
+	{name: "check area", out: func(a, _ string) string { return checkCommentWith(startMark+" "+a+" "+endMark, "n", "d") }},
+	{name: "check area in a skill section", out: func(a, _ string) string {
+		s := Skill{Name: "s", Verdict: VerdictNoBlockingIssues, Checks: []BatchChecks{{Batch: 1, Checks: []Check{
+			{Section: startMark + " " + a + " " + endMark, Name: "n", Status: CheckPass},
+		}}}}
+		return Comment([]Skill{s, cleanSkill("t", 0)}, Options{})
+	}},
+	{name: "summary", out: func(a, _ string) string {
+		s := Skill{Name: "s", Verdict: VerdictNoBlockingIssues, Batches: 1, Summaries: []Summary{{Batch: 1, Text: startMark + " " + a + " " + endMark}}}
+		return Comment([]Skill{s}, Options{})
+	}},
+	{name: "batch summary", out: func(a, _ string) string {
+		s := Skill{Name: "s", Verdict: VerdictNoBlockingIssues, Batches: 2, Summaries: []Summary{{Batch: 2, Text: startMark + " " + a + " " + endMark}}}
+		return Comment([]Skill{s}, Options{})
+	}},
+	{name: "summary in a skill section", out: func(a, _ string) string {
+		s := Skill{Name: "s", Verdict: VerdictNoBlockingIssues, Batches: 1, Summaries: []Summary{{Batch: 1, Text: startMark + " " + a + " " + endMark}}}
+		return Comment([]Skill{s, cleanSkill("t", 0)}, Options{})
+	}},
 	{name: "check name", cell: true, out: func(a, _ string) string { return checkCommentWith("s", startMark+" "+a+" "+endMark, "d") }},
 	{name: "check detail", cell: true, out: func(a, _ string) string { return checkCommentWith("s", "n", startMark+" "+a+" "+endMark) }},
 	{name: "failure message", out: func(a, _ string) string {

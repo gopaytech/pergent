@@ -169,8 +169,9 @@ type Options struct {
 	// Short leaves out the Files list and the passed and n/a checks, with no
 	// note, since nothing was cut for size. Everything else is as without it:
 	// the meta line keeps its file count and "N of M checks passed", and the
-	// failed checks table, the findings, the Dismissed list and the hidden
-	// findings block stay. The size-limit steps still apply after it.
+	// summaries, the failed checks (an area with none has no heading), the
+	// findings, the Dismissed list and the hidden findings block stay. The
+	// size-limit steps still apply after it.
 	Short bool
 	// Version is shown in the footer after "pergent ".
 	Version string
@@ -181,6 +182,16 @@ type Options struct {
 	// top of that finding's body, such as why it is not an inline comment. It
 	// is shown as text, so it may carry model or file names.
 	FindingNote map[string]string
+	// Layout orders the comment's blocks (summary, findings, dismissed, checks,
+	// files), says which start open or collapsed, and leaves out any block it
+	// does not list. Nil, empty or not valid (see ParseLayout) means
+	// DefaultLayout. It changes only what the comment shows, never a verdict,
+	// score or count: the headline, meta line, failures, notes, footer and
+	// hidden findings block are the same in every layout, blocking findings
+	// are always open and a failed check is always shown. The one exception is
+	// the size limit: its step 5 can cut the failed checks, with a note, in any
+	// layout. No layout can hide them. Short wins over it.
+	Layout []Block
 }
 
 // failedPrefix starts the report of a failed batch.
@@ -195,6 +206,7 @@ const (
 	detailsDroppedNote      = "> Suggestion details omitted to fit the comment size limit."
 	passedChecksDroppedNote = "> Passed and n/a checks omitted to fit the comment size limit."
 	checkTablesDroppedNote  = "> Check tables omitted to fit the comment size limit."
+	summariesDroppedNote    = "> Summaries omitted to fit the comment size limit."
 	truncatedNote           = "\n\n> Comment truncated to fit the comment size limit.\n"
 )
 
@@ -204,49 +216,65 @@ type layout struct {
 	suggestionTitles bool // suggestions without their explanation and fix
 	noSuggestions    bool // also leaves out the dismissed findings
 	checksFailOnly   bool // check tables keep only failed checks
-	noCheckTables    bool // the failed checks table goes too
+	noCheckTables    bool // the failed checks go too
+	noSummaries      bool // the summaries go, last of all
+	// What Options.Layout asks for, set by render and never by a size step.
+	foldSummary   bool // summaries sit in a <details> labelled Summary
+	foldChecks    bool // passed and n/a checks sit in a <details> per skill
+	noChecks      bool // like Short: only the failed checks are written
+	openFindings  bool // suggestions start open
+	openDismissed bool
+	openFiles     bool
+	// defaultOrder writes the layout's blocks in DefaultLayout's order, and with
+	// checks left out puts the details right after findings, not at summary:
+	// the last-resort cut uses it. For the default layout it changes nothing.
+	defaultOrder bool
 	// listLimit caps the files list; -1 means no cap.
 	listLimit int
 }
 
 // Comment renders the skills as one markdown comment: a headline with the
 // verdict over all skills (and the confidence score, when a skill has one), a
-// meta line, the reason for the score, a skills table when there are several
-// skills, the failures, then one list of findings across all skills, blocking
-// ones first and open, then the dismissed findings, then the checks of all
-// skills (the failed ones in a table, the rest collapsed), the notes, the
-// list of files and the footer. A hidden last line carries the findings for
-// the next run. The headline, meta line, reason, table and failures are kept
-// by every shrink step below.
+// meta line, the reason for a score below 5 or capped, a skills table when
+// there are several skills and the failures. Then the summary (one skill with
+// one batch and one summary), one list of findings across all skills, blocking
+// ones first and open, the dismissed findings, and the details: a line per
+// batch for one skill with several batches, a section per skill when there are
+// several (its summary, then its checks), and the checks by area, each area a
+// heading with a small table, failed checks first. Last come the list of
+// files, the notes and the footer. A hidden last line carries the findings for
+// the next run. That is the default order; o.Layout can change the order of the
+// summary, findings, dismissed, checks and files blocks, fold or open them, or
+// leave one out (see Options.Layout). The headline, meta line, reason, table
+// and failures are kept by every shrink step below.
 //
 // A comment over o.MaxLen is shrunk in steps until it fits: the hidden
 // findings block goes first, then the suggestions' explanations and fixes
 // (their titles stay), then the suggestions and dismissed findings, then the
-// passed and n/a checks, then the failed checks table (the meta line keeps
-// the counts), then the file list is cut to 20 paths and then to a count.
-// Blocking findings and failures are never dropped; if they alone are over the
-// limit, the comment is cut at the limit with a note. With o.Short the file
-// list and the passed and n/a checks are not written at all, so their steps
-// change nothing and leave no note.
+// passed and n/a checks (an area left with none loses its heading), then the
+// failed checks (the meta line keeps the counts), then the file list is cut to
+// 20 paths and then to a count, and last the summaries. Blocking findings and
+// failures are never dropped; if they alone are over the limit, the comment is
+// cut at the limit with a note. That last cut is made on a comment in the
+// default order, whatever o.Layout says (the blocks it shows and their states
+// stay), so notes ahead of the findings can't push a blocking title past the
+// limit. With o.Short the file list and the passed and
+// n/a checks are not written at all, so their steps change nothing and leave
+// no note.
 func Comment(skills []Skill, o Options) string {
 	out := render(skills, o, layout{listLimit: -1})
 	if o.MaxLen <= 0 || len(out) <= o.MaxLen {
 		return out
 	}
-	for _, l := range []layout{
-		{noHidden: true, listLimit: -1},
-		{noHidden: true, suggestionTitles: true, listLimit: -1},
-		{noHidden: true, noSuggestions: true, listLimit: -1},
-		{noHidden: true, noSuggestions: true, checksFailOnly: true, listLimit: -1},
-		{noHidden: true, noSuggestions: true, checksFailOnly: true, noCheckTables: true, listLimit: -1},
-		{noHidden: true, noSuggestions: true, checksFailOnly: true, noCheckTables: true, listLimit: 20},
-		{noHidden: true, noSuggestions: true, checksFailOnly: true, noCheckTables: true, listLimit: 0},
-	} {
+	for _, l := range shrinkSteps {
 		out = render(skills, o, l)
 		if len(out) <= o.MaxLen {
 			return out
 		}
 	}
+	last := shrinkSteps[len(shrinkSteps)-1]
+	last.defaultOrder = true
+	out = render(skills, o, last)
 	keep := o.MaxLen - len(truncatedNote)
 	if keep < 0 {
 		return cutBytes(out, o.MaxLen)
@@ -256,6 +284,19 @@ func Comment(skills []Skill, o Options) string {
 		out = out[:i]
 	}
 	return out + truncatedNote
+}
+
+// shrinkSteps are the layouts Comment tries, in order, when the comment is
+// over the size limit. Each one keeps what the one before it left out.
+var shrinkSteps = []layout{
+	{noHidden: true, listLimit: -1},
+	{noHidden: true, suggestionTitles: true, listLimit: -1},
+	{noHidden: true, noSuggestions: true, listLimit: -1},
+	{noHidden: true, noSuggestions: true, checksFailOnly: true, listLimit: -1},
+	{noHidden: true, noSuggestions: true, checksFailOnly: true, noCheckTables: true, listLimit: -1},
+	{noHidden: true, noSuggestions: true, checksFailOnly: true, noCheckTables: true, listLimit: 20},
+	{noHidden: true, noSuggestions: true, checksFailOnly: true, noCheckTables: true, listLimit: 0},
+	{noHidden: true, noSuggestions: true, checksFailOnly: true, noCheckTables: true, listLimit: 0, noSummaries: true},
 }
 
 // cutBytes returns the longest prefix of s of at most n bytes that doesn't
@@ -273,13 +314,48 @@ func cutBytes(s string, n int) string {
 func render(skills []Skill, o Options, l layout) string {
 	var b strings.Builder
 
+	blocks := resolveLayout(o.Layout)
+	state := func(name string) string { s, _ := blockState(blocks, name); return s }
+	if l.defaultOrder {
+		blocks = inDefaultOrder(blocks)
+	}
+	_, hasSummary := blockState(blocks, BlockSummary)
+	_, hasChecks := blockState(blocks, BlockChecks)
+	l.noSummaries = l.noSummaries || !hasSummary // a block left out is not written, and says nothing
+	l.noChecks = !hasChecks
+	l.foldSummary = state(BlockSummary) == StateCollapsed
+	l.foldChecks = state(BlockChecks) == StateCollapsed
+	l.openFindings = state(BlockFindings) == StateOpen
+	l.openDismissed = state(BlockDismissed) == StateOpen
+	l.openFiles = state(BlockFiles) == StateOpen
+	// The batch list, the skill sections and the failed checks sit at checks,
+	// else at summary after any single summary, else right after findings.
+	detailsAt := BlockFindings
+	switch {
+	case hasChecks:
+		detailsAt = BlockChecks
+	case hasSummary && !l.defaultOrder:
+		detailsAt = BlockSummary
+	}
+
 	b.WriteString(Marker + "\n")
 	writeHeader(&b, skills, o)
-	writeFindings(&b, skills, o, l)
-	writeDismissedList(&b, skills, l)
-	writeChecks(&b, skills, o, l)
+	for _, bl := range blocks {
+		switch bl.Name {
+		case BlockSummary:
+			writeSummary(&b, skills, l)
+		case BlockFindings:
+			writeFindings(&b, skills, o, l)
+		case BlockDismissed:
+			writeDismissedList(&b, skills, l)
+		case BlockFiles:
+			writeFiles(&b, skills, o, l)
+		}
+		if bl.Name == detailsAt {
+			writeDetails(&b, skills, o, l)
+		}
+	}
 	writeNotes(&b, skills)
-	writeFiles(&b, skills, o, l)
 	writeFooter(&b, o)
 
 	out := neutralizeQuickActions(b.String())

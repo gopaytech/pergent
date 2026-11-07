@@ -33,8 +33,9 @@ https://x.example/?key=[REDACTED]&token=[REDACTED]
 
 > 2 suggestions omitted to fit the comment size limit.
 
-> `second`: note with <‍!-- comment --> and newline
-> `second`: token [REDACTED]
+#### `second`
+
+**Summary:** fine /unapprove
 
 <details><summary>Files (3)</summary>
 
@@ -43,5 +44,8 @@ https://x.example/?key=[REDACTED]&token=[REDACTED]
 - `` x`y.go `` — skipped by `second` (rule &lt;/details>)
 
 </details>
+
+> `second`: note with <‍!-- comment --> and newline
+> `second`: token [REDACTED]
 
 > Findings were too large to store for the next run; --previous-review will treat the next run as a first review.

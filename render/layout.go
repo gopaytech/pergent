@@ -126,11 +126,11 @@ func skillRef(name string) string { return neutralizeComments(codeSpan(name)) }
 
 // writeReason writes the model's reason for the review's confidence score as
 // a quote, with the skill it came from when there are several and why the
-// score was capped.
+// score was capped. A score of 5 that is not capped has none.
 func writeReason(b *strings.Builder, skills []Skill) {
 	score, at := ReviewScore(skills)
-	if at < 0 {
-		return
+	if at < 0 || score.Value >= 5 && score.Capped == "" {
+		return // at 5 of 5 the reason says nothing a reader needs
 	}
 	reason := lineText(skills[at].ConfidenceReason)
 	switch {
@@ -245,7 +245,7 @@ func writeFindings(b *strings.Builder, skills []Skill, o Options, l layout) {
 		fmt.Fprintf(b, "#### %s (%d)\n\n", neutralizeComments(oneLine(title)), shown)
 	}
 	for _, r := range blocking {
-		writeFindingRow(b, r, o, many)
+		writeFindingRow(b, r, o, many, false)
 	}
 	switch {
 	case len(suggestions) == 0:
@@ -269,7 +269,7 @@ func writeFindings(b *strings.Builder, skills []Skill, o Options, l layout) {
 		b.WriteString("</ul>\n\n")
 	default:
 		for _, r := range suggestions {
-			writeFindingRow(b, r, o, many)
+			writeFindingRow(b, r, o, many, l.openFindings)
 		}
 	}
 }
@@ -332,16 +332,19 @@ func locationPart(f Finding, o Options) string {
 
 // writeFindingRow writes one finding as a collapsible block. The summary line
 // carries the title, location, skill (when there are several) and ID; blocking
-// findings start open. The title, location and skill are model or file text
-// in a line of HTML, so they are escaped; the body is Markdown and is guarded
-// like any model text.
+// findings start open, and so do suggestions with openAll. The title,
+// location and skill are model or file text in a line of HTML, so they are
+// escaped; the body is Markdown and is guarded like any model text.
 //
 // The suggested change is display text: "<!--", "<details" and "<summary" are
 // escaped and a line starting with "/" gets a zero-width space, so a caller
 // that needs the exact text to apply it must use Finding.Suggestion itself.
-func writeFindingRow(b *strings.Builder, r findingRow, o Options, withSkill bool) {
+func writeFindingRow(b *strings.Builder, r findingRow, o Options, withSkill, openAll bool) {
 	f := r.Finding
 	icon, open := "💡", ""
+	if openAll {
+		open = " open"
+	}
 	if f.Severity != Suggestion {
 		icon, open = "❌", " open"
 	}
@@ -402,10 +405,18 @@ func writeDismissedList(b *strings.Builder, skills []Skill, l layout) {
 	case l.noSuggestions:
 		fmt.Fprintf(b, "> %s omitted to fit the comment size limit.\n\n", plural(len(ds), "dismissed finding"))
 	default:
-		fmt.Fprintf(b, "<details><summary>Dismissed (%d)</summary>\n\n", len(ds))
+		fmt.Fprintf(b, "<details%s><summary>Dismissed (%d)</summary>\n\n", openAttr(l.openDismissed), len(ds))
 		for _, d := range ds {
 			writeDismissed(b, d)
 		}
 		b.WriteString("\n</details>\n\n")
 	}
+}
+
+// openAttr is the attribute that makes a <details> start open.
+func openAttr(open bool) string {
+	if open {
+		return " open"
+	}
+	return ""
 }
