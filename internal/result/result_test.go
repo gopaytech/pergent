@@ -529,3 +529,49 @@ func TestRedact_CarriedPaths(t *testing.T) {
 		t.Errorf("the encoded result holds the token: %s", b)
 	}
 }
+
+func TestBuild_LinkedCallerPassesThrough(t *testing.T) {
+	with := finding.Finding{
+		File: "api/router.go", Line: 12, Severity: finding.Blocking, Title: "Breaks a caller",
+		Explanation: "e", Fingerprint: "a1b2c3d4e5f6",
+		Linked: &finding.Caller{Repo: "billing", File: "svc/client.go", Line: 88},
+	}
+	without := finding.Finding{
+		File: "a.go", Line: 1, Severity: finding.Suggestion, Title: "Plain",
+		Explanation: "e", Fingerprint: "b1b2c3d4e5f6",
+	}
+	sr := review.SkillResult{Skill: "impact", Verdict: review.HasBlockingIssues, Findings: []finding.Finding{with, without}}
+	b, err := Encode(Build(testMeta(), []review.SkillResult{sr}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fs := decode(t, b)["skills"].([]any)[0].(map[string]any)["findings"].([]any)
+	got, ok := fs[0].(map[string]any)["linked"].(map[string]any)
+	if !ok || got["repo"] != "billing" || got["file"] != "svc/client.go" || got["line"] != float64(88) {
+		t.Errorf("linked = %v, want billing svc/client.go:88", fs[0].(map[string]any)["linked"])
+	}
+	if _, has := fs[1].(map[string]any)["linked"]; has {
+		t.Errorf("a finding with no caller has a linked key: %v", fs[1])
+	}
+}
+
+func TestEncode_RedactsLinkedCaller(t *testing.T) {
+	const secret = "glpat-secretvalue"
+	t.Setenv("GITLAB_TOKEN", secret)
+	f := finding.Finding{
+		File: "a.go", Line: 1, Severity: finding.Blocking, Title: "t", Explanation: "e", Fingerprint: "a1b2c3d4e5f6",
+		Linked: &finding.Caller{Repo: "r-" + secret, File: "f-" + secret, Line: 3},
+	}
+	r := Build(testMeta(), []review.SkillResult{{Skill: "impact", Verdict: review.HasBlockingIssues, Findings: []finding.Finding{f}}})
+	b, err := Encode(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(b, []byte(secret)) {
+		t.Errorf("token leaked through the caller: %s", b)
+	}
+	// The finding the caller passed in is not changed.
+	if !strings.Contains(f.Linked.Repo, secret) {
+		t.Errorf("Encode changed the input finding's caller: %+v", f.Linked)
+	}
+}

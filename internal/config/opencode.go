@@ -94,6 +94,10 @@ type OpenCodeOptions struct {
 	Instructions []string
 	// DenySecretFiles additionally denies reading *.pem, *.key and *.tfvars.
 	DenySecretFiles bool
+	// Linked are the directories of linked repositories the run may read
+	// through external_directory. Only an impact run sets it; every other run
+	// reads nothing outside the repository and pergent's own temp files.
+	Linked []string
 }
 
 // ReadRules returns the generated config's read permission, pattern to
@@ -160,6 +164,21 @@ func wildcardMatch(pattern, s string) bool {
 	return strings.HasSuffix(s, last)
 }
 
+// linkedAllows are the external_directory patterns that let a run read the
+// directory dir and everything below it. A directory that is not absolute, is
+// the root, or has a wildcard character in its name gets none: the pattern
+// would reach further than the one clone it is meant for.
+func linkedAllows(dir string) []string {
+	if dir == "" || !filepath.IsAbs(dir) || strings.ContainsAny(dir, "*?[]{}") {
+		return nil
+	}
+	dir = filepath.Clean(dir)
+	if dir == string(filepath.Separator) {
+		return nil
+	}
+	return []string{dir, filepath.Join(dir, "*")}
+}
+
 // GeneratesConfig reports whether GenerateOpenCodeConfigWith writes a config
 // in this environment. Without OPENCODE_PROVIDER it writes none, and opencode
 // runs with its own config, none of the permissions below.
@@ -219,6 +238,17 @@ func GenerateOpenCodeConfigWith(o OpenCodeOptions) (string, func(), error) {
 
 	readRules := ReadRules(o.DenySecretFiles)
 
+	externalDirectory := map[string]string{
+		"*":                                      "deny",
+		filepath.Join(os.TempDir(), "pergent-*"): "allow",
+		filepath.Join(os.TempDir(), DataDirPrefix+"*", "opencode", "tool-output", "*"): "allow",
+	}
+	for _, dir := range o.Linked {
+		for _, pattern := range linkedAllows(dir) {
+			externalDirectory[pattern] = "allow"
+		}
+	}
+
 	cfg := openCodeConfig{
 		Schema:       "https://opencode.ai/config.json",
 		Model:        fullModel,
@@ -266,11 +296,8 @@ func GenerateOpenCodeConfigWith(o OpenCodeOptions) (string, func(), error) {
 			// a long tool result in <data>/opencode/tool-output (so in 1.3.17 and
 			// 1.19.4) and points the model at it; only that folder of the data
 			// directory is allowed. If a version moves it, that read is denied.
-			"external_directory": map[string]string{
-				"*":                                      "deny",
-				filepath.Join(os.TempDir(), "pergent-*"): "allow",
-				filepath.Join(os.TempDir(), DataDirPrefix+"*", "opencode", "tool-output", "*"): "allow",
-			},
+			// An impact run also reads its linked repositories' clones.
+			"external_directory": externalDirectory,
 			// A repeated tool call is bounded by the agent's step limit.
 			"doom_loop": "allow",
 		},

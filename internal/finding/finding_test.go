@@ -1,6 +1,10 @@
 package finding
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
 
 func TestFingerprint_StableAndNormalized(t *testing.T) {
 	a := Fingerprint("s", "a.go", "Nil  Deref ")
@@ -61,5 +65,37 @@ func TestDedup_BlockingStaysOverLaterSuggestion(t *testing.T) {
 	got := Dedup(in)
 	if len(got) != 1 || got[0].Explanation != "blocking" {
 		t.Errorf("Dedup = %+v, want only the first blocking finding", got)
+	}
+}
+
+func TestFindingLinkedRoundTrip(t *testing.T) {
+	in := Finding{
+		File: "api/router.go", Line: 12, Severity: Blocking, Title: "Breaks a caller",
+		Explanation: "The signature changed.",
+		Linked:      &Caller{Repo: "billing", File: "svc/client.go", Line: 88},
+	}
+	data, err := json.Marshal(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `"linked":{"repo":"billing","file":"svc/client.go","line":88}`; !strings.Contains(string(data), want) {
+		t.Errorf("json = %s, want it to hold %s", data, want)
+	}
+	var out Finding
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Linked == nil || *out.Linked != *in.Linked {
+		t.Errorf("Linked = %+v, want %+v", out.Linked, in.Linked)
+	}
+}
+
+func TestFindingWithoutCallerHasNoLinkedKey(t *testing.T) {
+	data, err := json.Marshal(Finding{File: "a.go", Severity: Suggestion, Title: "t", Explanation: "e"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "linked") {
+		t.Errorf("json = %s, want no linked key", data)
 	}
 }

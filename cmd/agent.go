@@ -50,7 +50,10 @@ type agentInputs struct {
 	Dismissals   map[string][]finding.Rejected
 	// Description is the change's title and description, "" when none was
 	// given. The path is trusted; the text is the author's.
-	Description    string
+	Description string
+	// Linked are the linked repositories the caller cloned, scrubbed. An entry
+	// with an Error is not to be read.
+	Linked         []review.LinkedRepo
 	MaxCommentSize int
 	Target         result.Target
 	Diff           string
@@ -68,6 +71,8 @@ type agentInputs struct {
 	// changePath is --change-description, or $PERGENT_CHANGE_DESCRIPTION
 	// without the flag.
 	changePath string
+	// linkedPath is --linked-repos, or $PERGENT_LINKED_REPOS without the flag.
+	linkedPath string
 	scrub      bool
 	// $HOME and $XDG_CONFIG_HOME, where opencode finds its global config.
 	home, configHome string
@@ -309,6 +314,7 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 	flags.StringVar(&in.carriedPath, "carried", "", "A JSON file {\"<skill>\": [\"path\", ...]} of files a previous review covers, left out of this review")
 	flags.StringVar(&in.dismissalsPath, "dismissals", getenv("PERGENT_DISMISSALS"), "A JSON file {\"<skill>\": [{\"file\", \"title\", \"severity\", \"reason\"}, ...]} of findings people rejected earlier, attached to the runs")
 	flags.StringVar(&in.changePath, "change-description", getenv("PERGENT_CHANGE_DESCRIPTION"), "A file holding the change's title and description, attached to the review runs as data")
+	flags.StringVar(&in.linkedPath, "linked-repos", getenv("PERGENT_LINKED_REPOS"), "A JSON file [{\"name\", \"path\", \"watched\", \"can_block\", \"error\"}, ...] of linked repositories the caller cloned; they are scrubbed, and only an impact run reads them")
 	flags.BoolVar(&in.scrub, "scrub-instructions", false, "Delete every AGENTS.md, CLAUDE.md and CONTEXT.md in --repo-path before reviewing")
 	flags.IntVar(&in.MaxCommentSize, "max-comment-size", 0, "Byte limit for the rendered comment (0: no limit)")
 	flags.StringVar(&resultPath, "result", "", "Write the result JSON to this file, or - for stdout")
@@ -491,6 +497,18 @@ func prepareAgent(in *agentInputs, logger *log.Logger) *result.Error {
 	if in.changePath != "" {
 		in.Description = readChangeDescription(in.changePath, logger)
 	}
+	if in.linkedPath != "" {
+		repos, err := readLinkedRepos(in.linkedPath, logger)
+		if err != nil {
+			return fail(result.CodeUsage, "--linked-repos %s: %v", in.linkedPath, err)
+		}
+		if err := linkedOutside(root, repos); err != nil {
+			return fail(result.CodeUsage, "%v", err)
+		}
+		// Before any run starts. A failure marks the entry, never the review.
+		in.Linked = scrubLinked(repos, func(rel string) bool { return config.ReadDenied(rel, true) })
+		logLinked(in.Linked, logger)
+	}
 	return nil
 }
 
@@ -509,7 +527,8 @@ func gitVersionError(version string, major, minor int, err error) *result.Error 
 }
 
 // trustedInputsOutside refuses a trusted input (--instructions, --skills-dir,
-// a path --skill, --previous, --carried, --dismissals, --change-description) that resolves to somewhere inside the checkout:
+// a path --skill, --previous, --carried, --dismissals, --change-description,
+// --linked-repos) that resolves to somewhere inside the checkout:
 // the change under review could have written it. A --skills-dir above the
 // checkout is refused too, since LoadDir would read the checkout's top-level
 // files as skills. So are a --result file in the checkout, where the change
@@ -549,6 +568,9 @@ func trustedInputsOutside(root string, in *agentInputs) *result.Error {
 	}
 	if in.changePath != "" {
 		inputs = append(inputs, input{"--change-description", in.changePath})
+	}
+	if in.linkedPath != "" {
+		inputs = append(inputs, input{"--linked-repos", in.linkedPath})
 	}
 	if in.home != "" {
 		inputs = append(inputs, input{"$HOME", in.home})

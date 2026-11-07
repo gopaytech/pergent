@@ -795,3 +795,142 @@ func TestGeneratesConfig(t *testing.T) {
 		}
 	}
 }
+
+// wantNoLinkedConfig is the generated config of OpenCodeOptions{MaxTurns: 20}
+// as it was before linked repositories existed, with %[1]s standing for
+// os.TempDir(). A review with no linked repository must still get exactly it.
+const wantNoLinkedConfig = `{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "anthropic/claude-sonnet-4",
+  "default_agent": "pergent",
+  "provider": {
+    "anthropic": {
+      "options": {
+        "apiKey": "{env:OPENCODE_API_KEY}"
+      },
+      "models": {
+        "claude-sonnet-4": {}
+      }
+    }
+  },
+  "agent": {
+    "pergent": {
+      "description": "pergent review agent",
+      "mode": "primary",
+      "model": "anthropic/claude-sonnet-4",
+      "steps": 20
+    }
+  },
+  "permission": {
+    "bash": "deny",
+    "doom_loop": "allow",
+    "edit": "deny",
+    "external_directory": {
+      "*": "deny",
+      "%[1]s/opencode-data-pergent-*/opencode/tool-output/*": "allow",
+      "%[1]s/pergent-*": "allow"
+    },
+    "glob": "allow",
+    "grep": "allow",
+    "list": "allow",
+    "read": {
+      "*": "allow",
+      "*.env": "deny",
+      "*.env.*": "deny",
+      "*.env.example": "allow"
+    },
+    "skill": "deny",
+    "task": "deny",
+    "webfetch": "deny",
+    "websearch": "deny"
+  },
+  "compaction": {
+    "auto": false
+  },
+  "lsp": false
+}`
+
+func TestExternalDirectoryOnlyForLinked(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	externalDirectory := func(t *testing.T, data []byte) map[string]string {
+		t.Helper()
+		var cfg struct {
+			Permission struct {
+				External map[string]string `json:"external_directory"`
+			} `json:"permission"`
+		}
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			t.Fatal(err)
+		}
+		return cfg.Permission.External
+	}
+
+	t.Run("without linked paths the config is byte-identical to before", func(t *testing.T) {
+		want := fmt.Sprintf(wantNoLinkedConfig, os.TempDir())
+		for name, o := range map[string]OpenCodeOptions{
+			"nil":   {MaxTurns: 20},
+			"empty": {MaxTurns: 20, Linked: []string{}},
+		} {
+			if got := string(generateWith(t, o)); got != want {
+				t.Errorf("%s: config changed:\n%s\nwant:\n%s", name, got, want)
+			}
+		}
+	})
+
+	t.Run("linked paths are allowed and nothing else is", func(t *testing.T) {
+		base := externalDirectory(t, generateWith(t, OpenCodeOptions{MaxTurns: 20}))
+		got := externalDirectory(t, generateWith(t, OpenCodeOptions{
+			MaxTurns: 20,
+			Linked:   []string{"/work/linked-1", "/work/linked-2/"},
+		}))
+		want := map[string]string{
+			"/work/linked-1":   "allow",
+			"/work/linked-1/*": "allow",
+			"/work/linked-2":   "allow",
+			"/work/linked-2/*": "allow",
+		}
+		for k, v := range base {
+			want[k] = v
+		}
+		if len(got) != len(want) {
+			t.Errorf("external_directory = %v, want %v", got, want)
+		}
+		for k, v := range want {
+			if got[k] != v {
+				t.Errorf("external_directory[%q] = %q, want %q (got %v)", k, got[k], v, got)
+			}
+		}
+		if got["*"] != "deny" {
+			t.Errorf(`external_directory["*"] = %q, want deny`, got["*"])
+		}
+	})
+
+	t.Run("read rules and the rest of the config are untouched by linked paths", func(t *testing.T) {
+		var a, b map[string]any
+		if err := json.Unmarshal(generateWith(t, OpenCodeOptions{MaxTurns: 20, DenySecretFiles: true}), &a); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(generateWith(t, OpenCodeOptions{MaxTurns: 20, DenySecretFiles: true, Linked: []string{"/work/linked-1"}}), &b); err != nil {
+			t.Fatal(err)
+		}
+		delete(a["permission"].(map[string]any), "external_directory")
+		delete(b["permission"].(map[string]any), "external_directory")
+		ab, _ := json.Marshal(a)
+		bb, _ := json.Marshal(b)
+		if !bytes.Equal(ab, bb) {
+			t.Errorf("linked paths changed more than external_directory:\n%s\n%s", ab, bb)
+		}
+	})
+}
+
+// A linked path that could allow more than its own clone gets no allow.
+func TestLinkedAllowsRefusesWidePaths(t *testing.T) {
+	for _, dir := range []string{"", "/", "relative/linked-1", "/work/*", "/work/linked-?", "/work/{a,b}", "/work/[a]"} {
+		if got := linkedAllows(dir); len(got) != 0 {
+			t.Errorf("linkedAllows(%q) = %v, want none", dir, got)
+		}
+	}
+	if got := linkedAllows("/work/linked-1/"); len(got) != 2 || got[0] != "/work/linked-1" || got[1] != "/work/linked-1/*" {
+		t.Errorf("linkedAllows(/work/linked-1/) = %v", got)
+	}
+}
