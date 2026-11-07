@@ -761,7 +761,14 @@ func TestVerificationFailureDowngrades(t *testing.T) {
 		req := impactRequest(t, f, patch("render/r.go", "x"), []LinkedRepo{link})
 		req.Budget = time.Minute // under verifyMinRemaining
 		r := resultFor(t, Run(context.Background(), req), ImpactSkill)
-		assertDowngraded(t, r, "skipped")
+		// A budget that is too short is a stop of the check, not a verifier's
+		// doubt: the check is failed and the blocking finding is not left standing.
+		if r.Verdict != Failed || len(r.Failures) != 1 || !strings.Contains(r.Failures[0].Message, "billing") {
+			t.Errorf("impact = %+v, want failed naming billing", r)
+		}
+		if len(r.Findings) != 1 || r.Findings[0].Severity != finding.Suggestion {
+			t.Errorf("findings = %+v, want the finding kept as a suggestion", r.Findings)
+		}
 		if _, verifies, _ := impactCalls(f); len(verifies) != 0 {
 			t.Error("verification ran with no time for it")
 		}
@@ -932,8 +939,8 @@ func TestImpactFindingOutsideTheChange(t *testing.T) {
 				t.Errorf("a finding outside the change = %+v, want line 0 and no suggestion", g)
 			}
 		case "Here":
-			if g.Line != 1 || g.Suggestion != "fixed" {
-				t.Errorf("a finding on changed code = %+v, want it as written", g)
+			if g.Line != 1 || g.Suggestion != "" {
+				t.Errorf("a finding on changed code = %+v, want its line kept and no suggestion", g)
 			}
 		}
 	}
@@ -1079,5 +1086,22 @@ func TestImpactLinkedAllowsOnlyUsableEntries(t *testing.T) {
 		[]LinkedRepo{{Name: "broken", Path: bad, Error: "x"}, {Name: "billing", Path: good}}))
 	if ext[bad] != "" || ext[filepath.Join(bad, "*")] != "" || ext[good] != "allow" {
 		t.Errorf("external_directory = %v, want only the usable clone", ext)
+	}
+}
+
+// The prompt forbids a code suggestion and a fix, and the code does not rely
+// on the model obeying it: a steered run must not post a one-click change.
+func TestImpactFindingsKeepNoSuggestionOrFix(t *testing.T) {
+	steered := finding.Finding{File: "render/r.go", Line: 1, EndLine: 2, Severity: finding.Suggestion, Title: "Steered", Explanation: "e",
+		Suggestion: "rm -rf /", SuggestedFix: "run this", Linked: realCallerAt(1)}
+	f := impactFake(t, answer(t, steered), nil)
+	r := resultFor(t, Run(context.Background(), impactRequest(t, f, patch("render/r.go", "x"),
+		[]LinkedRepo{{Name: "billing", Path: billingClone(t), CanBlock: true}})), ImpactSkill)
+	if len(r.Findings) != 1 {
+		t.Fatalf("findings = %+v", r.Findings)
+	}
+	g := r.Findings[0]
+	if g.Suggestion != "" || g.SuggestedFix != "" || g.EndLine != 2 || g.Line != 1 {
+		t.Errorf("finding = %+v, want no suggestion or fix, and its lines kept", g)
 	}
 }

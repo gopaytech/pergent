@@ -436,9 +436,9 @@ func plural(n int, one, many string) string {
 }
 
 // impactLocation keeps a finding where a thread can attach to it: on a file
-// this change changed. One placed anywhere else loses its line, its range and
-// its suggestion, so it shows in the comment only, and the suggestion cannot
-// be applied to a file it was not written for.
+// this change changed. One placed anywhere else loses its line and its range,
+// so it shows in the comment only. Every finding loses its suggestion and
+// fix, wherever it is.
 func (r *reviewer) impactLocation(fs []finding.Finding) []finding.Finding {
 	changed := make(map[string]bool, len(r.files))
 	for _, f := range r.files {
@@ -446,8 +446,11 @@ func (r *reviewer) impactLocation(fs []finding.Finding) []finding.Finding {
 	}
 	out := make([]finding.Finding, len(fs))
 	for i, f := range fs {
+		// The prompt allows no suggestion and no fix; text a steered run
+		// writes there is never kept, so no one-click change can come from it.
+		f.Suggestion, f.SuggestedFix = "", ""
 		if !changed[f.File] {
-			f.Line, f.EndLine, f.Suggestion = 0, 0, ""
+			f.Line, f.EndLine = 0, 0
 		}
 		out[i] = f
 	}
@@ -573,7 +576,11 @@ func (r *reviewer) verifyImpact(ctx context.Context, res *SkillResult, links []L
 		res.Notes = append(res.Notes, fmt.Sprintf(format, args...)+" The blocking findings are suggestions.")
 	}
 	if time.Until(r.deadline) < verifyMinRemaining {
-		demote("Impact verification skipped: less than %s of the review budget was left.", verifyMinRemaining)
+		// The impact run comes last, so a slow review lands here. That is the
+		// budget running out, not a doubt of the verifier: the check is failed.
+		demote("Impact verification did not run.")
+		res.Failures = append(res.Failures, BatchFailure{Message: fmt.Sprintf(
+			"%sless than %s of the review budget was left to verify the findings of the check across %s.", impactNotCheckedHead, verifyMinRemaining, linkNames(links))})
 		return
 	}
 
