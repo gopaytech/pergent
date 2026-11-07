@@ -191,17 +191,51 @@ func TestFailedFirstInArea(t *testing.T) {
 }
 
 func TestChecksWithNoAreaLast(t *testing.T) {
-	s := Skill{Name: "s", Verdict: VerdictNoBlockingIssues, Checks: []BatchChecks{
-		checksOf(1, chk("", "loose", CheckPass), chk("A", "a-pass", CheckPass), chk("", "loose-fail", CheckFail)),
-	}}
-	got := Comment([]Skill{s}, Options{})
-	inOrder(t, got, "#### A", "| a-pass ", "| loose-fail ", "| loose ")
-	if n := strings.Count(got, "| Check | Status | Detail |"); n != 2 {
-		t.Errorf("%d tables, want 2 (one per group):\n%s", n, got)
+	mk := func(cs ...Check) []Skill {
+		return []Skill{{Name: "s", Verdict: VerdictNoBlockingIssues, Checks: []BatchChecks{checksOf(1, cs...)}}}
 	}
-	if n := strings.Count(got, "\n####"); n != 1 {
-		t.Errorf("%d headings, want 1:\n%s", n, got)
-	}
+	t.Run("beside a named area", func(t *testing.T) {
+		got := Comment(mk(chk("", "loose", CheckPass), chk("A", "a-pass", CheckPass), chk("", "loose-fail", CheckFail)), Options{})
+		inOrder(t, got, "\n#### A\n\n", "| a-pass ", "\n#### Other checks\n\n| Check | Status | Detail |", "| loose-fail ", "| loose ")
+		if n := strings.Count(got, "| Check | Status | Detail |"); n != 2 {
+			t.Errorf("%d tables, want 2 (one per group):\n%s", n, got)
+		}
+		if n := strings.Count(got, "\n####"); n != 2 {
+			t.Errorf("%d headings, want 2:\n%s", n, got)
+		}
+	})
+	t.Run("alone", func(t *testing.T) {
+		got := Comment(mk(chk("", "loose", CheckPass), chk("  ", "blank", CheckFail)), Options{})
+		if strings.Contains(got, "Other checks") || strings.Contains(got, "\n####") {
+			t.Errorf("checks with no area alone have a heading:\n%s", got)
+		}
+		if n := strings.Count(got, "| Check | Status | Detail |"); n != 1 {
+			t.Errorf("%d tables, want 1:\n%s", n, got)
+		}
+	})
+	t.Run("in a skill section", func(t *testing.T) {
+		got := Comment(append(mk(chk("A", "a1", CheckPass), chk("", "loose", CheckPass)), cleanSkill("t", 0)), Options{})
+		inOrder(t, got, "\n#### `s`\n\n##### A\n\n", "\n##### Other checks\n\n", "| loose ")
+	})
+	cs := []Check{chk("A", "a-pass", CheckPass), chk("B", "b-fail", CheckFail), chk("", "loose-fail", CheckFail)}
+	t.Run("Short keeps it beside a shown area", func(t *testing.T) {
+		got := Comment(mk(cs...), Options{Short: true})
+		inOrder(t, got, "\n#### B\n", "| b-fail ", "\n#### Other checks\n", "| loose-fail ")
+	})
+	// The named areas that are left are not the ones that make the heading.
+	only := []Check{chk("A", "a-pass", CheckPass), chk("", "loose-fail", CheckFail)}
+	t.Run("Short drops it with the last named area", func(t *testing.T) {
+		got := Comment(mk(only...), Options{Short: true})
+		if strings.Contains(got, "Other checks") || strings.Contains(got, "#### A") || !strings.Contains(got, "| loose-fail ") {
+			t.Errorf("heading left alone by Short:\n%s", got)
+		}
+	})
+	t.Run("step 4 drops it with the last named area", func(t *testing.T) {
+		got := render(mk(only...), Options{}, shrinkSteps[3])
+		if strings.Contains(got, "Other checks") || strings.Contains(got, "#### A") || !strings.Contains(got, "| loose-fail ") {
+			t.Errorf("heading left alone by step 4:\n%s", got)
+		}
+	})
 }
 
 func TestBatchesStayOneRow(t *testing.T) {

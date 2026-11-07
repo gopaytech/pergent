@@ -99,7 +99,7 @@ In order:
 
 - A check's area is `Check.Section`, a checklist heading the model reports. Each area is a heading with its own table of `Check`, `Status` and `Detail`. The Area and Skill columns go.
 - The heading is `#### <area>` with one skill and `##### <area>` inside a skill's section.
-- Areas keep order of first appearance. Checks with no area come last, in a table with no heading.
+- Areas keep order of first appearance. Checks with no area come last. Beside named areas they get the heading `Other checks`, so they don't read as part of the area above; with no named areas they have no heading.
 - Failed checks come first within an area, so one failure among many isn't missed. Otherwise rows keep their order.
 - A check several batches answered stays one row with the worst status, as `mergeChecks` does now, per skill. The key stays the exact (section, name), because normalising it would change the meta line's N of M.
 - The `**Failed checks (N)**` table and the `Checks: N of M passed` block both go, except that `checks: collapsed` uses a collapsed block labelled the same way.

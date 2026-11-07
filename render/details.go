@@ -16,8 +16,8 @@ var checkIcons = map[string]string{
 }
 
 // verificationDropPrefix starts the note the verification pass leaves when it
-// drops findings; with checks, it is shown next to them, since a dropped
-// finding can leave a failed check behind.
+// drops findings; with checks, it is listed first among the notes, since a
+// dropped finding can leave a failed check behind.
 const verificationDropPrefix = "Verification dropped "
 
 func isVerificationDropNote(n string) bool {
@@ -234,38 +234,49 @@ func checksLabel(rows []checkRow) string {
 	return "Checks: " + strings.Join(parts, ", ")
 }
 
+// otherChecksHeading names the table of checks with no area when named areas
+// are shown beside it.
+const otherChecksHeading = "Other checks"
+
 // writeAreas writes checks as one table per area under a heading of the given
-// level. Areas keep the order they first appear in; checks with no area come
-// last, in a table with no heading. The area is model text, so it is a line of
-// text after the heading's prefix.
+// level. Areas keep the order they first appear in. Checks with no area come
+// last; beside named areas they get the heading "Other checks" (or they would
+// read as part of the area above), alone they have none. That is decided on the
+// rows shown, so an area dropped by Short or a size step leaves no such heading
+// behind. The area is model text, so it is a line of text after the heading's
+// prefix.
 func writeAreas(b *strings.Builder, rows []checkRow, level string) {
 	type area struct {
-		name string
-		rows []checkRow
+		heading string // already inert text; empty writes no heading
+		rows    []checkRow
 	}
 	var areas []*area
 	byName := map[string]*area{}
-	var loose area
+	var loose []checkRow
 	for _, r := range rows {
 		name := oneLine(r.Section)
 		if name == "" {
-			loose.rows = append(loose.rows, r)
+			loose = append(loose, r)
 			continue
 		}
 		a, ok := byName[name]
 		if !ok {
-			a = &area{name: name}
+			a = &area{heading: lineText(name)}
 			byName[name] = a
 			areas = append(areas, a)
 		}
 		a.rows = append(a.rows, r)
 	}
-	if len(loose.rows) > 0 {
-		areas = append(areas, &loose)
+	if len(loose) > 0 {
+		other := &area{rows: loose}
+		if len(areas) > 0 {
+			other.heading = otherChecksHeading
+		}
+		areas = append(areas, other)
 	}
 	for _, a := range areas {
-		if a.name != "" {
-			fmt.Fprintf(b, "%s %s\n\n", level, lineText(a.name))
+		if a.heading != "" {
+			fmt.Fprintf(b, "%s %s\n\n", level, a.heading)
 		}
 		writeCheckTable(b, a.rows)
 	}
@@ -329,7 +340,7 @@ func writeNotes(b *strings.Builder, skills []Skill) {
 	for _, s := range skills {
 		for _, n := range s.Notes {
 			if len(s.Checks) > 0 && isVerificationDropNote(n) {
-				continue // shown with the checks
+				continue // listed with the check notes above
 			}
 			add(s, n)
 		}

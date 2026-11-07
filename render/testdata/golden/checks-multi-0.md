@@ -24,6 +24,8 @@
 |---|---|---|
 | b2 | ❌ |  |
 
+##### Other checks
+
 | Check | Status | Detail |
 |---|---|---|
 | loose | ➖ |  |

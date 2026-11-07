@@ -342,7 +342,7 @@ func TestChecksFailedFirstInTheirArea(t *testing.T) {
 	}}}}
 	got := Comment([]Skill{s}, Options{})
 	want := "\n#### Sec\n\n| Check | Status | Detail |\n|---|---|---|\n| bad | ❌ | broken |\n| good | ✅ | ok |\n\n" +
-		"| Check | Status | Detail |\n|---|---|---|\n| skip | ➖ |  |\n\n"
+		"#### Other checks\n\n| Check | Status | Detail |\n|---|---|---|\n| skip | ➖ |  |\n\n"
 	if !strings.Contains(got, want) {
 		t.Errorf("checks:\n%s", got)
 	}
