@@ -92,6 +92,21 @@ func parseVerifyAnswer(text string) (notReal map[string]string, err error) {
 }
 
 func parseVerifyBlock(block finding.JSONBlock) (map[string]string, error) {
+	results, err := readResults(block)
+	if err != nil {
+		return nil, err
+	}
+	notReal := map[string]string{}
+	for _, r := range results {
+		if r.ID != "" && r.Real != nil && !*r.Real {
+			notReal[string(r.ID)] = r.Reason
+		}
+	}
+	return notReal, nil
+}
+
+// readResults reads the "results" list of a verifier's block.
+func readResults(block finding.JSONBlock) ([]verifyResult, error) {
 	if block.Err != nil {
 		return nil, fmt.Errorf("invalid json: %w", block.Err)
 	}
@@ -104,13 +119,7 @@ func parseVerifyBlock(block finding.JSONBlock) (map[string]string, error) {
 	if a.Results == nil {
 		return nil, errors.New(`json block has no "results" key`)
 	}
-	notReal := map[string]string{}
-	for _, r := range *a.Results {
-		if r.ID != "" && r.Real != nil && !*r.Real {
-			notReal[string(r.ID)] = r.Reason
-		}
-	}
-	return notReal, nil
+	return *a.Results, nil
 }
 
 // verify re-checks the skill's blocking findings in one run and drops the

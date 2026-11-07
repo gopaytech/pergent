@@ -208,7 +208,7 @@ Each entry of `findings`:
 | `explanation` | string | Why it is a problem. |
 | `suggested_fix` | string | A proposed fix. Omitted when empty. |
 | `suggestion` | string | The exact replacement text for lines `line` to `end_line` (or `line` alone). Omitted when empty. |
-| `linked` | object | `{repo, file, line}`: the caller, in a linked repository, that an impact finding says the change breaks. `repo` is the link's name from `--linked-repos`. Omitted on every other finding. An additive field: `schema_version` stays `1`, and a reader that doesn't know it can ignore it. |
+| `linked` | object | `{repo, file, line}`: the caller, in a linked repository, that an impact finding says the change breaks. `repo` is the link's name from `--linked-repos`. Set only on a finding of the `impact` skill and only when pergent found the file and line in the clone. Omitted on every other finding. An additive field: `schema_version` stays `1`, and a reader that doesn't know it can ignore it. |
 
 `failures[].message` and `files.not_reviewed[].cause` are one line of plain text with no markdown and no opencode stderr, made for machines. The markdown version is in `comment.markdown`.
 

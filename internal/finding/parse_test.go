@@ -385,3 +385,84 @@ func TestParseAnswer_LeftOutLimit(t *testing.T) {
 		}
 	}
 }
+
+// linkedAnswer wraps one finding's extra fields in an otherwise valid answer.
+func linkedAnswer(fields string) string {
+	return "```json\n{\"findings\": [{\"file\": \"a.go\", \"line\": 3, \"severity\": \"blocking\", \"title\": \"T\", \"explanation\": \"E\", " + fields + "}]}\n```"
+}
+
+func TestParseImpactAnswer_Linked(t *testing.T) {
+	long := strings.Repeat("x", 600)
+	for _, c := range []struct {
+		name, fields string
+		want         *Caller
+	}{
+		{"valid", `"linked": {"repo": "acme/billing", "file": "svc/client.go", "line": 88}`, &Caller{"acme/billing", "svc/client.go", 88}},
+		{"float line with integer value", `"linked": {"repo": "r", "file": "f.go", "line": 7.0}`, &Caller{"r", "f.go", 7}},
+		{"absent", `"suggested_fix": "x"`, nil},
+		{"null", `"linked": null`, nil},
+		{"a string", `"linked": "acme/billing:svc/client.go:88"`, nil},
+		{"a list", `"linked": [{"repo": "r", "file": "f.go", "line": 1}]`, nil},
+		{"no repo", `"linked": {"file": "f.go", "line": 1}`, nil},
+		{"empty repo", `"linked": {"repo": "", "file": "f.go", "line": 1}`, nil},
+		{"no file", `"linked": {"repo": "r", "line": 1}`, nil},
+		{"repo is a number", `"linked": {"repo": 5, "file": "f.go", "line": 1}`, nil},
+		{"no line", `"linked": {"repo": "r", "file": "f.go"}`, nil},
+		{"line zero", `"linked": {"repo": "r", "file": "f.go", "line": 0}`, nil},
+		{"negative line", `"linked": {"repo": "r", "file": "f.go", "line": -3}`, nil},
+		{"line as a string", `"linked": {"repo": "r", "file": "f.go", "line": "9"}`, nil},
+		{"fractional line", `"linked": {"repo": "r", "file": "f.go", "line": 9.5}`, nil},
+		{"line break in the file", `"linked": {"repo": "r", "file": "f\n.go", "line": 1}`, nil},
+		{"control character in the repo", `"linked": {"repo": "r\u0000", "file": "f.go", "line": 1}`, nil},
+		{"huge file name", `"linked": {"repo": "r", "file": "` + long + `", "line": 1}`, nil},
+	} {
+		a, err := ParseImpactAnswer(linkedAnswer(c.fields))
+		if err != nil {
+			t.Errorf("%s: a bad linked value must cost the field, not the answer: %v", c.name, err)
+			continue
+		}
+		if len(a.Findings) != 1 {
+			t.Errorf("%s: %d findings, want 1", c.name, len(a.Findings))
+			continue
+		}
+		got := a.Findings[0].Linked
+		switch {
+		case c.want == nil && got != nil:
+			t.Errorf("%s: Linked = %+v, want it dropped", c.name, *got)
+		case c.want != nil && (got == nil || *got != *c.want):
+			t.Errorf("%s: Linked = %+v, want %+v", c.name, got, *c.want)
+		}
+	}
+}
+
+// Only an impact answer carries a caller: a skill's model must not be able to
+// put one in the result.
+func TestParseAnswer_DropsLinked(t *testing.T) {
+	a, err := ParseAnswer(linkedAnswer(`"linked": {"repo": "r", "file": "f.go", "line": 1}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Findings[0].Linked != nil {
+		t.Errorf("ParseAnswer kept Linked = %+v", *a.Findings[0].Linked)
+	}
+}
+
+func TestParseImpactAnswer_SameAnswerRules(t *testing.T) {
+	for _, text := range []string{"no block", "```json\n{\"findings\": [{\"file\": \"a.go\"}]}\n```", "```json\n{\"x\": 1}\n```"} {
+		if _, err := ParseImpactAnswer(text); err == nil {
+			t.Errorf("ParseImpactAnswer(%q) = nil error, want the error ParseAnswer gives", text)
+		}
+	}
+}
+
+// A wrong type costs the finding its caller, not the answer, for a skill too.
+func TestParseAnswer_LinkedOfWrongTypeIsNotAnError(t *testing.T) {
+	for _, fields := range []string{`"linked": "billing"`, `"linked": 5`, `"linked": [1]`, `"linked": {"repo": 1, "file": [], "line": "x"}`} {
+		for name, parse := range map[string]func(string) (Answer, error){"skill": ParseAnswer, "impact": ParseImpactAnswer} {
+			a, err := parse(linkedAnswer(fields))
+			if err != nil || len(a.Findings) != 1 || a.Findings[0].Linked != nil {
+				t.Errorf("%s %s: got %+v, %v, want the finding without a caller", name, fields, a, err)
+			}
+		}
+	}
+}

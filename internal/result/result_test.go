@@ -575,3 +575,15 @@ func TestEncode_RedactsLinkedCaller(t *testing.T) {
 		t.Errorf("Encode changed the input finding's caller: %+v", f.Linked)
 	}
 }
+
+// An impact failure names a repository in its message, not in
+// files.not_reviewed: a repository is not an unreviewed file.
+func TestBuild_ImpactFailureListsNoNotReviewedFile(t *testing.T) {
+	sr := review.SkillResult{Skill: "impact", Verdict: review.Failed, Failures: []review.BatchFailure{
+		{Message: "Not checked: the linked repository `billing` could not be used."}}}
+	res := Build(testMeta(), []review.SkillResult{sr})
+	s := res.Skills[0]
+	if len(s.Files.NotReviewed) != 0 || len(s.Files.Reviewed) != 0 || len(s.Failures) != 1 || !strings.Contains(s.Failures[0].Message, "billing") {
+		t.Errorf("skill = %+v, want the repository in the failure message only", s)
+	}
+}

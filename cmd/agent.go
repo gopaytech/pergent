@@ -500,14 +500,24 @@ func prepareAgent(in *agentInputs, logger *log.Logger) *result.Error {
 	if in.linkedPath != "" {
 		repos, err := readLinkedRepos(in.linkedPath, logger)
 		if err != nil {
-			return fail(result.CodeUsage, "--linked-repos %s: %v", in.linkedPath, err)
+			// The skills still run; the impact check is failed.
+			repos = failedLinks(in.linkedPath, err, logger)
 		}
-		if err := linkedOutside(root, repos); err != nil {
+		repos, err = linkedOutside(root, repos, in, logger)
+		if err != nil {
 			return fail(result.CodeUsage, "%v", err)
 		}
 		// Before any run starts. A failure marks the entry, never the review.
-		in.Linked = scrubLinked(repos, func(rel string) bool { return config.ReadDenied(rel, true) })
+		in.Linked = scrubLinked(repos, func(rel string) bool { return config.ReadDenied(rel, true) }, logger)
 		logLinked(in.Linked, logger)
+		// The name is reserved only while there are links to check.
+		if len(in.Linked) > 0 {
+			for _, s := range in.Skills {
+				if s.Name == review.ImpactSkill {
+					return fail(result.CodeUsage, "a skill named %q is not allowed while linked repositories are given: the name is the check across them", review.ImpactSkill)
+				}
+			}
+		}
 	}
 	return nil
 }
@@ -544,40 +554,7 @@ func trustedInputsOutside(root string, in *agentInputs) *result.Error {
 		}
 	}
 
-	type input struct{ flag, path string }
-	var inputs []input
-	for _, p := range in.Instructions {
-		inputs = append(inputs, input{"--instructions", p})
-	}
-	if in.skillsDir != "" {
-		inputs = append(inputs, input{"--skills-dir", in.skillsDir})
-	}
-	for _, v := range in.skillValues {
-		if skill.IsFilePath(v) {
-			inputs = append(inputs, input{"--skill", v})
-		}
-	}
-	if in.previousPath != "" {
-		inputs = append(inputs, input{"--previous", in.previousPath})
-	}
-	if in.carriedPath != "" {
-		inputs = append(inputs, input{"--carried", in.carriedPath})
-	}
-	if in.dismissalsPath != "" {
-		inputs = append(inputs, input{"--dismissals", in.dismissalsPath})
-	}
-	if in.changePath != "" {
-		inputs = append(inputs, input{"--change-description", in.changePath})
-	}
-	if in.linkedPath != "" {
-		inputs = append(inputs, input{"--linked-repos", in.linkedPath})
-	}
-	if in.home != "" {
-		inputs = append(inputs, input{"$HOME", in.home})
-	}
-	if in.configHome != "" {
-		inputs = append(inputs, input{"$XDG_CONFIG_HOME", in.configHome})
-	}
+	inputs := trustedInputs(in)
 	for _, i := range inputs {
 		resolved, err := resolvePath(i.path)
 		if err != nil {
@@ -589,6 +566,48 @@ func trustedInputsOutside(root string, in *agentInputs) *result.Error {
 		}
 	}
 	return nil
+}
+
+// trustedInput is a path the caller passed in, with the flag that named it.
+type trustedInput struct{ flag, path string }
+
+// trustedInputs lists every trusted input path of in, and the global config
+// directories opencode reads.
+func trustedInputs(in *agentInputs) []trustedInput {
+	var inputs []trustedInput
+	for _, p := range in.Instructions {
+		inputs = append(inputs, trustedInput{"--instructions", p})
+	}
+	if in.skillsDir != "" {
+		inputs = append(inputs, trustedInput{"--skills-dir", in.skillsDir})
+	}
+	for _, v := range in.skillValues {
+		if skill.IsFilePath(v) {
+			inputs = append(inputs, trustedInput{"--skill", v})
+		}
+	}
+	if in.previousPath != "" {
+		inputs = append(inputs, trustedInput{"--previous", in.previousPath})
+	}
+	if in.carriedPath != "" {
+		inputs = append(inputs, trustedInput{"--carried", in.carriedPath})
+	}
+	if in.dismissalsPath != "" {
+		inputs = append(inputs, trustedInput{"--dismissals", in.dismissalsPath})
+	}
+	if in.changePath != "" {
+		inputs = append(inputs, trustedInput{"--change-description", in.changePath})
+	}
+	if in.linkedPath != "" {
+		inputs = append(inputs, trustedInput{"--linked-repos", in.linkedPath})
+	}
+	if in.home != "" {
+		inputs = append(inputs, trustedInput{"$HOME", in.home})
+	}
+	if in.configHome != "" {
+		inputs = append(inputs, trustedInput{"$XDG_CONFIG_HOME", in.configHome})
+	}
+	return inputs
 }
 
 // resultPathError refuses a --result file that is in the checkout, or whose

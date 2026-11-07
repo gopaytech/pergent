@@ -66,23 +66,43 @@ func TestReadLinkedRepos(t *testing.T) {
 			t.Errorf("error = %v, want a refusal naming the limit of 3", err)
 		}
 	})
+	// Whatever makes the whole file unusable is an error. Nothing is guessed
+	// from a file like that.
 	for name, content := range map[string]string{
-		"not JSON":                  `{"name":`,
-		"not a list":                `{"name":"a","path":"/x"}`,
-		"an entry with no name":     `[{"path":"/work/linked-1"}]`,
-		"an entry with no path":     `[{"name":"a"}]`,
-		"a relative path":           `[{"name":"a","path":"work/linked-1"}]`,
-		"a duplicate name":          `[{"name":"a","path":"/work/linked-1"},{"name":"a","path":"/work/linked-2"}]`,
-		"a path with a wildcard":    `[{"name":"a","path":"/work/*"}]`,
-		"a path that is the root":   `[{"name":"a","path":"/"}]`,
-		"a path with a bracket":     `[{"name":"a","path":"/work/linked-[1]"}]`,
-		"a path with a brace":       `[{"name":"a","path":"/work/{x,y}"}]`,
-		"a path with a question":    `[{"name":"a","path":"/work/linked-?"}]`,
-		"a path with a parent part": `[{"name":"a","path":"/work/../etc"}]`,
+		"not JSON":              `{"name":`,
+		"not a list":            `{"name":"a","path":"/x"}`,
+		"an entry with no name": `[{"path":"/work/linked-1"}]`,
+		"a duplicate name":      `[{"name":"a","path":"/work/linked-1"},{"name":"a","path":"/work/linked-2"}]`,
 	} {
 		t.Run("refuses "+name, func(t *testing.T) {
 			if _, err := readLinkedRepos(writeLinkedFile(t, content), quietLog); err == nil {
 				t.Errorf("readLinkedRepos(%s) = nil error, want one", content)
+			}
+		})
+	}
+	// A bad path spoils its own entry only: the entry is kept, with an Error,
+	// so the repository it names can be told apart.
+	for name, path := range map[string]string{
+		"no path":                   ``,
+		"a relative path":           `work/linked-1`,
+		"a path with a wildcard":    `/work/*`,
+		"a path that is the root":   `/`,
+		"a path with a bracket":     `/work/linked-[1]`,
+		"a path with a brace":       `/work/{x,y}`,
+		"a path with a question":    `/work/linked-?`,
+		"a path with a parent part": `/work/../etc`,
+	} {
+		t.Run("marks the entry for "+name, func(t *testing.T) {
+			content := `[{"name":"good","path":"/work/linked-1"},{"name":"a","path":` + jsonString(path) + `}]`
+			got, err := readLinkedRepos(writeLinkedFile(t, content), quietLog)
+			if err != nil || len(got) != 2 {
+				t.Fatalf("readLinkedRepos(%s) = %+v, %v, want both entries and no error", content, got, err)
+			}
+			if got[0].Error != "" {
+				t.Errorf("the good entry got Error %q", got[0].Error)
+			}
+			if got[1].Name != "a" || got[1].Error == "" {
+				t.Errorf("entry = %+v, want it named and marked", got[1])
 			}
 		})
 	}
@@ -165,11 +185,58 @@ func TestPrepareAgent_LinkedRepos(t *testing.T) {
 			t.Errorf("prepareAgent() error = %+v, want %s", e, result.CodeUsage)
 		}
 	})
-	t.Run("usage for a missing file", func(t *testing.T) {
-		in := mustParse(t, agentArgs(repo, base, head, oneSkill(t), "--linked-repos", filepath.Join(t.TempDir(), "nope.json")))
+	// A file that can't be used must not fail the review: the skills run and
+	// the impact check is failed. The details go to the log, not into the
+	// entry, which reaches the comment.
+	for name, content := range map[string]string{
+		"a missing file":        "",
+		"a malformed file":      `{"name":`,
+		"more than 3 entries":   `[{"name":"a","path":"/x/1"},{"name":"b","path":"/x/2"},{"name":"c","path":"/x/3"},{"name":"d","path":"/x/4"}]`,
+		"a duplicate name":      `[{"name":"a","path":"/x/1"},{"name":"a","path":"/x/2"}]`,
+		"an entry with no name": `[{"path":"/x/1"}]`,
+	} {
+		t.Run("a failed link, not usage, for "+name, func(t *testing.T) {
+			p := filepath.Join(t.TempDir(), "nope.json")
+			if content != "" {
+				p = writeLinkedFile(t, content)
+			}
+			in := mustParse(t, agentArgs(repo, base, head, oneSkill(t), "--linked-repos", p))
+			logger, logs := bufferLog()
+			if e := prepareAgent(&in, logger); e != nil {
+				t.Fatalf("prepareAgent() error: %+v, want the review to go on", e)
+			}
+			if len(in.Linked) != 1 || in.Linked[0].Error == "" {
+				t.Fatalf("Linked = %+v, want one failed entry", in.Linked)
+			}
+			if !strings.Contains(logs.String(), "--linked-repos") {
+				t.Errorf("logged %q, want the reason", logs.String())
+			}
+		})
+	}
+	t.Run("a bad path fails its entry only", func(t *testing.T) {
+		clone := t.TempDir()
+		p := writeLinkedFile(t, `[{"name":"billing","path":`+jsonString(clone)+`},{"name":"web","path":"relative"}]`)
+		in := mustParse(t, agentArgs(repo, base, head, oneSkill(t), "--linked-repos", p))
+		if e := prepareAgent(&in, quietLog); e != nil {
+			t.Fatalf("prepareAgent() error: %+v", e)
+		}
+		if len(in.Linked) != 2 || in.Linked[0].Error != "" || in.Linked[1].Error == "" {
+			t.Errorf("Linked = %+v, want only web failed", in.Linked)
+		}
+	})
+	t.Run("a skill named impact is refused when there are links", func(t *testing.T) {
+		clone := t.TempDir()
+		p := writeLinkedFile(t, `[{"name":"billing","path":`+jsonString(clone)+`}]`)
+		in := mustParse(t, agentArgs(repo, base, head, impactSkill(t), "--linked-repos", p))
 		e := prepareAgent(&in, quietLog)
-		if e == nil || e.Code != result.CodeUsage || !strings.Contains(e.Message, "--linked-repos") {
-			t.Errorf("prepareAgent() error = %+v, want %s naming --linked-repos", e, result.CodeUsage)
+		if e == nil || e.Code != result.CodeUsage || !strings.Contains(e.Message, review.ImpactSkill) {
+			t.Errorf("prepareAgent() error = %+v, want %s naming the reserved skill", e, result.CodeUsage)
+		}
+	})
+	t.Run("a skill named impact is fine without links", func(t *testing.T) {
+		in := mustParse(t, agentArgs(repo, base, head, impactSkill(t)))
+		if e := prepareAgent(&in, quietLog); e != nil {
+			t.Errorf("prepareAgent() error = %+v, want none", e)
 		}
 	})
 	t.Run("a link that failed to clone is not scrubbed and stays failed", func(t *testing.T) {
@@ -244,7 +311,7 @@ func TestScrubLinkedRemovesDeniedFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := scrubLinked([]review.LinkedRepo{{Name: "billing", Path: clone, Watched: []string{"api/"}, CanBlock: true}}, deniedForLinked)
+	got := scrubLinked([]review.LinkedRepo{{Name: "billing", Path: clone, Watched: []string{"api/"}, CanBlock: true}}, deniedForLinked, quietLog)
 
 	if len(got) != 1 || got[0].Error != "" || got[0].Name != "billing" || got[0].Path != clone || !got[0].CanBlock {
 		t.Fatalf("scrubLinked() = %+v, want the entry back unchanged with no error", got)
@@ -272,7 +339,7 @@ func TestScrubLinkedLeavesErroredEntriesAlone(t *testing.T) {
 	clone := t.TempDir()
 	mustWrite(t, clone, ".env", "x\n")
 	in := []review.LinkedRepo{{Name: "a", Path: clone, Error: "clone failed"}}
-	got := scrubLinked(in, deniedForLinked)
+	got := scrubLinked(in, deniedForLinked, quietLog)
 	if len(got) != 1 || got[0].Error != "clone failed" {
 		t.Errorf("got %+v, want the entry and its error kept", got)
 	}
@@ -296,16 +363,22 @@ func TestScrubLinkedFailureMarksTheEntry(t *testing.T) {
 	mustWrite(t, good, ".env", "x\n")
 	mustWrite(t, good, "main.go", "x\n")
 
+	logger, logs := bufferLog()
 	got := scrubLinked([]review.LinkedRepo{
 		{Name: "bad", Path: bad, CanBlock: true},
 		{Name: "good", Path: good},
-	}, deniedForLinked)
+	}, deniedForLinked, logger)
 
 	if len(got) != 2 {
 		t.Fatalf("got %d entries, want 2", len(got))
 	}
-	if got[0].Error == "" || !strings.Contains(got[0].Error, "locked") {
-		t.Errorf("bad.Error = %q, want it to name the unreadable directory", got[0].Error)
+	// The entry's text can reach the comment: it holds no name from the clone.
+	// The log holds the details.
+	if got[0].Error == "" || strings.Contains(got[0].Error, "locked") {
+		t.Errorf("bad.Error = %q, want a fixed text without the directory's name", got[0].Error)
+	}
+	if !strings.Contains(logs.String(), "locked") || !strings.Contains(logs.String(), `"bad"`) {
+		t.Errorf("logged %q, want the repository and the directory", logs.String())
 	}
 	if got[1].Error != "" {
 		t.Errorf("good.Error = %q, want none", got[1].Error)
@@ -329,7 +402,7 @@ func TestScrubLinkedRefusesAPathThatIsNotAPlainDirectory(t *testing.T) {
 		{Name: "link", Path: link},
 		{Name: "missing", Path: filepath.Join(dir, "missing")},
 		{Name: "file", Path: file},
-	}, deniedForLinked)
+	}, deniedForLinked, quietLog)
 	for _, r := range got {
 		if r.Error == "" {
 			t.Errorf("%s: want an error", r.Name)
@@ -342,11 +415,161 @@ func TestScrubLinkedRefusesAPathThatIsNotAPlainDirectory(t *testing.T) {
 
 func TestScrubLinkedDoesNotChangeItsInput(t *testing.T) {
 	in := []review.LinkedRepo{{Name: "missing", Path: filepath.Join(t.TempDir(), "missing")}}
-	got := scrubLinked(in, deniedForLinked)
+	got := scrubLinked(in, deniedForLinked, quietLog)
 	if in[0].Error != "" {
 		t.Errorf("input entry changed: %+v", in[0])
 	}
 	if got[0].Error == "" {
 		t.Error("want an error on the returned entry")
 	}
+}
+
+// impactSkill is a skills directory with one skill named like the reserved one.
+func impactSkill(t *testing.T) string {
+	t.Helper()
+	return skillsDir(t, map[string]string{"impact.md": "---\nname: impact\n---\nReview it.\n"})
+}
+
+// The read rules are lower case and case-sensitive; a name in another case is
+// still the denied file on a case-insensitive file system. Each name below is
+// written once, so the test does not depend on the file system's case rules.
+func TestScrubLinkedRemovesCaseVariantsOfDeniedFiles(t *testing.T) {
+	clone := t.TempDir()
+	for _, rel := range []string{".ENV", "KEY.PEM", "infra/prod.TFVARS", "cfg/App.Env.Local", "Agents.md", "main.go", "Prod.ENV.EXAMPLE"} {
+		mustWrite(t, clone, rel, "x\n")
+	}
+	// A link to a denied file in another case.
+	mustWrite(t, clone, "secret.PEM", "x\n")
+	if err := os.Symlink("secret.PEM", filepath.Join(clone, "safe.txt")); err != nil {
+		t.Fatal(err)
+	}
+	got := scrubLinked([]review.LinkedRepo{{Name: "a", Path: clone}}, deniedForLinked, quietLog)
+	if got[0].Error != "" {
+		t.Fatalf("Error = %q", got[0].Error)
+	}
+	for _, rel := range []string{".ENV", "KEY.PEM", "infra/prod.TFVARS", "cfg/App.Env.Local", "Agents.md", "secret.PEM", "safe.txt"} {
+		if exists(clone, rel) {
+			t.Errorf("%s is still in the clone", rel)
+		}
+	}
+	// *.env.example is allowed in any case, as it is in lower case.
+	for _, rel := range []string{"main.go", "Prod.ENV.EXAMPLE"} {
+		if !exists(clone, rel) {
+			t.Errorf("%s was deleted", rel)
+		}
+	}
+}
+
+// Only the clone's own .git is left alone.
+func TestScrubLinkedSkipsOnlyTheRootGitDirectory(t *testing.T) {
+	clone := t.TempDir()
+	mustWrite(t, clone, ".git/config", "x\n")
+	mustWrite(t, clone, ".git/secret.env", "x\n")
+	mustWrite(t, clone, "sub/.git/prod.env", "x\n")
+	mustWrite(t, clone, "sub/.git/CLAUDE.md", "x\n")
+	mustWrite(t, clone, "sub/.git/keep.txt", "x\n")
+	got := scrubLinked([]review.LinkedRepo{{Name: "a", Path: clone}}, deniedForLinked, quietLog)
+	if got[0].Error != "" {
+		t.Fatalf("Error = %q", got[0].Error)
+	}
+	for _, rel := range []string{"sub/.git/prod.env", "sub/.git/CLAUDE.md"} {
+		if exists(clone, rel) {
+			t.Errorf("%s is still in the clone", rel)
+		}
+	}
+	for _, rel := range []string{".git/config", ".git/secret.env", "sub/.git/keep.txt"} {
+		if !exists(clone, rel) {
+			t.Errorf("%s was deleted", rel)
+		}
+	}
+}
+
+// A file name with a line break must not start a line in the log.
+func TestScrubLinkedLogsNoRawPaths(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads every directory")
+	}
+	bad := t.TempDir()
+	mustWrite(t, bad, "evil\nINJECTED log line/inside.go", "x\n")
+	dir := filepath.Join(bad, "evil\nINJECTED log line")
+	if err := os.Chmod(dir, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(dir, 0o755) })
+	logger, logs := bufferLog()
+	got := scrubLinked([]review.LinkedRepo{{Name: "bad", Path: bad}}, deniedForLinked, logger)
+	if got[0].Error == "" {
+		t.Fatal("want the entry failed")
+	}
+	for _, line := range strings.Split(logs.String(), "\n") {
+		if strings.HasPrefix(line, "INJECTED") {
+			t.Errorf("a name from the clone started a log line: %q", logs.String())
+		}
+	}
+}
+
+func TestPrepareAgent_LinkedPathsThatWidenTheSandbox(t *testing.T) {
+	repo, base, head := agentRepo(t, nil)
+	// One parent of everything, so "a directory holding" is not the test's
+	// own temp directory, which holds the checkout too.
+	parent := t.TempDir()
+	home := filepath.Join(parent, "home")
+	mustWrite(t, parent, "home/.keep", "x\n")
+	mustWrite(t, parent, "skills/review.md", "---\nname: review\n---\nReview the change.\n")
+	skills := filepath.Join(parent, "skills")
+	mustWrite(t, parent, "inputs/previous.json", "{}")
+	previous := filepath.Join(parent, "inputs", "previous.json")
+
+	cases := map[string]struct {
+		path string
+		args []string
+	}{
+		"the temp directory":                 {path: os.TempDir()},
+		"the home directory":                 {path: home},
+		"a directory holding home":           {path: parent},
+		"a directory of the skills":          {path: skills},
+		"a directory below the skills":       {path: filepath.Join(skills, "clone")},
+		"a directory holding a trusted file": {path: filepath.Dir(previous), args: []string{"--previous", previous}},
+		"a system directory":                 {path: "/etc/pergent-test-clone"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			p := writeLinkedFile(t, `[{"name":"billing","path":`+jsonString(c.path)+`},{"name":"ok","path":`+jsonString(t.TempDir())+`}]`)
+			args := agentArgs(repo, base, head, skills, "--linked-repos", p)
+			args = append(args, c.args...)
+			in := mustParse(t, args)
+			in.home = home
+			logger, logs := bufferLog()
+			if e := prepareAgent(&in, logger); e != nil {
+				t.Fatalf("prepareAgent() error: %+v, want the review to go on with the check failed", e)
+			}
+			if len(in.Linked) != 2 || in.Linked[0].Error == "" || in.Linked[1].Error != "" {
+				t.Fatalf("Linked = %+v, want only billing failed", in.Linked)
+			}
+			if !strings.Contains(logs.String(), "billing") {
+				t.Errorf("logged %q, want the reason", logs.String())
+			}
+		})
+	}
+
+	t.Run("nothing is scrubbed in a refused path", func(t *testing.T) {
+		mustWrite(t, home, "AGENTS.md", "x\n")
+		mustWrite(t, home, ".env", "x\n")
+		p := writeLinkedFile(t, `[{"name":"billing","path":`+jsonString(home)+`}]`)
+		in := mustParse(t, agentArgs(repo, base, head, skills, "--linked-repos", p))
+		in.home = home
+		if e := prepareAgent(&in, quietLog); e != nil {
+			t.Fatalf("prepareAgent() error: %+v", e)
+		}
+		if in.Linked[0].Error == "" || !exists(home, "AGENTS.md") || !exists(home, ".env") {
+			t.Errorf("Linked = %+v: the refused path was scrubbed", in.Linked)
+		}
+	})
+	t.Run("a directory below the temp directory is fine", func(t *testing.T) {
+		p := writeLinkedFile(t, `[{"name":"billing","path":`+jsonString(t.TempDir())+`}]`)
+		in := mustParse(t, agentArgs(repo, base, head, skills, "--linked-repos", p))
+		if e := prepareAgent(&in, quietLog); e != nil || in.Linked[0].Error != "" {
+			t.Errorf("prepareAgent() = %+v, Linked = %+v", e, in.Linked)
+		}
+	})
 }
