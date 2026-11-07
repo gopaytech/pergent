@@ -584,3 +584,35 @@ func TestRunAgent_DismissalsReachTheRun(t *testing.T) {
 		t.Errorf("rejected-findings.json = %s, want fields that are not part of an entry left out", attached[0])
 	}
 }
+
+func TestRunAgent_DescriptionReachesTheRun(t *testing.T) {
+	sandboxEnv(t)
+	dir, base, head := agentRepo(t, nil)
+	path := filepath.Join(t.TempDir(), "change.md")
+	writeFile(t, filepath.Dir(path), "change.md", "Fix the limiter")
+	var stdout, stderr bytes.Buffer
+
+	// The run's files are removed once it returns, so read them inside it.
+	var attached []string
+	inner := answerRun(t)
+	run := func(ctx context.Context, opts runner.Options) runner.RunResult {
+		for _, p := range opts.Files {
+			if filepath.Base(p) == "change-description.md" {
+				data, err := os.ReadFile(p)
+				if err != nil {
+					t.Error(err)
+				}
+				attached = append(attached, string(data))
+			}
+		}
+		return inner(ctx, opts)
+	}
+
+	code := runAgent(context.Background(), agentArgs(dir, base, head, oneSkill(t), "--change-description", path), agentEnv(nil), &stdout, &stderr, run)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr:\n%s", code, stderr.String())
+	}
+	if !slices.Equal(attached, []string{"Fix the limiter"}) {
+		t.Errorf("attached = %q, want the description on the one run", attached)
+	}
+}

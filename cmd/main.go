@@ -116,6 +116,7 @@ func main() {
 	var diff string
 	var changedFiles []string
 	var plat platform.Platform
+	var description string
 
 	if cfg.Local {
 		diff, changedFiles, err = platform.LocalDiff(cfg.RepoPath, "origin/"+cfg.BaseBranch)
@@ -128,6 +129,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("gathering diff: %v", err)
 		}
+		description = changeDescription(plat)
 	}
 
 	const marker = "<!-- pergent -->"
@@ -164,6 +166,7 @@ func main() {
 		MaxTurns:     cfg.MaxTurns,
 		ContextLimit: cfg.ContextLimit,
 		Previous:     previous,
+		Description:  description,
 	})
 	failed := 0
 	for _, r := range results {
@@ -218,6 +221,16 @@ var commentLookupRetryDelay = 3 * time.Second
 // cause); if it fails again the review is posted as a new comment anyway,
 // because a visible new result beats a stale one, and the log says a
 // duplicate may appear.
+func changeDescription(plat platform.Platform) string {
+	description, err := plat.FetchChangeDescription()
+	if err != nil {
+		log.Printf("warning: reviewing without the change's title and description: %v", err)
+		return ""
+	}
+	log.Printf("change description: %d bytes", len(description))
+	return description
+}
+
 func commentToUpdate(plat platform.Platform, marker string, delay time.Duration) int64 {
 	id, _, err := plat.FindComment(marker)
 	if err != nil {

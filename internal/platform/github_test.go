@@ -145,3 +145,45 @@ func TestParseDiffFiles(t *testing.T) {
 		t.Errorf("parseDiffFiles = %q, want %q", got, want)
 	}
 }
+
+func TestGitHubFetchChangeDescription(t *testing.T) {
+	cases := map[string]struct{ reply, want string }{
+		"title and body": {`{"title": "Fix it", "body": "On purpose."}`, "Fix it\n\nOn purpose."},
+		"no body":        {`{"title": "Fix it", "body": null}`, "Fix it"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/repos/owner/repo/pulls/42" {
+					t.Errorf("unexpected path: %s", r.URL.Path)
+				}
+				if r.Header.Get("Accept") != "application/vnd.github+json" {
+					t.Errorf("unexpected Accept header: %s", r.Header.Get("Accept"))
+				}
+				w.Write([]byte(c.reply))
+			}))
+			defer server.Close()
+
+			gh := &GitHub{Token: "t", Repo: "owner/repo", PRNumber: 42, APIURL: server.URL}
+			got, err := gh.FetchChangeDescription()
+			if err != nil {
+				t.Fatalf("FetchChangeDescription() error: %v", err)
+			}
+			if got != c.want {
+				t.Errorf("got %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+func TestGitHubFetchChangeDescriptionFails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer server.Close()
+
+	gh := &GitHub{Token: "t", Repo: "owner/repo", PRNumber: 42, APIURL: server.URL}
+	if _, err := gh.FetchChangeDescription(); err == nil {
+		t.Fatal("FetchChangeDescription() = nil error on a 403")
+	}
+}

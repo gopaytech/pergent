@@ -196,3 +196,42 @@ func TestGitLab_FetchDiff_EmptyDiffWithoutModeChangeIsNotReviewed(t *testing.T) 
 		t.Errorf("split = %+v, want a.go marked not reviewed", split)
 	}
 }
+
+func TestGitLabFetchChangeDescription(t *testing.T) {
+	cases := map[string]struct{ reply, want string }{
+		"title and description": {`{"title": "Fix it", "description": "On purpose."}`, "Fix it\n\nOn purpose."},
+		"no description":        {`{"title": "Fix it", "description": null}`, "Fix it"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/api/v4/projects/7/merge_requests/42" {
+					t.Errorf("unexpected path: %s", r.URL.Path)
+				}
+				w.Write([]byte(c.reply))
+			}))
+			defer server.Close()
+
+			gl := &GitLab{Token: "t", URL: server.URL, ProjectID: "7", MRIID: 42}
+			got, err := gl.FetchChangeDescription()
+			if err != nil {
+				t.Fatalf("FetchChangeDescription() error: %v", err)
+			}
+			if got != c.want {
+				t.Errorf("got %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+func TestGitLabFetchChangeDescriptionFails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer server.Close()
+
+	gl := &GitLab{Token: "t", URL: server.URL, ProjectID: "7", MRIID: 42}
+	if _, err := gl.FetchChangeDescription(); err == nil {
+		t.Fatal("FetchChangeDescription() = nil error on a 403")
+	}
+}

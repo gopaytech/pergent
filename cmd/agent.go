@@ -44,10 +44,13 @@ type agentInputs struct {
 	Skills               []skill.Skill
 	// Instructions are the absolute paths of the instruction files the agent
 	// gets: --instructions, or none. Never discovered in the checkout.
-	Instructions   []string
-	Previous       map[string][]finding.Finding
-	Carried        map[string][]string
-	Dismissals     map[string][]finding.Rejected
+	Instructions []string
+	Previous     map[string][]finding.Finding
+	Carried      map[string][]string
+	Dismissals   map[string][]finding.Rejected
+	// Description is the change's title and description, "" when none was
+	// given. The path is trusted; the text is the author's.
+	Description    string
 	MaxCommentSize int
 	Target         result.Target
 	Diff           string
@@ -62,7 +65,10 @@ type agentInputs struct {
 	carriedPath  string
 	// dismissalsPath is --dismissals, or $PERGENT_DISMISSALS without the flag.
 	dismissalsPath string
-	scrub          bool
+	// changePath is --change-description, or $PERGENT_CHANGE_DESCRIPTION
+	// without the flag.
+	changePath string
+	scrub      bool
 	// $HOME and $XDG_CONFIG_HOME, where opencode finds its global config.
 	home, configHome string
 }
@@ -231,6 +237,7 @@ func runAgent(ctx context.Context, args []string, getenv func(string) string, st
 		Previous:     in.Previous,
 		Carried:      in.Carried,
 		Dismissals:   in.Dismissals,
+		Description:  in.Description,
 		Run:          run,
 		Classifier:   &in.Classifier,
 		Sandbox: review.Sandbox{
@@ -301,6 +308,7 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 	flags.StringVar(&in.previousPath, "previous", "", "A previous agent result whose findings are attached per skill")
 	flags.StringVar(&in.carriedPath, "carried", "", "A JSON file {\"<skill>\": [\"path\", ...]} of files a previous review covers, left out of this review")
 	flags.StringVar(&in.dismissalsPath, "dismissals", getenv("PERGENT_DISMISSALS"), "A JSON file {\"<skill>\": [{\"file\", \"title\", \"severity\", \"reason\"}, ...]} of findings people rejected earlier, attached to the runs")
+	flags.StringVar(&in.changePath, "change-description", getenv("PERGENT_CHANGE_DESCRIPTION"), "A file holding the change's title and description, attached to the review runs as data")
 	flags.BoolVar(&in.scrub, "scrub-instructions", false, "Delete every AGENTS.md, CLAUDE.md and CONTEXT.md in --repo-path before reviewing")
 	flags.IntVar(&in.MaxCommentSize, "max-comment-size", 0, "Byte limit for the rendered comment (0: no limit)")
 	flags.StringVar(&resultPath, "result", "", "Write the result JSON to this file, or - for stdout")
@@ -480,6 +488,9 @@ func prepareAgent(in *agentInputs, logger *log.Logger) *result.Error {
 		in.Dismissals = readDismissals(in.dismissalsPath, logger)
 		logDismissals(in.Dismissals, logger)
 	}
+	if in.changePath != "" {
+		in.Description = readChangeDescription(in.changePath, logger)
+	}
 	return nil
 }
 
@@ -498,7 +509,7 @@ func gitVersionError(version string, major, minor int, err error) *result.Error 
 }
 
 // trustedInputsOutside refuses a trusted input (--instructions, --skills-dir,
-// a path --skill, --previous, --carried, --dismissals) that resolves to somewhere inside the checkout:
+// a path --skill, --previous, --carried, --dismissals, --change-description) that resolves to somewhere inside the checkout:
 // the change under review could have written it. A --skills-dir above the
 // checkout is refused too, since LoadDir would read the checkout's top-level
 // files as skills. So are a --result file in the checkout, where the change
@@ -535,6 +546,9 @@ func trustedInputsOutside(root string, in *agentInputs) *result.Error {
 	}
 	if in.dismissalsPath != "" {
 		inputs = append(inputs, input{"--dismissals", in.dismissalsPath})
+	}
+	if in.changePath != "" {
+		inputs = append(inputs, input{"--change-description", in.changePath})
 	}
 	if in.home != "" {
 		inputs = append(inputs, input{"$HOME", in.home})
@@ -843,6 +857,18 @@ func readDismissals(path string, logger *log.Logger) map[string][]finding.Reject
 		return nil
 	}
 	return dismissals
+}
+
+// readChangeDescription reads the change's title and description. A review is
+// still worth running without them, so a failure is a warning.
+func readChangeDescription(path string, logger *log.Logger) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		logger.Printf("warning: ignoring --change-description: %v", err)
+		return ""
+	}
+	logger.Printf("change description: %d bytes", len(data))
+	return string(data)
 }
 
 // logDismissals logs how many rejected findings each skill got, skills sorted
