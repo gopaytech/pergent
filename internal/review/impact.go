@@ -553,8 +553,8 @@ func fileHasLine(dir, rel string, line int) bool {
 // verifyImpact checks the impact run's blocking findings in one run. Unlike a
 // skill's verification, doubt keeps nothing blocking: a finding the verifier
 // does not confirm, and every blocking finding when the verification cannot
-// run or its answer cannot be used, becomes a suggestion. It never fails the
-// check.
+// run or its answer cannot be used, becomes a suggestion. A stop for budget or
+// a cancel fails the check instead.
 func (r *reviewer) verifyImpact(ctx context.Context, res *SkillResult, links []LinkedRepo, patch string) {
 	var blocking []verifyFinding
 	for _, f := range res.Findings {
