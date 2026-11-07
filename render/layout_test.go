@@ -275,12 +275,12 @@ func TestFindingsTitleAndNote(t *testing.T) {
 	}
 }
 
-func TestSummariesNotShown(t *testing.T) {
+func TestSummaryShown(t *testing.T) {
 	s := Skill{Name: "s", Verdict: VerdictNoBlockingIssues, Batches: 1,
 		Summaries: []Summary{{Batch: 1, Text: "Reviewed the widget carefully."}}}
 	got := Comment([]Skill{s}, Options{})
-	if strings.Contains(got, "widget") || strings.Contains(got, "Summary") {
-		t.Errorf("summary shown:\n%s", got)
+	if !strings.Contains(got, "\n**Summary:** Reviewed the widget carefully.\n\n") {
+		t.Errorf("summary not shown:\n%s", got)
 	}
 }
 
@@ -334,22 +334,17 @@ func TestSkillNameStaysInertInHeader(t *testing.T) {
 	}
 }
 
-func TestChecksFailedAboveCollapsed(t *testing.T) {
+func TestChecksFailedFirstInTheirArea(t *testing.T) {
 	s := Skill{Name: "s", Verdict: VerdictNoBlockingIssues, Batches: 1, Checks: []BatchChecks{{Batch: 1, Checks: []Check{
 		{Section: "Sec", Name: "good", Status: CheckPass, Detail: "ok"},
 		{Section: "Sec", Name: "bad", Status: CheckFail, Detail: "broken"},
 		{Name: "skip", Status: CheckNA},
 	}}}}
 	got := Comment([]Skill{s}, Options{})
-	failed := strings.Index(got, "**Failed checks (1)**\n\n| Area | Check | Status | Detail |\n|---|---|---|---|\n| Sec | bad | ❌ | broken |\n")
-	details := strings.Index(got, "<details><summary>Checks: 1 of 2 passed, 1 n/a</summary>\n\n")
-	if failed < 0 || details < 0 || failed > details {
-		t.Fatalf("failed table at %d, details at %d:\n%s", failed, details, got)
-	}
-	inside := got[details:]
-	inside = inside[:strings.Index(inside, "</details>")]
-	if strings.Contains(inside, "| bad |") || !strings.Contains(inside, "| Sec | good | ✅ | ok |") || !strings.Contains(inside, "|  | skip | ➖ |  |") {
-		t.Errorf("collapsed block:\n%s", inside)
+	want := "\n#### Sec\n\n| Check | Status | Detail |\n|---|---|---|\n| bad | ❌ | broken |\n| good | ✅ | ok |\n\n" +
+		"| Check | Status | Detail |\n|---|---|---|\n| skip | ➖ |  |\n\n"
+	if !strings.Contains(got, want) {
+		t.Errorf("checks:\n%s", got)
 	}
 }
 
@@ -362,20 +357,16 @@ func TestChecksMultiSkillAndBatch(t *testing.T) {
 		{Batch: 1, Checks: []Check{{Name: "Tests", Status: CheckPass, Detail: "fine"}}},
 	}}
 	got := Comment([]Skill{a, b}, Options{})
-	if !strings.Contains(got, "| Skill | Area | Check | Status | Detail |\n|---|---|---|---|---|\n") {
-		t.Errorf("no skill column:\n%s", got)
+	want := "\n#### `a`\n\n| Check | Status | Detail |\n|---|---|---|\n| Tests | ❌ | missing |\n\n" +
+		"#### `b`\n\n| Check | Status | Detail |\n|---|---|---|\n| Tests | ✅ | fine |\n\n"
+	if !strings.Contains(got, want) {
+		t.Errorf("sections:\n%s", got)
 	}
-	if n := strings.Count(got, "| `a` |  | Tests |"); n != 1 {
-		t.Errorf("%d rows for a:\n%s", n, got)
-	}
-	if !strings.Contains(got, "**Failed checks (1)**\n\n| Skill | Area | Check | Status | Detail |\n|---|---|---|---|---|\n| `a` |  | Tests | ❌ | missing |\n") {
-		t.Errorf("merged failed row:\n%s", got)
-	}
-	if strings.Contains(got, "| ok |") || !strings.Contains(got, "| `b` |  | Tests | ✅ | fine |") {
-		t.Errorf("collapsed rows:\n%s", got)
+	if strings.Contains(got, "| ok |") {
+		t.Errorf("a batch's own row is shown:\n%s", got)
 	}
 	// One number per fact: the meta line counts merged rows.
-	if !strings.Contains(got, "1 of 2 checks passed") || !strings.Contains(got, "<summary>Checks: 1 of 2 passed</summary>") {
+	if !strings.Contains(got, "1 of 2 checks passed") {
 		t.Errorf("counts:\n%s", got)
 	}
 }

@@ -28,6 +28,7 @@ func shortFixture() ([]render.Skill, []string) {
 		Failures: []render.Failure{{Files: []string{"b.go"}, Message: "Timed out waiting for the model."}},
 		Reviewed: files,
 		Batches:  2, BatchesFinished: 1,
+		Summaries: []render.Summary{{Batch: 1, Text: "Checked."}},
 		Checks: []render.BatchChecks{{Batch: 1, Findings: 1, Checks: []render.Check{
 			{Section: "Tests", Name: "Unit tests ran", Status: render.CheckPass, Detail: "passed detail"},
 			{Section: "Docs", Name: "Docs updated", Status: render.CheckNA, Detail: "na detail"},
@@ -38,27 +39,33 @@ func shortFixture() ([]render.Skill, []string) {
 }
 
 var (
-	checksBlockRe = regexp.MustCompile(`(?s)<details><summary>Checks: .*?</details>\n\n`)
+	// passedAreasRe matches the areas of the fixture that hold no failed check.
+	passedAreasRe = regexp.MustCompile(`#### (?:Tests|Docs)\n\n(?:\|.*\n)+\n`)
 	filesBlockRe  = regexp.MustCompile(`(?s)<details><summary>Files \(.*?</details>\n\n`)
 )
 
 func TestShortLeavesOutFilesAndPassedChecks(t *testing.T) {
 	skills, files := shortFixture()
 	got := render.Comment(skills, render.Options{ChangedFiles: files, Short: true})
-	for _, banned := range []string{"<summary>Files (", "<summary>Checks:", "Unit tests ran", "Docs updated", "passed detail", "na detail", "omitted"} {
+	for _, banned := range []string{"<summary>Files (", "#### Tests", "#### Docs", "Unit tests ran", "Docs updated", "passed detail", "na detail", "omitted"} {
 		if strings.Contains(got, banned) {
 			t.Errorf("Short comment holds %q:\n%s", banned, got)
 		}
 	}
-	if off := render.Comment(skills, render.Options{ChangedFiles: files}); !strings.Contains(off, "<summary>Files (") || !strings.Contains(off, "<summary>Checks:") {
-		t.Fatalf("the fixture lacks a Files list or a Checks block with Short off:\n%s", off)
+	off := render.Comment(skills, render.Options{ChangedFiles: files})
+	for _, want := range []string{"<summary>Files (", "#### Tests", "Unit tests ran", "#### Docs", "Docs updated"} {
+		if !strings.Contains(off, want) {
+			t.Fatalf("the fixture lacks %q with Short off:\n%s", want, off)
+		}
 	}
 }
 
+// Short is the off comment minus the Files list and the areas that hold only
+// passed and n/a checks.
 func TestShortRemovesNothingElse(t *testing.T) {
 	skills, files := shortFixture()
 	off := render.Comment(skills, render.Options{ChangedFiles: files})
-	want := checksBlockRe.ReplaceAllString(off, "")
+	want := passedAreasRe.ReplaceAllString(off, "")
 	want = filesBlockRe.ReplaceAllString(want, "")
 	if want == off {
 		t.Fatal("the cut removed nothing")
@@ -86,7 +93,7 @@ func TestShortKeepsWhatMatters(t *testing.T) {
 	skills, files := shortFixture()
 	got := render.Comment(skills, render.Options{ChangedFiles: files, Short: true})
 	for _, want := range []string{
-		"**Failed checks (1)**", "No panics", "failed detail",
+		"#### Safety", "No panics", "failed detail", "- **Batch 1 of 2:** Checked.",
 		"**Review failed:** Timed out waiting for the model.",
 		"Nil map write", "Extract helper",
 		"Dismissed (1)", "Rename var",
@@ -106,7 +113,7 @@ func TestShortAllChecksPassed(t *testing.T) {
 		{Name: "Three", Status: render.CheckNA},
 	}}}
 	got := render.Comment(skills, render.Options{ChangedFiles: files, Short: true})
-	for _, banned := range []string{"<summary>Checks:", "Failed checks", "omitted", "One", "Three"} {
+	for _, banned := range []string{"| Check |", "omitted", "One", "Three"} {
 		if strings.Contains(got, banned) {
 			t.Errorf("comment holds %q:\n%s", banned, got)
 		}
@@ -136,7 +143,7 @@ func TestShortNotesAtEverySizeLimit(t *testing.T) {
 			full := len(render.Comment(in.Skills, render.Options{ChangedFiles: in.ChangedFiles}))
 			for maxLen := 200; maxLen <= full; maxLen += 97 {
 				got := render.Comment(in.Skills, render.Options{MaxLen: maxLen, ChangedFiles: in.ChangedFiles, Short: true})
-				for _, banned := range []string{"Passed and n/a checks omitted", "not listed to fit", "<summary>Files (", "<summary>Checks:"} {
+				for _, banned := range []string{"Passed and n/a checks omitted", "not listed to fit", "<summary>Files (", "| ✅ |", "| ➖ |"} {
 					if strings.Contains(got, banned) {
 						t.Fatalf("maxLen %d: comment holds %q:\n%s", maxLen, banned, got)
 					}

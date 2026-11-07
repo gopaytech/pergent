@@ -57,8 +57,9 @@ still open
 
 </details>
 
-> `second`: note with <‍!-- comment --> and newline
-> `second`: token [REDACTED]
+#### `second`
+
+**Summary:** fine /unapprove
 
 <details><summary>Files (3)</summary>
 
@@ -67,5 +68,8 @@ still open
 - `` x`y.go `` — skipped by `second` (rule &lt;/details>)
 
 </details>
+
+> `second`: note with <‍!-- comment --> and newline
+> `second`: token [REDACTED]
 
 > Findings were too large to store for the next run; --previous-review will treat the next run as a first review.

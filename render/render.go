@@ -169,8 +169,9 @@ type Options struct {
 	// Short leaves out the Files list and the passed and n/a checks, with no
 	// note, since nothing was cut for size. Everything else is as without it:
 	// the meta line keeps its file count and "N of M checks passed", and the
-	// failed checks table, the findings, the Dismissed list and the hidden
-	// findings block stay. The size-limit steps still apply after it.
+	// summaries, the failed checks (an area with none has no heading), the
+	// findings, the Dismissed list and the hidden findings block stay. The
+	// size-limit steps still apply after it.
 	Short bool
 	// Version is shown in the footer after "pergent ".
 	Version string
@@ -195,6 +196,7 @@ const (
 	detailsDroppedNote      = "> Suggestion details omitted to fit the comment size limit."
 	passedChecksDroppedNote = "> Passed and n/a checks omitted to fit the comment size limit."
 	checkTablesDroppedNote  = "> Check tables omitted to fit the comment size limit."
+	summariesDroppedNote    = "> Summaries omitted to fit the comment size limit."
 	truncatedNote           = "\n\n> Comment truncated to fit the comment size limit.\n"
 )
 
@@ -204,44 +206,41 @@ type layout struct {
 	suggestionTitles bool // suggestions without their explanation and fix
 	noSuggestions    bool // also leaves out the dismissed findings
 	checksFailOnly   bool // check tables keep only failed checks
-	noCheckTables    bool // the failed checks table goes too
+	noCheckTables    bool // the failed checks go too
+	noSummaries      bool // the summaries go, last of all
 	// listLimit caps the files list; -1 means no cap.
 	listLimit int
 }
 
 // Comment renders the skills as one markdown comment: a headline with the
 // verdict over all skills (and the confidence score, when a skill has one), a
-// meta line, the reason for the score, a skills table when there are several
-// skills, the failures, then one list of findings across all skills, blocking
-// ones first and open, then the dismissed findings, then the checks of all
-// skills (the failed ones in a table, the rest collapsed), the notes, the
-// list of files and the footer. A hidden last line carries the findings for
+// meta line, the reason for a score below 5 or capped, a skills table when
+// there are several skills and the failures. Then the summary (one skill with
+// one batch and one summary), one list of findings across all skills, blocking
+// ones first and open, the dismissed findings, and the details: a line per
+// batch for one skill with several batches, a section per skill when there are
+// several (its summary, then its checks), and the checks by area, each area a
+// heading with a small table, failed checks first. Last come the list of
+// files, the notes and the footer. A hidden last line carries the findings for
 // the next run. The headline, meta line, reason, table and failures are kept
 // by every shrink step below.
 //
 // A comment over o.MaxLen is shrunk in steps until it fits: the hidden
 // findings block goes first, then the suggestions' explanations and fixes
 // (their titles stay), then the suggestions and dismissed findings, then the
-// passed and n/a checks, then the failed checks table (the meta line keeps
-// the counts), then the file list is cut to 20 paths and then to a count.
-// Blocking findings and failures are never dropped; if they alone are over the
-// limit, the comment is cut at the limit with a note. With o.Short the file
-// list and the passed and n/a checks are not written at all, so their steps
-// change nothing and leave no note.
+// passed and n/a checks (an area left with none loses its heading), then the
+// failed checks (the meta line keeps the counts), then the file list is cut to
+// 20 paths and then to a count, and last the summaries. Blocking findings and
+// failures are never dropped; if they alone are over the limit, the comment is
+// cut at the limit with a note. With o.Short the file list and the passed and
+// n/a checks are not written at all, so their steps change nothing and leave
+// no note.
 func Comment(skills []Skill, o Options) string {
 	out := render(skills, o, layout{listLimit: -1})
 	if o.MaxLen <= 0 || len(out) <= o.MaxLen {
 		return out
 	}
-	for _, l := range []layout{
-		{noHidden: true, listLimit: -1},
-		{noHidden: true, suggestionTitles: true, listLimit: -1},
-		{noHidden: true, noSuggestions: true, listLimit: -1},
-		{noHidden: true, noSuggestions: true, checksFailOnly: true, listLimit: -1},
-		{noHidden: true, noSuggestions: true, checksFailOnly: true, noCheckTables: true, listLimit: -1},
-		{noHidden: true, noSuggestions: true, checksFailOnly: true, noCheckTables: true, listLimit: 20},
-		{noHidden: true, noSuggestions: true, checksFailOnly: true, noCheckTables: true, listLimit: 0},
-	} {
+	for _, l := range shrinkSteps {
 		out = render(skills, o, l)
 		if len(out) <= o.MaxLen {
 			return out
@@ -256,6 +255,19 @@ func Comment(skills []Skill, o Options) string {
 		out = out[:i]
 	}
 	return out + truncatedNote
+}
+
+// shrinkSteps are the layouts Comment tries, in order, when the comment is
+// over the size limit. Each one keeps what the one before it left out.
+var shrinkSteps = []layout{
+	{noHidden: true, listLimit: -1},
+	{noHidden: true, suggestionTitles: true, listLimit: -1},
+	{noHidden: true, noSuggestions: true, listLimit: -1},
+	{noHidden: true, noSuggestions: true, checksFailOnly: true, listLimit: -1},
+	{noHidden: true, noSuggestions: true, checksFailOnly: true, noCheckTables: true, listLimit: -1},
+	{noHidden: true, noSuggestions: true, checksFailOnly: true, noCheckTables: true, listLimit: 20},
+	{noHidden: true, noSuggestions: true, checksFailOnly: true, noCheckTables: true, listLimit: 0},
+	{noHidden: true, noSuggestions: true, checksFailOnly: true, noCheckTables: true, listLimit: 0, noSummaries: true},
 }
 
 // cutBytes returns the longest prefix of s of at most n bytes that doesn't
@@ -275,11 +287,12 @@ func render(skills []Skill, o Options, l layout) string {
 
 	b.WriteString(Marker + "\n")
 	writeHeader(&b, skills, o)
+	writeSummary(&b, skills, l)
 	writeFindings(&b, skills, o, l)
 	writeDismissedList(&b, skills, l)
-	writeChecks(&b, skills, o, l)
-	writeNotes(&b, skills)
+	writeDetails(&b, skills, o, l)
 	writeFiles(&b, skills, o, l)
+	writeNotes(&b, skills)
 	writeFooter(&b, o)
 
 	out := neutralizeQuickActions(b.String())

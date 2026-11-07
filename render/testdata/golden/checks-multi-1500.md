@@ -8,22 +8,40 @@
 | `multi` | ✅ No blocking issues | none |
 | `single` | ✅ No blocking issues | none |
 
-**Failed checks (3)**
+#### `multi`
 
-| Skill | Area | Check | Status | Detail |
-|---|---|---|---|---|
-| `multi` | A | b1 | ❌ | x |
-| `multi` | B | b2 | ❌ |  |
-| `single` | Sec&#124;tion | fail | ❌ |  |
+##### A
 
-<details><summary>Checks: 3 of 6 passed, 1 n/a</summary>
+| Check | Status | Detail |
+|---|---|---|
+| b1 | ❌ | x |
+| a1 | ✅ |  |
+| a2 | ✅ | evidence |
 
-| Skill | Area | Check | Status | Detail |
-|---|---|---|---|---|
-| `multi` | A | a1 | ✅ |  |
-| `multi` | A | a2 | ✅ | evidence |
-| `multi` |  | loose | ➖ |  |
-| `single` | Sec&#124;tion | a&#124;b c \`x | ✅ | <‍/details> <‍summary>y [REDACTED] |
+##### B
+
+| Check | Status | Detail |
+|---|---|---|
+| b2 | ❌ |  |
+
+| Check | Status | Detail |
+|---|---|---|
+| loose | ➖ |  |
+
+#### `single`
+
+**Summary:** Sum.
+
+##### Sec|‍tion
+
+| Check | Status | Detail |
+|---|---|---|
+| fail | ❌ |  |
+| a&#124;b c \`x | ✅ | <‍/details> <‍summary>y [REDACTED] |
+
+<details><summary>Files (1)</summary>
+
+- `a.go` — reviewed by `multi`
 
 </details>
 
@@ -31,11 +49,5 @@
 > `multi`: 3 checks beyond the first 60 per answer were not shown.
 > `multi`: Verification dropped 1 of 1 blocking finding: Not real (it is handled upstream)
 > `multi`: another note
-
-<details><summary>Files (1)</summary>
-
-- `a.go` — reviewed by `multi`
-
-</details>
 
 <!-- pergent:findings eyJ2ZXJzaW9uIjoxLCJza2lsbHMiOnsibXVsdGkiOltdLCJzaW5nbGUiOltdfX0= -->

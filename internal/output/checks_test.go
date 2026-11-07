@@ -38,14 +38,14 @@ func TestFormatReview_ChecksSingleBatch(t *testing.T) {
 		Findings: []finding.Finding{{File: "x.go", Line: 1, Severity: finding.Blocking, Title: "Broken thing", Explanation: "e"}},
 	}}, nil)
 
-	// The findings list comes before the checks.
+	// The summary comes first, then the findings list, then the checks by area.
 	inOrder(t, got,
-		"Broken thing",
-		"**Failed checks (1)**", "| Area | Check | Status | Detail |", "| B | b1 | ❌ |",
-		"<details><summary>Checks: 1 of 2 passed, 1 n/a</summary>", "| A | a1 | ✅ | d1 |", "| A | a2 | ➖ | d2 |", "</details>",
+		"**Summary:** Sum.", "Broken thing",
+		"#### A", "| Check | Status | Detail |", "| a1 | ✅ | d1 |", "| a2 | ➖ | d2 |",
+		"#### B", "| b1 | ❌ |",
 	)
-	if strings.Contains(got, "Sum.") {
-		t.Errorf("the summary is shown:\n%s", got)
+	if strings.Contains(got, "Checks:") || strings.Contains(got, "Failed checks") {
+		t.Errorf("the old checks blocks are written:\n%s", got)
 	}
 }
 
@@ -56,10 +56,8 @@ func TestFormatReview_ChecksCountOmitsZeros(t *testing.T) {
 			check("", "a", finding.CheckPass, ""), check("", "b", finding.CheckPass, ""), check("", "c", finding.CheckPass, ""),
 		}}},
 	}}, nil)
-	if !strings.Contains(got, "<summary>Checks: 3 of 3 passed</summary>") {
-		t.Errorf("want a summary with only passes:\n%s", got)
-	}
-	if strings.Contains(got, "Failed checks") || strings.Contains(got, "n/a") {
+	inOrder(t, got, "3 of 3 checks passed", "| Check | Status | Detail |", "| a | ✅ |", "| b | ✅ |", "| c | ✅ |")
+	if strings.Contains(got, "❌") || strings.Contains(got, "n/a") {
 		t.Errorf("zero counts shown:\n%s", got)
 	}
 }
@@ -72,10 +70,11 @@ func TestFormatReview_ChecksMultiBatch(t *testing.T) {
 			{Batch: 2, Findings: 1, Checks: []finding.Check{check("A", "b1", finding.CheckFail, "")}},
 		},
 	}}, nil)
-	inOrder(t, got,
-		"**Failed checks (1)**", "| A | b1 | ❌ |",
-		"<details><summary>Checks: 2 of 3 passed</summary>", "| A | a1 | ✅ |", "| A | a2 | ✅ |", "</details>",
-	)
+	// The two batches' checks are one table of the area, the failed one first.
+	inOrder(t, got, "#### A", "| b1 | ❌ |", "| a1 | ✅ |", "| a2 | ✅ |")
+	if n := strings.Count(got, "#### A"); n != 1 {
+		t.Errorf("%d headings for one area:\n%s", n, got)
+	}
 	if o, c := strings.Count(got, "<details"), strings.Count(got, "</details>"); o != c {
 		t.Errorf("%d <details but %d </details>:\n%s", o, c, got)
 	}
@@ -88,12 +87,12 @@ func TestFormatReview_FailedCheckWithoutFinding(t *testing.T) {
 	}}, nil)
 	inOrder(t, got,
 		"### ✅ No blocking issues",
-		"|  | a | ❌ |",
+		"| a | ❌ |",
 		"> 1 failed check has no matching finding; the verdict is based on findings.",
 	)
 }
 
-func TestFormatReview_VerificationNoteNextToChecks(t *testing.T) {
+func TestFormatReview_VerificationNoteShownOnce(t *testing.T) {
 	note := "Verification dropped 1 of 1 blocking finding: Not real (it is handled upstream)"
 	got := FormatReview([]review.SkillResult{{
 		Skill: "s", Verdict: review.NoBlockingIssues, Batches: 1, BatchesFinished: 1,
@@ -101,7 +100,7 @@ func TestFormatReview_VerificationNoteNextToChecks(t *testing.T) {
 		Notes:    []string{note},
 		Reviewed: []string{"a.go"},
 	}}, nil)
-	inOrder(t, got, "|  | a | ❌ |", "> "+note, "<details><summary>Files (1)")
+	inOrder(t, got, "| a | ❌ |", "<details><summary>Files (1)", "> "+note)
 	if strings.Count(got, note) != 1 {
 		t.Errorf("verification note shown %d times, want once:\n%s", strings.Count(got, note), got)
 	}
@@ -117,9 +116,9 @@ func TestFormatReview_CheckCellsSafe(t *testing.T) {
 		Reviewed: []string{"a.go"},
 	}}, nil)
 	for _, line := range strings.Split(got, "\n") {
-		if strings.HasPrefix(line, "| ") && !strings.HasPrefix(line, "| Area ") {
-			if n := strings.Count(line, "|") - strings.Count(line, `\|`); n != 5 {
-				t.Errorf("row %q has %d unescaped |, want 5", line, n)
+		if strings.HasPrefix(line, "| ") && !strings.HasPrefix(line, "| Check ") {
+			if n := strings.Count(line, "|") - strings.Count(line, `\|`); n != 4 {
+				t.Errorf("row %q has %d unescaped |, want 4", line, n)
 			}
 		}
 	}
@@ -150,7 +149,7 @@ func TestFormatReview_NoChecksUnchanged(t *testing.T) {
 	if strings.Contains(got, "Checks:") || strings.Contains(got, "Failed checks") || strings.Contains(got, "| Check |") {
 		t.Errorf("checks shown without checks:\n%s", got)
 	}
-	if strings.Contains(got, "Sum.") || !strings.Contains(got, "<details><summary>Files (1)") {
+	if !strings.Contains(got, "\n**Summary:** Sum.\n\n<details><summary>Files (1)") {
 		t.Errorf("layout changed for a result without checks:\n%s", got)
 	}
 }
@@ -178,7 +177,7 @@ func TestFormatReviewWithin_ChecksShrinkInSteps(t *testing.T) {
 	if len(failOnly) > 3000 {
 		t.Fatalf("len = %d, want at most 3000", len(failOnly))
 	}
-	for _, want := range []string{"| S | the failing one | \u274c |", "60 of 61 checks passed", passedNote} {
+	for _, want := range []string{"#### S\n\n| Check | Status | Detail |\n|---|---|---|\n| the failing one | \u274c |", "60 of 61 checks passed", passedNote} {
 		if !strings.Contains(failOnly, want) {
 			t.Errorf("fail-only step missing %q:\n%s", want, failOnly)
 		}
@@ -197,7 +196,7 @@ func TestFormatReviewWithin_ChecksShrinkInSteps(t *testing.T) {
 			t.Errorf("count-only step missing %q:\n%s", want, countOnly)
 		}
 	}
-	if strings.Contains(countOnly, "| Area |") || strings.Contains(countOnly, "Failed checks") {
+	if strings.Contains(countOnly, "| Check |") || strings.Contains(countOnly, "#### S") {
 		t.Errorf("count-only step kept a table:\n%s", countOnly)
 	}
 }

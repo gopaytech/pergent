@@ -3,6 +3,8 @@
 
 <sub>60 of 61 checks passed · 1 blocking</sub>
 
+**Summary:** Sum.
+
 #### Findings (1)
 
 <details open><summary>❌ <b>Broken</b> · <code>x.go:1</code></summary>
@@ -11,11 +13,11 @@ e
 
 </details>
 
-**Failed checks (1)**
+#### S
 
-| Area | Check | Status | Detail |
-|---|---|---|---|
-| S | the failing one | ❌ | ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff |
+| Check | Status | Detail |
+|---|---|---|
+| the failing one | ❌ | ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff |
 
 > Passed and n/a checks omitted to fit the comment size limit.
 

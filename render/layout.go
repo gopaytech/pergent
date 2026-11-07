@@ -126,11 +126,11 @@ func skillRef(name string) string { return neutralizeComments(codeSpan(name)) }
 
 // writeReason writes the model's reason for the review's confidence score as
 // a quote, with the skill it came from when there are several and why the
-// score was capped.
+// score was capped. A score of 5 that is not capped has none.
 func writeReason(b *strings.Builder, skills []Skill) {
 	score, at := ReviewScore(skills)
-	if at < 0 {
-		return
+	if at < 0 || score.Value >= 5 && score.Capped == "" {
+		return // at 5 of 5 the reason says nothing a reader needs
 	}
 	reason := lineText(skills[at].ConfidenceReason)
 	switch {

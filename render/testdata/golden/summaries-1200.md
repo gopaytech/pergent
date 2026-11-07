@@ -9,11 +9,12 @@
 | `second` | ✅ No blocking issues | none |
 | `third` | ✅ No blocking issues | none |
 
+> Summaries omitted to fit the comment size limit.
+
 <details><summary>Files (2)</summary>
 
-- `a.go` — reviewed by `third`
-- `b.go` — reviewed by `third`
+- and 2 more not listed to fit the comment size limit
 
 </details>
 
-<!-- pergent:findings eyJ2ZXJzaW9uIjoxLCJza2lsbHMiOnsiZmlyc3QiOltdLCJzZWNvbmQiOltdLCJ0aGlyZCI6W119fQ== -->
+> Findings were too large to store for the next run; --previous-review will treat the next run as a first review.

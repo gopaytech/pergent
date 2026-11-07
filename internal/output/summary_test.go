@@ -8,17 +8,18 @@ import (
 	"github.com/gopaytech/pergent/internal/review"
 )
 
-// The model's summaries are no longer drawn in the comment.
-func TestFormatReview_SummariesNotShown(t *testing.T) {
+// A skill with several batches shows one line per batch that has a summary.
+func TestFormatReview_SummariesShownPerBatch(t *testing.T) {
 	got := FormatReview([]review.SkillResult{{
 		Skill: "s", Verdict: review.NoBlockingIssues, Batches: 3, BatchesFinished: 3,
 		Summaries: []review.BatchSummary{{Batch: 1, Text: "Checked a."}, {Batch: 3, Text: "Third."}},
 		Reviewed:  []string{"a.go"},
 	}}, nil)
-	for _, text := range []string{"Checked a.", "Third.", "Summary", "Batch 1 of 3"} {
-		if strings.Contains(got, text) {
-			t.Errorf("summary text %q is shown:\n%s", text, got)
-		}
+	if want := "- **Batch 1 of 3:** Checked a.\n- **Batch 3 of 3:** Third.\n\n"; !strings.Contains(got, want) {
+		t.Errorf("batch lines missing:\n%s", got)
+	}
+	if strings.Contains(got, "**Summary:**") {
+		t.Errorf("a batch list also has a Summary line:\n%s", got)
 	}
 	if !strings.HasPrefix(got, "<!-- pergent -->\n### ✅ No blocking issues\n") {
 		t.Errorf("headline missing:\n%s", got)
@@ -81,6 +82,11 @@ func TestFormatReview_SummaryCannotBreakLayout(t *testing.T) {
 	}
 	if strings.Contains(got, "glpat-secretvalue") {
 		t.Errorf("secret leaked:\n%s", got)
+	}
+	for _, want := range []string{"\n#### `first`\n\n**Summary:** ", "\n#### `second`\n\n- **Batch 1 of 2:** ", "- **Batch 2 of 2:** fine\n"} {
+		if !strings.Contains(visible, want) {
+			t.Errorf("visible comment lacks %q:\n%s", want, got)
+		}
 	}
 	if !strings.Contains(visible, "### ✅ No blocking issues") || !strings.Contains(visible, "| `second` | ✅ No blocking issues | none |") {
 		t.Errorf("layout broken:\n%s", got)
