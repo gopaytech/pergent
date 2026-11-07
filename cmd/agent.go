@@ -243,6 +243,7 @@ func runAgent(ctx context.Context, args []string, getenv func(string) string, st
 		Carried:      in.Carried,
 		Dismissals:   in.Dismissals,
 		Description:  in.Description,
+		Linked:       in.Linked,
 		Run:          run,
 		Classifier:   &in.Classifier,
 		Sandbox: review.Sandbox{
