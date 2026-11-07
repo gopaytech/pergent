@@ -50,11 +50,17 @@ func (r *reviewer) crossBatch(ctx context.Context, s skill.Skill, res *SkillResu
 		return
 	}
 	defer os.RemoveAll(dir)
-	var files []string
-	for _, a := range []struct{ name, content string }{
+	attachments := []struct{ name, content string }{
 		{"changed-files.md", r.changedList},
 		{"batch-findings.json", string(data)},
-	} {
+	}
+	message := fmt.Sprintf(crossBatchMessage, res.Batches)
+	if r.req.Description != "" {
+		attachments = append(attachments, struct{ name, content string }{changeFile, r.req.Description})
+		message += " " + changeMessage
+	}
+	var files []string
+	for _, a := range attachments {
 		p := filepath.Join(dir, a.name)
 		if err := os.WriteFile(p, []byte(a.content), 0600); err != nil {
 			fail("could not write the check's files: %v", err)
@@ -63,7 +69,6 @@ func (r *reviewer) crossBatch(ctx context.Context, s skill.Skill, res *SkillResu
 		files = append(files, p)
 	}
 
-	message := fmt.Sprintf(crossBatchMessage, res.Batches)
 	// The run has no diff of its own, so it is told about every diff.
 	if note := r.diffsNote(crossDiffsMessage, nil); note != "" {
 		message += " " + note

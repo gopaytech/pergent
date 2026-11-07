@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/gopaytech/pergent/internal/redact"
@@ -14,6 +15,9 @@ var httpClient = &http.Client{Timeout: 30 * time.Second}
 
 type Platform interface {
 	FetchDiff() (diff string, changedFiles []string, err error)
+	// FetchChangeDescription returns the change's title and description as
+	// one text. The author wrote it, so it is data, never instructions.
+	FetchChangeDescription() (string, error)
 	// FindComment returns pergent's own comment: the first one whose body
 	// starts with marker AND whose author is the token's own identity (see
 	// the implementations). A note by anyone else is never returned, however
@@ -22,6 +26,11 @@ type Platform interface {
 	FindComment(marker string) (commentID int64, body string, err error)
 	CreateComment(body string) error
 	UpdateComment(commentID int64, body string) error
+}
+
+// changeDescription joins a change's title and description.
+func changeDescription(title, description string) string {
+	return strings.TrimSpace(title + "\n\n" + description)
 }
 
 // LocalDiff runs git diff against a base ref.

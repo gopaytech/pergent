@@ -172,6 +172,26 @@ func quotePath(p string) string {
 	return strconv.Quote(p)
 }
 
+// FetchChangeDescription reads the merge request's title and description.
+func (gl *GitLab) FetchChangeDescription() (string, error) {
+	resp, err := gl.do("GET", fmt.Sprintf("/api/v4/projects/%s/merge_requests/%d", gl.ProjectID, gl.MRIID), nil)
+	if err != nil {
+		return "", fmt.Errorf("fetching the merge request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("fetching the merge request: status %d%s", resp.StatusCode, readErrorBody(resp))
+	}
+	var mr struct {
+		Title       string `json:"title"`
+		Description string `json:"description"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&mr); err != nil {
+		return "", fmt.Errorf("decoding the merge request: %w", err)
+	}
+	return changeDescription(mr.Title, mr.Description), nil
+}
+
 // readIdentity learns who the token posts as, once per run. The api scope that
 // posting notes needs also covers /user, for project and group tokens too. A
 // narrower token (a fine-grained one without read_user) fails here, and that

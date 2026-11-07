@@ -17,9 +17,10 @@ type lookupPlatform struct {
 	calls    int
 }
 
-func (p *lookupPlatform) FetchDiff() (string, []string, error) { return "", nil, nil }
-func (p *lookupPlatform) CreateComment(string) error           { return nil }
-func (p *lookupPlatform) UpdateComment(int64, string) error    { return nil }
+func (p *lookupPlatform) FetchDiff() (string, []string, error)    { return "", nil, nil }
+func (p *lookupPlatform) FetchChangeDescription() (string, error) { return "", nil }
+func (p *lookupPlatform) CreateComment(string) error              { return nil }
+func (p *lookupPlatform) UpdateComment(int64, string) error       { return nil }
 func (p *lookupPlatform) FindComment(string) (int64, string, error) {
 	p.calls++
 	if p.calls <= p.failures {
@@ -75,5 +76,33 @@ func TestCommentToUpdate_NoRetryWhenTheFirstLookupWorks(t *testing.T) {
 	p := &lookupPlatform{}
 	if got := commentToUpdate(p, "<!-- pergent -->", time.Hour); got != 77 || p.calls != 1 {
 		t.Errorf("got id %d after %d calls, want 77 after 1", got, p.calls)
+	}
+}
+
+// describedPlatform is a Platform that answers FetchChangeDescription.
+type describedPlatform struct {
+	lookupPlatform
+	text string
+	err  error
+}
+
+func (p *describedPlatform) FetchChangeDescription() (string, error) { return p.text, p.err }
+
+func TestChangeDescription(t *testing.T) {
+	var logs bytes.Buffer
+	log.SetOutput(&logs)
+	defer log.SetOutput(os.Stderr)
+
+	if got := changeDescription(&describedPlatform{text: "Fix it"}); got != "Fix it" {
+		t.Errorf("changeDescription = %q, want the platform's text", got)
+	}
+	if !strings.Contains(logs.String(), "change description: 6 bytes") {
+		t.Errorf("logged %q, want the size", logs.String())
+	}
+	if got := changeDescription(&describedPlatform{text: "partial", err: errors.New("status 502")}); got != "" {
+		t.Errorf("changeDescription = %q after a failure, want none", got)
+	}
+	if !strings.Contains(logs.String(), "reviewing without the change's title and description: status 502") {
+		t.Errorf("logged %q, want the warning", logs.String())
 	}
 }

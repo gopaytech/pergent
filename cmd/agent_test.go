@@ -335,7 +335,7 @@ func TestPrepareAgent_Codes(t *testing.T) {
 			t.Errorf("prepareAgent() error = %+v, want %s", e, result.CodeSkillsInvalid)
 		}
 	})
-	for _, flag := range []string{"--skills-dir", "--skill", "--instructions", "--previous", "--carried", "--dismissals"} {
+	for _, flag := range []string{"--skills-dir", "--skill", "--instructions", "--previous", "--carried", "--dismissals", "--change-description"} {
 		t.Run("usage for "+flag+" inside the checkout", func(t *testing.T) {
 			writeFile(t, repo, "inside/s.md", "---\nname: inside\n---\nBody.\n")
 			defer os.RemoveAll(filepath.Join(repo, "inside"))
@@ -1085,4 +1085,58 @@ func TestPrepareAgent_OutsideSymlinks(t *testing.T) {
 			})
 		}
 	})
+}
+
+func TestPrepareAgent_ChangeDescription(t *testing.T) {
+	repo, base, head := agentRepo(t, nil)
+	dir := t.TempDir()
+	writeFile(t, dir, "change-description.md", "Fix the limiter\n\nOn purpose.\n")
+
+	in := mustParse(t, agentArgs(repo, base, head, oneSkill(t), "--change-description", filepath.Join(dir, "change-description.md")))
+	logger, logs := bufferLog()
+	if e := prepareAgent(&in, logger); e != nil {
+		t.Fatalf("prepareAgent() error: %+v", e)
+	}
+	if want := "Fix the limiter\n\nOn purpose.\n"; in.Description != want {
+		t.Errorf("Description = %q, want %q", in.Description, want)
+	}
+	if !strings.Contains(logs.String(), "change description: 29 bytes") {
+		t.Errorf("logged %q, want the size", logs.String())
+	}
+}
+
+func TestPrepareAgent_ChangeDescriptionMissing(t *testing.T) {
+	repo, base, head := agentRepo(t, nil)
+	logger, logs := bufferLog()
+	in := mustParse(t, agentArgs(repo, base, head, oneSkill(t), "--change-description", filepath.Join(t.TempDir(), "missing.md")))
+	if e := prepareAgent(&in, logger); e != nil {
+		t.Fatalf("prepareAgent() error: %+v, want the review to go on without it", e)
+	}
+	if in.Description != "" {
+		t.Errorf("Description = %q, want none", in.Description)
+	}
+	if !strings.Contains(logs.String(), "warning: ignoring --change-description") {
+		t.Errorf("no warning logged: %q", logs.String())
+	}
+}
+
+func TestParseAgent_ChangeDescriptionFromEnv(t *testing.T) {
+	sha := strings.Repeat("a", 40)
+	args := []string{"--repo-path", "/r", "--base", sha, "--head", sha, "--skills-dir", "/s", "--result", "-"}
+	env := agentEnv(map[string]string{"PERGENT_CHANGE_DESCRIPTION": "/env/change.md"})
+
+	in, e := parseAgent(args, env)
+	if e != nil {
+		t.Fatalf("parseAgent() error: %+v", e)
+	}
+	if in.changePath != "/env/change.md" {
+		t.Errorf("changePath = %q, want the PERGENT_CHANGE_DESCRIPTION path", in.changePath)
+	}
+	in, e = parseAgent(append(args, "--change-description", "/flag/change.md"), env)
+	if e != nil {
+		t.Fatalf("parseAgent() error: %+v", e)
+	}
+	if in.changePath != "/flag/change.md" {
+		t.Errorf("changePath = %q, want the flag to win", in.changePath)
+	}
 }

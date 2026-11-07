@@ -68,6 +68,26 @@ func (g *GitHub) FetchDiff() (string, []string, error) {
 	return unified, parseDiffFiles(unified), nil
 }
 
+// FetchChangeDescription reads the pull request's title and body.
+func (g *GitHub) FetchChangeDescription() (string, error) {
+	resp, err := g.do("GET", fmt.Sprintf("/repos/%s/pulls/%d", g.Repo, g.PRNumber), "", nil)
+	if err != nil {
+		return "", fmt.Errorf("fetching the pull request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("fetching the pull request: status %d%s", resp.StatusCode, readErrorBody(resp))
+	}
+	var pr struct {
+		Title string `json:"title"`
+		Body  string `json:"body"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&pr); err != nil {
+		return "", fmt.Errorf("decoding the pull request: %w", err)
+	}
+	return changeDescription(pr.Title, pr.Body), nil
+}
+
 // readIdentity learns who the token posts as, once per run. GitHub Actions'
 // GITHUB_TOKEN (and an App installation token) cannot call /user: it answers
 // 401, 403 or 404, and then selfID stays 0 and FindComment accepts only a
