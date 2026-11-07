@@ -16,9 +16,9 @@ Implementers have no network, so these steps belong to the owner's main session.
 
 | When | Who | What |
 |---|---|---|
-| **H0**, before Task 1 | Main session | In `pergent-incremental`, cut `feat/comment-layout` from `docs/comment-sections`. |
+| **H0**, before Task 1 | Main session | In `pergent-incremental`, cut `feat/comment-blocks` from `docs/comment-sections`. |
 | **H1 (STOP)**, after Task 2 | Owner, then main session | Push and open the pergent PR when the owner says so. After the merge, run the local gate on the merge commit and tag `v0.6.0` on the owner's word. Check the image. |
-| **H2**, before Task 3 | Main session | In `pergent.sh-quiet`, cut `feat/comment-layout` from `origin/main`, then cherry-pick the spec and this plan. Run `go get github.com/gopaytech/pergent@v0.6.0` and `go mod tidy`, set `defaultImage` and the assertion in `internal/config/config_test.go`, and **leave them uncommitted**: Task 3 commits them with its test changes, so the pin and what it changes stay one commit. |
+| **H2**, before Task 3 | Main session | In `pergent.sh-quiet`, cut `feat/comment-blocks` from `origin/main`, then cherry-pick the spec and this plan. Run `go get github.com/gopaytech/pergent@v0.6.0` and `go mod tidy`, set `defaultImage` and the assertion in `internal/config/config_test.go`, and **leave them uncommitted**: Task 3 commits them with its test changes, so the pin and what it changes stay one commit. |
 | **H3**, after the final review | Owner | Push and open the PR on the owner's word. Postgres-backed tests first run here. Check the `internal/store`, `internal/dashboard` and `internal/engine` timings in the `test` job log. |
 | **H4**, after the merge | Owner, then main session | The usual chart release for 0.10.0, including `info.version` in `openapi.yaml`. |
 
