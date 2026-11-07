@@ -188,7 +188,9 @@ type Options struct {
 	// DefaultLayout. It changes only what the comment shows, never a verdict,
 	// score or count: the headline, meta line, failures, notes, footer and
 	// hidden findings block are the same in every layout, blocking findings
-	// are always open and a failed check is always shown. Short wins over it.
+	// are always open and a failed check is always shown. The one exception is
+	// the size limit: its step 5 can cut the failed checks, with a note, in any
+	// layout. No layout can hide them. Short wins over it.
 	Layout []Block
 }
 
@@ -223,6 +225,9 @@ type layout struct {
 	openFindings  bool // suggestions start open
 	openDismissed bool
 	openFiles     bool
+	// defaultOrder writes the layout's blocks in DefaultLayout's order, the
+	// details right after findings: the last-resort cut uses it.
+	defaultOrder bool
 	// listLimit caps the files list; -1 means no cap.
 	listLimit int
 }
@@ -239,8 +244,8 @@ type layout struct {
 // files, the notes and the footer. A hidden last line carries the findings for
 // the next run. That is the default order; o.Layout can change the order of the
 // summary, findings, dismissed, checks and files blocks, fold or open them, or
-// leave one out (see Options.Layout). The headline, meta line, reason, table and failures are kept
-// by every shrink step below.
+// leave one out (see Options.Layout). The headline, meta line, reason, table
+// and failures are kept by every shrink step below.
 //
 // A comment over o.MaxLen is shrunk in steps until it fits: the hidden
 // findings block goes first, then the suggestions' explanations and fixes
@@ -249,7 +254,10 @@ type layout struct {
 // failed checks (the meta line keeps the counts), then the file list is cut to
 // 20 paths and then to a count, and last the summaries. Blocking findings and
 // failures are never dropped; if they alone are over the limit, the comment is
-// cut at the limit with a note. With o.Short the file list and the passed and
+// cut at the limit with a note. That last cut is made on a comment in the
+// default order, whatever o.Layout says (the blocks it shows and their states
+// stay), so notes ahead of the findings can't push a blocking title past the
+// limit. With o.Short the file list and the passed and
 // n/a checks are not written at all, so their steps change nothing and leave
 // no note.
 func Comment(skills []Skill, o Options) string {
@@ -263,6 +271,9 @@ func Comment(skills []Skill, o Options) string {
 			return out
 		}
 	}
+	last := shrinkSteps[len(shrinkSteps)-1]
+	last.defaultOrder = true
+	out = render(skills, o, last)
 	keep := o.MaxLen - len(truncatedNote)
 	if keep < 0 {
 		return cutBytes(out, o.MaxLen)
@@ -304,6 +315,9 @@ func render(skills []Skill, o Options, l layout) string {
 
 	blocks := resolveLayout(o.Layout)
 	state := func(name string) string { s, _ := blockState(blocks, name); return s }
+	if l.defaultOrder {
+		blocks = inDefaultOrder(blocks)
+	}
 	_, hasSummary := blockState(blocks, BlockSummary)
 	_, hasChecks := blockState(blocks, BlockChecks)
 	l.noSummaries = l.noSummaries || !hasSummary // a block left out is not written, and says nothing
@@ -317,6 +331,7 @@ func render(skills []Skill, o Options, l layout) string {
 	// else at summary after any single summary, else right after findings.
 	detailsAt := BlockFindings
 	switch {
+	case l.defaultOrder:
 	case hasChecks:
 		detailsAt = BlockChecks
 	case hasSummary:

@@ -415,24 +415,34 @@ func bulkSkills() ([]Skill, []string) {
 
 func TestCustomOrderAtEverySize(t *testing.T) {
 	skills, files := bulkSkills()
-	custom := Options{ChangedFiles: files, Layout: lay(t, "checks:open", "findings:collapsed")}
-	def := Options{ChangedFiles: files}
-	full := len(Comment(skills, custom))
-	if n := len(Comment(skills, def)); n > full {
-		full = n
+	layouts := map[string][]Block{
+		"checks first":          lay(t, "checks:open", "findings:collapsed"),
+		"files first":           lay(t, "files:open", "findings:collapsed"),
+		"everything first":      lay(t, "dismissed:open", "files:open", "checks:open", "summary:open", "findings:open"),
+		"summary, no checks":    lay(t, "summary:open", "findings:collapsed"),
+		"summary after, no chk": lay(t, "findings:collapsed", "summary:collapsed"),
+		"folds first":           lay(t, "checks:collapsed", "dismissed:open", "summary:collapsed", "findings:collapsed", "files:collapsed"),
 	}
-	for limit := 100; limit <= full+50; limit += 37 {
-		o := custom
-		o.MaxLen = limit
-		got := Comment(skills, o)
-		if len(got) > limit {
-			t.Errorf("limit %d: the comment is %d bytes", limit, len(got))
-		}
-		d := def
-		d.MaxLen = limit
-		if strings.Contains(Comment(skills, d), "Nil map write") && !strings.Contains(got, "Nil map write") {
-			t.Errorf("limit %d: the default layout keeps the blocking title and the custom one loses it:\n%s", limit, got)
-		}
+	def := Options{ChangedFiles: files}
+	for name, layout := range layouts {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			custom := Options{ChangedFiles: files, Layout: layout}
+			full := max(len(Comment(skills, custom)), len(Comment(skills, def)))
+			for limit := 100; limit <= full+50; limit++ {
+				o := custom
+				o.MaxLen = limit
+				got := Comment(skills, o)
+				if len(got) > limit {
+					t.Fatalf("limit %d: the comment is %d bytes", limit, len(got))
+				}
+				d := def
+				d.MaxLen = limit
+				if strings.Contains(Comment(skills, d), "Nil map write") && !strings.Contains(got, "Nil map write") {
+					t.Fatalf("limit %d: the default layout keeps the blocking title and this one loses it:\n%s", limit, got)
+				}
+			}
+		})
 	}
 }
 

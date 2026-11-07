@@ -109,3 +109,15 @@ func blockState(blocks []Block, name string) (state string, ok bool) {
 	}
 	return "", false
 }
+
+// inDefaultOrder returns the blocks sorted as DefaultLayout orders them, with
+// their states.
+func inDefaultOrder(blocks []Block) []Block {
+	var out []Block
+	for _, d := range DefaultLayout() {
+		if state, ok := blockState(blocks, d.Name); ok {
+			out = append(out, Block{d.Name, state})
+		}
+	}
+	return out
+}

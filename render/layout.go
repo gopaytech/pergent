@@ -332,9 +332,9 @@ func locationPart(f Finding, o Options) string {
 
 // writeFindingRow writes one finding as a collapsible block. The summary line
 // carries the title, location, skill (when there are several) and ID; blocking
-// findings start open, and so do suggestions with openAll. The title, location and skill are model or file text
-// in a line of HTML, so they are escaped; the body is Markdown and is guarded
-// like any model text.
+// findings start open, and so do suggestions with openAll. The title,
+// location and skill are model or file text in a line of HTML, so they are
+// escaped; the body is Markdown and is guarded like any model text.
 //
 // The suggested change is display text: "<!--", "<details" and "<summary" are
 // escaped and a line starting with "/" gets a zero-width space, so a caller
