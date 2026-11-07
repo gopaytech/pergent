@@ -125,17 +125,23 @@ func writeSummary(b *strings.Builder, skills []Skill, l layout) {
 		return
 	}
 	if len(skills) == 1 && singleSummary(skills[0]) {
-		writeSkillSummary(b, skills[0])
+		writeSkillSummary(b, skills[0], l.foldSummary)
 	}
 }
 
 // writeSkillSummary writes one skill's summaries: "**Summary:** text" for one
 // batch with one summary, otherwise a list with a line per batch that has one.
-// A skill with no summary writes nothing, not an empty label.
-func writeSkillSummary(b *strings.Builder, s Skill) {
+// A skill with no summary writes nothing, not an empty label. With fold it all
+// sits in a <details> labelled Summary; the "**Summary:**" label stays inside,
+// since model text must always follow a prefix of ours.
+func writeSkillSummary(b *strings.Builder, s Skill, fold bool) {
 	sums := liveSummaries(s)
 	if len(sums) == 0 {
 		return
+	}
+	if fold {
+		b.WriteString("<details><summary>Summary</summary>\n\n")
+		defer b.WriteString("</details>\n\n")
 	}
 	if singleSummary(s) {
 		fmt.Fprintf(b, "**Summary:** %s\n\n", lineText(sums[0].Text))
@@ -152,13 +158,14 @@ func writeSkillSummary(b *strings.Builder, s Skill) {
 }
 
 // shownChecks returns the rows the layout shows: all of them, or only the
-// failed ones with o.Short and at the step that drops the passed and n/a
-// checks, or none at the step that drops the tables.
+// failed ones with o.Short, a layout that leaves checks out and at the step
+// that drops the passed and n/a checks, or none at the step that drops the
+// tables.
 func shownChecks(rows []checkRow, o Options, l layout) []checkRow {
 	if l.noCheckTables {
 		return nil
 	}
-	if !o.Short && !l.checksFailOnly {
+	if !o.Short && !l.noChecks && !l.checksFailOnly {
 		return rows
 	}
 	var failed []checkRow
@@ -174,7 +181,8 @@ func shownChecks(rows []checkRow, o Options, l layout) []checkRow {
 // batch (when there is not a single summary) and its checks by area under
 // "####" headings; for several skills, one "####" section per skill that has a
 // summary or checks to show, with the checks under "#####" headings. Then one
-// note if the size limit cut checks.
+// note if the size limit cut checks. A layout that leaves summaries out sets
+// l.noSummaries, and one that leaves checks out sets l.noChecks.
 func writeDetails(b *strings.Builder, skills []Skill, o Options, l layout) {
 	var all []checkRow
 	rowsOf := make([][]checkRow, len(skills))
@@ -184,9 +192,9 @@ func writeDetails(b *strings.Builder, skills []Skill, o Options, l layout) {
 	}
 	if len(skills) == 1 {
 		if !l.noSummaries && !singleSummary(skills[0]) {
-			writeSkillSummary(b, skills[0])
+			writeSkillSummary(b, skills[0], l.foldSummary)
 		}
-		writeAreas(b, shownChecks(rowsOf[0], o, l), "####")
+		writeChecks(b, rowsOf[0], shownChecks(rowsOf[0], o, l), l.foldChecks, "####")
 	} else {
 		for i, s := range skills {
 			shown := shownChecks(rowsOf[i], o, l)
@@ -196,26 +204,28 @@ func writeDetails(b *strings.Builder, skills []Skill, o Options, l layout) {
 			}
 			fmt.Fprintf(b, "#### %s\n\n", skillRef(s.Name))
 			if summary {
-				writeSkillSummary(b, s)
+				writeSkillSummary(b, s, l.foldSummary)
 			}
-			writeAreas(b, shown, "#####")
+			writeChecks(b, rowsOf[i], shown, l.foldChecks, "#####")
 		}
 	}
 	writeChecksNote(b, all, o, l)
 }
 
 // writeChecksNote says what the size limit left out of the checks. With o.Short
-// the passed and n/a checks were never written, so their step leaves no note;
-// the failed checks are written, so cutting them does.
+// or a layout that leaves checks out the passed and n/a checks were never
+// written, so their step leaves no note; the failed checks are written, so
+// cutting them does.
 func writeChecksNote(b *strings.Builder, rows []checkRow, o Options, l layout) {
 	passed, total, na := checkTotals(rows)
 	failed := total - passed
+	quiet := o.Short || l.noChecks
 	switch {
 	case l.noCheckTables:
-		if len(rows) > 0 && (!o.Short || failed > 0) {
+		if len(rows) > 0 && (!quiet || failed > 0) {
 			b.WriteString(checkTablesDroppedNote + "\n\n")
 		}
-	case l.checksFailOnly && !o.Short && passed+na > 0:
+	case l.checksFailOnly && !quiet && passed+na > 0:
 		b.WriteString(passedChecksDroppedNote + "\n\n")
 	}
 }
@@ -232,6 +242,31 @@ func checksLabel(rows []checkRow) string {
 		parts = append(parts, fmt.Sprintf("%d n/a", na))
 	}
 	return "Checks: " + strings.Join(parts, ", ")
+}
+
+// writeChecks writes one skill's shown checks by area. With fold the failed
+// ones stay in view and the rest go in one <details> labelled with the skill's
+// counts, over all its rows, still by area; with none left there is no fold.
+func writeChecks(b *strings.Builder, all, shown []checkRow, fold bool, level string) {
+	if !fold {
+		writeAreas(b, shown, level)
+		return
+	}
+	var failed, rest []checkRow
+	for _, r := range shown {
+		if r.Status == CheckFail {
+			failed = append(failed, r)
+		} else {
+			rest = append(rest, r)
+		}
+	}
+	writeAreas(b, failed, level)
+	if len(rest) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "<details><summary>%s</summary>\n\n", checksLabel(all))
+	writeAreas(b, rest, level)
+	b.WriteString("</details>\n\n")
 }
 
 // otherChecksHeading names the table of checks with no area when named areas
@@ -443,8 +478,8 @@ func fileLine(r fileRow, skills []Skill) string {
 	return " — " + strings.Join(parts, "; ")
 }
 
-// writeFiles writes every path of the review in one collapsed list; with
-// o.Short it writes nothing.
+// writeFiles writes every path of the review in one list, collapsed unless the
+// layout opens it; with o.Short it writes nothing.
 func writeFiles(b *strings.Builder, skills []Skill, o Options, l layout) {
 	if o.Short {
 		return
@@ -457,7 +492,7 @@ func writeFiles(b *strings.Builder, skills []Skill, o Options, l layout) {
 	for i, r := range rows {
 		lines[i] = codeSpan(r.path) + fileLine(r, skills)
 	}
-	fmt.Fprintf(b, "<details><summary>Files (%d)</summary>\n\n", len(rows))
+	fmt.Fprintf(b, "<details%s><summary>Files (%d)</summary>\n\n", openAttr(l.openFiles), len(rows))
 	writeList(b, lines, l.listLimit)
 	b.WriteString("\n</details>\n\n")
 }

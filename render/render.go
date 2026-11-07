@@ -182,6 +182,14 @@ type Options struct {
 	// top of that finding's body, such as why it is not an inline comment. It
 	// is shown as text, so it may carry model or file names.
 	FindingNote map[string]string
+	// Layout orders the comment's blocks (summary, findings, dismissed, checks,
+	// files), says which start open or collapsed, and leaves out any block it
+	// does not list. Nil, empty or not valid (see ParseLayout) means
+	// DefaultLayout. It changes only what the comment shows, never a verdict,
+	// score or count: the headline, meta line, failures, notes, footer and
+	// hidden findings block are the same in every layout, blocking findings
+	// are always open and a failed check is always shown. Short wins over it.
+	Layout []Block
 }
 
 // failedPrefix starts the report of a failed batch.
@@ -208,6 +216,13 @@ type layout struct {
 	checksFailOnly   bool // check tables keep only failed checks
 	noCheckTables    bool // the failed checks go too
 	noSummaries      bool // the summaries go, last of all
+	// What Options.Layout asks for, set by render and never by a size step.
+	foldSummary   bool // summaries sit in a <details> labelled Summary
+	foldChecks    bool // passed and n/a checks sit in a <details> per skill
+	noChecks      bool // like Short: only the failed checks are written
+	openFindings  bool // suggestions start open
+	openDismissed bool
+	openFiles     bool
 	// listLimit caps the files list; -1 means no cap.
 	listLimit int
 }
@@ -222,7 +237,9 @@ type layout struct {
 // several (its summary, then its checks), and the checks by area, each area a
 // heading with a small table, failed checks first. Last come the list of
 // files, the notes and the footer. A hidden last line carries the findings for
-// the next run. The headline, meta line, reason, table and failures are kept
+// the next run. That is the default order; o.Layout can change the order of the
+// summary, findings, dismissed, checks and files blocks, fold or open them, or
+// leave one out (see Options.Layout). The headline, meta line, reason, table and failures are kept
 // by every shrink step below.
 //
 // A comment over o.MaxLen is shrunk in steps until it fits: the hidden
@@ -285,13 +302,44 @@ func cutBytes(s string, n int) string {
 func render(skills []Skill, o Options, l layout) string {
 	var b strings.Builder
 
+	blocks := resolveLayout(o.Layout)
+	state := func(name string) string { s, _ := blockState(blocks, name); return s }
+	_, hasSummary := blockState(blocks, BlockSummary)
+	_, hasChecks := blockState(blocks, BlockChecks)
+	l.noSummaries = l.noSummaries || !hasSummary // a block left out is not written, and says nothing
+	l.noChecks = !hasChecks
+	l.foldSummary = state(BlockSummary) == StateCollapsed
+	l.foldChecks = state(BlockChecks) == StateCollapsed
+	l.openFindings = state(BlockFindings) == StateOpen
+	l.openDismissed = state(BlockDismissed) == StateOpen
+	l.openFiles = state(BlockFiles) == StateOpen
+	// The batch list, the skill sections and the failed checks sit at checks,
+	// else at summary after any single summary, else right after findings.
+	detailsAt := BlockFindings
+	switch {
+	case hasChecks:
+		detailsAt = BlockChecks
+	case hasSummary:
+		detailsAt = BlockSummary
+	}
+
 	b.WriteString(Marker + "\n")
 	writeHeader(&b, skills, o)
-	writeSummary(&b, skills, l)
-	writeFindings(&b, skills, o, l)
-	writeDismissedList(&b, skills, l)
-	writeDetails(&b, skills, o, l)
-	writeFiles(&b, skills, o, l)
+	for _, bl := range blocks {
+		switch bl.Name {
+		case BlockSummary:
+			writeSummary(&b, skills, l)
+		case BlockFindings:
+			writeFindings(&b, skills, o, l)
+		case BlockDismissed:
+			writeDismissedList(&b, skills, l)
+		case BlockFiles:
+			writeFiles(&b, skills, o, l)
+		}
+		if bl.Name == detailsAt {
+			writeDetails(&b, skills, o, l)
+		}
+	}
 	writeNotes(&b, skills)
 	writeFooter(&b, o)
 
