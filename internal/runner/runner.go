@@ -27,6 +27,9 @@ type RunResult struct {
 	Cause     *Cause
 	// Usage is the tokens used, summed over all attempts.
 	Usage Usage
+	// Opened are the paths the completing attempt's successful read, grep,
+	// glob and list calls worked on (see Transcript.Opened).
+	Opened []string
 }
 
 // Options configures a skill run.
@@ -167,7 +170,7 @@ func Run(ctx context.Context, opts Options) RunResult {
 		usage = usage.Add(a.transcript.Usage)
 		status, cause := classify(a, opts, time.Since(start))
 		if status == StatusCompleted {
-			return RunResult{SkillName: opts.SkillName, Status: status, Output: a.transcript.Answer, Usage: usage}
+			return RunResult{SkillName: opts.SkillName, Status: status, Output: a.transcript.Answer, Usage: usage, Opened: a.transcript.Opened}
 		}
 
 		e := a.transcript.RootError()

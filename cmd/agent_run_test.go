@@ -10,7 +10,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -614,5 +616,140 @@ func TestRunAgent_DescriptionReachesTheRun(t *testing.T) {
 	}
 	if !slices.Equal(attached, []string{"Fix the limiter"}) {
 		t.Errorf("attached = %q, want the description on the one run", attached)
+	}
+}
+
+// impactRun answers every run with no findings and records which runs were the
+// impact check, told apart by the log prefix a hardened review gives them.
+type impactRun struct {
+	mu     sync.Mutex
+	checks int
+	total  int
+}
+
+func (r *impactRun) run(t *testing.T) func(context.Context, runner.Options) runner.RunResult {
+	inner := answerRun(t)
+	return func(ctx context.Context, o runner.Options) runner.RunResult {
+		r.mu.Lock()
+		r.total++
+		if strings.HasPrefix(o.LogPrefix, "[impact ") {
+			r.checks++
+		}
+		r.mu.Unlock()
+		res := inner(ctx, o)
+		if strings.HasPrefix(o.LogPrefix, "[impact ") {
+			// The check read a clone: the message lists them as "name" at "path".
+			for _, m := range regexp.MustCompile(`" at ("(?:[^"\\]|\\.)*")`).FindAllStringSubmatch(o.Message, -1) {
+				if p, err := strconv.Unquote(m[1]); err == nil {
+					res.Opened = append(res.Opened, filepath.Join(p, "main.go"))
+				}
+			}
+		}
+		return res
+	}
+}
+
+func skillNamed(r result.Result, name string) (result.Skill, bool) {
+	for _, s := range r.Skills {
+		if s.Name == name {
+			return s, true
+		}
+	}
+	return result.Skill{}, false
+}
+
+func TestAgentRunsImpact(t *testing.T) {
+	sandboxEnv(t)
+	dir, base, head := agentRepo(t, nil)
+	clone := t.TempDir()
+	writeFile(t, clone, "main.go", "package main\n")
+	writeFile(t, clone, ".env", "KEY=1\n")
+	linked := writeLinkedFile(t, `[{"name":"billing","path":`+jsonString(clone)+`,"watched":["a.go"],"can_block":true}]`)
+	var stdout, stderr bytes.Buffer
+	var fake impactRun
+
+	code := runAgent(context.Background(), agentArgs(dir, base, head, oneSkill(t), "--linked-repos", linked), agentEnv(nil), &stdout, &stderr, fake.run(t))
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr:\n%s", code, stderr.String())
+	}
+	r := decodeOnly(t, stdout.Bytes())
+	if len(r.Skills) != 2 || r.Skills[0].Name != "review" || r.Skills[1].Name != "impact" {
+		t.Fatalf("skills = %+v, want review then impact", r.Skills)
+	}
+	imp := r.Skills[1]
+	if imp.Verdict != "no_blocking_issues" || len(imp.Files.Reviewed) != 0 || len(imp.Files.NotReviewed) != 0 {
+		t.Errorf("impact = %+v, want clean with no files", imp)
+	}
+	if !slices.Contains(imp.Notes, "Impact: checked billing, nothing found") {
+		t.Errorf("notes = %q, want the clean note", imp.Notes)
+	}
+	if fake.checks != 1 {
+		t.Errorf("%d impact runs, want 1", fake.checks)
+	}
+	if _, err := os.Stat(filepath.Join(clone, ".env")); !os.IsNotExist(err) {
+		t.Errorf(".env is still in the clone: the scrub did not run before the review")
+	}
+	if !strings.Contains(r.Comment.Markdown, "impact") {
+		t.Errorf("the comment does not show impact:\n%s", r.Comment.Markdown)
+	}
+}
+
+func TestAgentBadLinkedFileFailsImpact(t *testing.T) {
+	sandboxEnv(t)
+	dir, base, head := agentRepo(t, nil)
+	linked := writeLinkedFile(t, `{"name":`)
+	var stdout, stderr bytes.Buffer
+	var fake impactRun
+
+	code := runAgent(context.Background(), agentArgs(dir, base, head, oneSkill(t), "--linked-repos", linked), agentEnv(nil), &stdout, &stderr, fake.run(t))
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr:\n%s", code, stderr.String())
+	}
+	r := decodeOnly(t, stdout.Bytes())
+	review, ok := skillNamed(r, "review")
+	imp, ok2 := skillNamed(r, "impact")
+	if !ok || !ok2 || len(r.Skills) != 2 {
+		t.Fatalf("skills = %+v, want review and impact", r.Skills)
+	}
+	if review.Verdict != "no_blocking_issues" {
+		t.Errorf("review = %q, want the normal skill to run", review.Verdict)
+	}
+	if imp.Verdict != "failed" || len(imp.Failures) != 1 || len(imp.Failures[0].Files) != 0 || len(imp.Files.NotReviewed) != 0 {
+		t.Errorf("impact = %+v, want failed with one failure and no file", imp)
+	}
+	if fake.checks != 0 {
+		t.Errorf("%d impact runs, want none", fake.checks)
+	}
+}
+
+// A refused path is a failed link too, not an absent one.
+func TestAgentRefusedLinkedPathFailsImpact(t *testing.T) {
+	sandboxEnv(t)
+	dir, base, head := agentRepo(t, nil)
+	linked := writeLinkedFile(t, `[{"name":"billing","path":"relative/clone"}]`)
+	var stdout, stderr bytes.Buffer
+	var fake impactRun
+
+	code := runAgent(context.Background(), agentArgs(dir, base, head, oneSkill(t), "--linked-repos", linked), agentEnv(nil), &stdout, &stderr, fake.run(t))
+	r := decodeOnly(t, stdout.Bytes())
+	imp, ok := skillNamed(r, "impact")
+	if code != 0 || !ok || imp.Verdict != "failed" || !strings.Contains(imp.Failures[0].Message, "billing") {
+		t.Errorf("exit %d, impact = %+v (%v), want failed naming billing", code, imp, ok)
+	}
+}
+
+func TestAgentNoLinkedReposUnchanged(t *testing.T) {
+	sandboxEnv(t)
+	dir, base, head := agentRepo(t, nil)
+	var stdout, stderr bytes.Buffer
+	var fake impactRun
+
+	code := runAgent(context.Background(), agentArgs(dir, base, head, oneSkill(t)), agentEnv(nil), &stdout, &stderr, fake.run(t))
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr:\n%s", code, stderr.String())
+	}
+	r := decodeOnly(t, stdout.Bytes())
+	if _, has := skillNamed(r, "impact"); has || len(r.Skills) != 1 || fake.total != 1 {
+		t.Errorf("skills = %+v, runs = %d, want the one skill and one run", r.Skills, fake.total)
 	}
 }

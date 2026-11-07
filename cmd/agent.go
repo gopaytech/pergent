@@ -50,7 +50,10 @@ type agentInputs struct {
 	Dismissals   map[string][]finding.Rejected
 	// Description is the change's title and description, "" when none was
 	// given. The path is trusted; the text is the author's.
-	Description    string
+	Description string
+	// Linked are the linked repositories the caller cloned, scrubbed. An entry
+	// with an Error is not to be read.
+	Linked         []review.LinkedRepo
 	MaxCommentSize int
 	Target         result.Target
 	Diff           string
@@ -68,6 +71,8 @@ type agentInputs struct {
 	// changePath is --change-description, or $PERGENT_CHANGE_DESCRIPTION
 	// without the flag.
 	changePath string
+	// linkedPath is --linked-repos, or $PERGENT_LINKED_REPOS without the flag.
+	linkedPath string
 	scrub      bool
 	// $HOME and $XDG_CONFIG_HOME, where opencode finds its global config.
 	home, configHome string
@@ -238,6 +243,7 @@ func runAgent(ctx context.Context, args []string, getenv func(string) string, st
 		Carried:      in.Carried,
 		Dismissals:   in.Dismissals,
 		Description:  in.Description,
+		Linked:       in.Linked,
 		Run:          run,
 		Classifier:   &in.Classifier,
 		Sandbox: review.Sandbox{
@@ -309,6 +315,7 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 	flags.StringVar(&in.carriedPath, "carried", "", "A JSON file {\"<skill>\": [\"path\", ...]} of files a previous review covers, left out of this review")
 	flags.StringVar(&in.dismissalsPath, "dismissals", getenv("PERGENT_DISMISSALS"), "A JSON file {\"<skill>\": [{\"file\", \"title\", \"severity\", \"reason\"}, ...]} of findings people rejected earlier, attached to the runs")
 	flags.StringVar(&in.changePath, "change-description", getenv("PERGENT_CHANGE_DESCRIPTION"), "A file holding the change's title and description, attached to the review runs as data")
+	flags.StringVar(&in.linkedPath, "linked-repos", getenv("PERGENT_LINKED_REPOS"), "A JSON file [{\"name\", \"path\", \"watched\", \"can_block\", \"error\"}, ...] of linked repositories the caller cloned; they are scrubbed, and only an impact run reads them")
 	flags.BoolVar(&in.scrub, "scrub-instructions", false, "Delete every AGENTS.md, CLAUDE.md and CONTEXT.md in --repo-path before reviewing")
 	flags.IntVar(&in.MaxCommentSize, "max-comment-size", 0, "Byte limit for the rendered comment (0: no limit)")
 	flags.StringVar(&resultPath, "result", "", "Write the result JSON to this file, or - for stdout")
@@ -491,6 +498,28 @@ func prepareAgent(in *agentInputs, logger *log.Logger) *result.Error {
 	if in.changePath != "" {
 		in.Description = readChangeDescription(in.changePath, logger)
 	}
+	if in.linkedPath != "" {
+		repos, err := readLinkedRepos(in.linkedPath, logger)
+		if err != nil {
+			// The skills still run; the impact check is failed.
+			repos = failedLinks(in.linkedPath, err, logger)
+		}
+		repos, err = linkedOutside(root, repos, in, logger)
+		if err != nil {
+			return fail(result.CodeUsage, "%v", err)
+		}
+		// Before any run starts. A failure marks the entry, never the review.
+		in.Linked = scrubLinked(repos, func(rel string) bool { return config.ReadDenied(rel, true) }, logger)
+		logLinked(in.Linked, logger)
+		// The name is reserved only while there are links to check.
+		if len(in.Linked) > 0 {
+			for _, s := range in.Skills {
+				if s.Name == review.ImpactSkill {
+					return fail(result.CodeUsage, "a skill named %q is not allowed while linked repositories are given: the name is the check across them", review.ImpactSkill)
+				}
+			}
+		}
+	}
 	return nil
 }
 
@@ -509,7 +538,8 @@ func gitVersionError(version string, major, minor int, err error) *result.Error 
 }
 
 // trustedInputsOutside refuses a trusted input (--instructions, --skills-dir,
-// a path --skill, --previous, --carried, --dismissals, --change-description) that resolves to somewhere inside the checkout:
+// a path --skill, --previous, --carried, --dismissals, --change-description,
+// --linked-repos) that resolves to somewhere inside the checkout:
 // the change under review could have written it. A --skills-dir above the
 // checkout is refused too, since LoadDir would read the checkout's top-level
 // files as skills. So are a --result file in the checkout, where the change
@@ -525,37 +555,7 @@ func trustedInputsOutside(root string, in *agentInputs) *result.Error {
 		}
 	}
 
-	type input struct{ flag, path string }
-	var inputs []input
-	for _, p := range in.Instructions {
-		inputs = append(inputs, input{"--instructions", p})
-	}
-	if in.skillsDir != "" {
-		inputs = append(inputs, input{"--skills-dir", in.skillsDir})
-	}
-	for _, v := range in.skillValues {
-		if skill.IsFilePath(v) {
-			inputs = append(inputs, input{"--skill", v})
-		}
-	}
-	if in.previousPath != "" {
-		inputs = append(inputs, input{"--previous", in.previousPath})
-	}
-	if in.carriedPath != "" {
-		inputs = append(inputs, input{"--carried", in.carriedPath})
-	}
-	if in.dismissalsPath != "" {
-		inputs = append(inputs, input{"--dismissals", in.dismissalsPath})
-	}
-	if in.changePath != "" {
-		inputs = append(inputs, input{"--change-description", in.changePath})
-	}
-	if in.home != "" {
-		inputs = append(inputs, input{"$HOME", in.home})
-	}
-	if in.configHome != "" {
-		inputs = append(inputs, input{"$XDG_CONFIG_HOME", in.configHome})
-	}
+	inputs := trustedInputs(in)
 	for _, i := range inputs {
 		resolved, err := resolvePath(i.path)
 		if err != nil {
@@ -567,6 +567,48 @@ func trustedInputsOutside(root string, in *agentInputs) *result.Error {
 		}
 	}
 	return nil
+}
+
+// trustedInput is a path the caller passed in, with the flag that named it.
+type trustedInput struct{ flag, path string }
+
+// trustedInputs lists every trusted input path of in, and the global config
+// directories opencode reads.
+func trustedInputs(in *agentInputs) []trustedInput {
+	var inputs []trustedInput
+	for _, p := range in.Instructions {
+		inputs = append(inputs, trustedInput{"--instructions", p})
+	}
+	if in.skillsDir != "" {
+		inputs = append(inputs, trustedInput{"--skills-dir", in.skillsDir})
+	}
+	for _, v := range in.skillValues {
+		if skill.IsFilePath(v) {
+			inputs = append(inputs, trustedInput{"--skill", v})
+		}
+	}
+	if in.previousPath != "" {
+		inputs = append(inputs, trustedInput{"--previous", in.previousPath})
+	}
+	if in.carriedPath != "" {
+		inputs = append(inputs, trustedInput{"--carried", in.carriedPath})
+	}
+	if in.dismissalsPath != "" {
+		inputs = append(inputs, trustedInput{"--dismissals", in.dismissalsPath})
+	}
+	if in.changePath != "" {
+		inputs = append(inputs, trustedInput{"--change-description", in.changePath})
+	}
+	if in.linkedPath != "" {
+		inputs = append(inputs, trustedInput{"--linked-repos", in.linkedPath})
+	}
+	if in.home != "" {
+		inputs = append(inputs, trustedInput{"$HOME", in.home})
+	}
+	if in.configHome != "" {
+		inputs = append(inputs, trustedInput{"$XDG_CONFIG_HOME", in.configHome})
+	}
+	return inputs
 }
 
 // resultPathError refuses a --result file that is in the checkout, or whose
@@ -820,10 +862,21 @@ func readPrevious(path string, logger *log.Logger) map[string][]finding.Finding 
 				Explanation:  f.Explanation,
 				SuggestedFix: f.SuggestedFix,
 				Fingerprint:  f.Fingerprint,
+				// Only the impact check has callers, so a skill's is not read.
+				Linked: callerFor(s.Name, f.Linked),
 			})
 		}
 	}
 	return previous
+}
+
+// callerFor is the caller of a previous finding of skill name: kept only for
+// the impact check's own.
+func callerFor(name string, c *finding.Caller) *finding.Caller {
+	if name != review.ImpactSkill {
+		return nil
+	}
+	return c
 }
 
 // readCarried reads the files a previous review covers, per skill name. An

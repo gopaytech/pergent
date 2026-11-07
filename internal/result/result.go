@@ -82,6 +82,9 @@ type Finding struct {
 	Explanation  string `json:"explanation"`
 	SuggestedFix string `json:"suggested_fix,omitempty"`
 	Suggestion   string `json:"suggestion,omitempty"`
+	// Linked is the caller in a linked repository that an impact finding
+	// names; omitted on every other finding.
+	Linked *finding.Caller `json:"linked,omitempty"`
 }
 
 // Summary is the model's summary of one batch.
@@ -287,6 +290,7 @@ func buildFinding(f finding.Finding, ids map[string]string) Finding {
 		Explanation:  f.Explanation,
 		SuggestedFix: f.SuggestedFix,
 		Suggestion:   f.Suggestion,
+		Linked:       f.Linked,
 	}
 }
 
@@ -371,6 +375,12 @@ func redactSkill(s Skill) Skill {
 		f.Explanation = redact.String(f.Explanation)
 		f.SuggestedFix = redact.String(f.SuggestedFix)
 		f.Suggestion = redact.String(f.Suggestion)
+		if f.Linked != nil {
+			// A copy: the pointer is shared with the finding Build read.
+			c := *f.Linked
+			c.Repo, c.File = redact.String(c.Repo), redact.String(c.File)
+			f.Linked = &c
+		}
 		findings[i] = f
 	}
 	s.Findings = findings

@@ -7,6 +7,8 @@ import (
 	"math"
 	"regexp"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/gopaytech/pergent/internal/redact"
 )
@@ -123,13 +125,15 @@ type answer struct {
 	Findings         json.RawMessage `json:"findings"`
 }
 
-// rawFinding is a Finding whose end_line and suggestion are decoded loosely
-// (the two fields shadow Finding's own), so a wrong type costs the finding
-// that field, not the block.
+// rawFinding is a Finding whose end_line, suggestion and linked are decoded
+// loosely (the fields shadow Finding's own), so a wrong type costs the
+// finding that field, not the block.
 type rawFinding struct {
 	Finding
 	EndLine    json.RawMessage `json:"end_line"`
 	Suggestion json.RawMessage `json:"suggestion"`
+	// Linked shadows Finding's own, for the same reason.
+	Linked json.RawMessage `json:"linked"`
 }
 
 type rawLeftOut struct {
@@ -152,14 +156,23 @@ var errNoFindingsKey = errors.New(`json block has no "findings" key`)
 // objects without that key are passed over. A bad or unreadable block is an
 // error, not a reason to look further back: an earlier block may be an example
 // of the output shape, and taking it would turn a real answer into a clean pass.
-func ParseAnswer(text string) (Answer, error) {
+func ParseAnswer(text string) (Answer, error) { return parseAnswer(text, false) }
+
+// ParseImpactAnswer is ParseAnswer for the answer of an impact run, whose
+// findings may name the caller they break in `linked`. A `linked` that is not
+// an object with a repo, a file and a line from 1 is dropped from its
+// finding, never an error. ParseAnswer drops it from every finding: only an
+// impact finding carries a caller.
+func ParseImpactAnswer(text string) (Answer, error) { return parseAnswer(text, true) }
+
+func parseAnswer(text string, keepLinked bool) (Answer, error) {
 	blocks := JSONBlocks(text)
 	if len(blocks) == 0 {
 		return Answer{}, errors.New("no json code block found in the answer")
 	}
 
 	for i := len(blocks) - 1; i >= 0; i-- {
-		a, err := parseBlock(blocks[i])
+		a, err := parseBlock(blocks[i], keepLinked)
 		if !errors.Is(err, errNoFindingsKey) {
 			return a, err
 		}
@@ -167,7 +180,7 @@ func ParseAnswer(text string) (Answer, error) {
 	return Answer{}, errNoFindingsKey
 }
 
-func parseBlock(block JSONBlock) (Answer, error) {
+func parseBlock(block JSONBlock, keepLinked bool) (Answer, error) {
 	if block.Err != nil {
 		return Answer{}, fmt.Errorf("invalid json: %w", block.Err)
 	}
@@ -190,7 +203,11 @@ func parseBlock(block JSONBlock) (Answer, error) {
 		if err := validate(rf.Finding); err != nil {
 			return Answer{}, fmt.Errorf("finding %d: %w", i, err)
 		}
-		findings = append(findings, rf.finding())
+		f := rf.finding()
+		if keepLinked {
+			f.Linked = parseCaller(rf.Linked)
+		}
+		findings = append(findings, f)
 	}
 	checks, dropped := parseChecks(a.Checks)
 	confidence := parseConfidence(a.Confidence)
@@ -215,7 +232,7 @@ func parseBlock(block JSONBlock) (Answer, error) {
 // range it replaces is at most MaxSuggestionLines.
 func (rf rawFinding) finding() Finding {
 	f := rf.Finding
-	f.EndLine, f.Suggestion = 0, ""
+	f.EndLine, f.Suggestion, f.Linked = 0, "", nil
 	if end, ok := intValue(rf.EndLine); ok && f.Line > 0 && end >= f.Line {
 		f.EndLine = end
 	}
@@ -229,6 +246,42 @@ func (rf rawFinding) finding() Finding {
 		f.Suggestion = strings.TrimSuffix(s, "\n")
 	}
 	return f
+}
+
+// maxCallerField caps a caller's repo and file, in bytes. A longer value is
+// not a path in any repository.
+const maxCallerField = 500
+
+// parseCaller reads a finding's `linked`: an object with a non-empty repo and
+// file, each of one line, and an integer line from 1. Anything else is nil.
+func parseCaller(raw json.RawMessage) *Caller {
+	var c struct {
+		Repo, File json.RawMessage
+		Line       json.RawMessage
+	}
+	if len(raw) == 0 || raw[0] != '{' || json.Unmarshal(raw, &c) != nil {
+		return nil
+	}
+	repo, file := stringValue(c.Repo), stringValue(c.File)
+	line, ok := intValue(c.Line)
+	if !ok || line < 1 || !callerField(repo) || !callerField(file) {
+		return nil
+	}
+	return &Caller{Repo: repo, File: file, Line: line}
+}
+
+// callerField reports whether s can be a repository name or a path: not
+// empty, not long, valid UTF-8 and without control characters.
+func callerField(s string) bool {
+	if s == "" || len(s) > maxCallerField || !utf8.ValidString(s) {
+		return false
+	}
+	for _, r := range s {
+		if unicode.IsControl(r) {
+			return false
+		}
+	}
+	return true
 }
 
 // parseConfidence reads a confidence: a JSON number with an integer value

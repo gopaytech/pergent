@@ -335,7 +335,7 @@ func TestPrepareAgent_Codes(t *testing.T) {
 			t.Errorf("prepareAgent() error = %+v, want %s", e, result.CodeSkillsInvalid)
 		}
 	})
-	for _, flag := range []string{"--skills-dir", "--skill", "--instructions", "--previous", "--carried", "--dismissals", "--change-description"} {
+	for _, flag := range []string{"--skills-dir", "--skill", "--instructions", "--previous", "--carried", "--dismissals", "--change-description", "--linked-repos"} {
 		t.Run("usage for "+flag+" inside the checkout", func(t *testing.T) {
 			writeFile(t, repo, "inside/s.md", "---\nname: inside\n---\nBody.\n")
 			defer os.RemoveAll(filepath.Join(repo, "inside"))

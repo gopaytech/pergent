@@ -31,6 +31,17 @@ type Finding struct {
 	// at most MaxSuggestionLines of them; empty when there is none.
 	Suggestion  string `json:"suggestion,omitempty"`
 	Fingerprint string `json:"fingerprint,omitempty"`
+	// Linked is the caller, in a linked repository, that the change breaks:
+	// set only on an impact finding, nil on every other.
+	Linked *Caller `json:"linked,omitempty"`
+}
+
+// Caller is a place in a linked repository: Repo is the link's name, File a
+// path in it, Line a line in the file.
+type Caller struct {
+	Repo string `json:"repo"`
+	File string `json:"file"`
+	Line int    `json:"line"`
 }
 
 // Rejected is a finding people rejected in an earlier review, with their

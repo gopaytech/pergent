@@ -62,6 +62,12 @@ type Request struct {
 	// runs, never to a verification run: the author's text must not help talk
 	// a blocking finding away.
 	Description string
+	// Linked are the repositories the caller cloned and scrubbed, to check the
+	// change against. With any, one more run (ImpactSkill) looks in them for
+	// callers the change breaks, once the skills are done. An entry with an
+	// Error fails that check and is never read. A skill named ImpactSkill is
+	// refused while Linked is not empty. Nil changes nothing.
+	Linked []LinkedRepo
 	// Run runs opencode; nil means runner.Run.
 	Run RunFunc
 	// Classifier decides the default exclusions; nil means
@@ -166,6 +172,7 @@ const (
 	repairMessage       = "The attached review is not in the required output format (%s). Rewrite it in the required format without changing its findings."
 	repairFailedPrefix  = "The model's answer was not in the required format (%v), and the repair run failed:"
 	unsplittableMessage = "Not reviewed: pergent could not split the diff into files (unrecognised diff format)."
+	reservedMessage     = "Not reviewed: the skill name \"" + ImpactSkill + "\" is reserved for the check across linked repositories."
 )
 
 // untrustedSection is appended to every agent prompt of a hardened review,
@@ -257,7 +264,19 @@ func Run(ctx context.Context, req Request) []SkillResult {
 		for i, s := range req.Skills {
 			results[i] = SkillResult{Skill: s.Name, Verdict: Failed, Failures: []BatchFailure{{Message: unsplittableMessage}}}
 		}
+		if len(req.Linked) > 0 {
+			results = append(results, SkillResult{Skill: ImpactSkill, Verdict: Failed, Failures: []BatchFailure{{Message: unsplittableMessage}}})
+		}
 		return results
+	}
+	// The name belongs to the check across the linked repositories. The caller
+	// refuses such a skill; if one gets here anyway it is not run, and the
+	// check does not run either, so two results never share a name.
+	reserved := false
+	if len(req.Linked) > 0 {
+		for _, s := range req.Skills {
+			reserved = reserved || s.Name == ImpactSkill
+		}
 	}
 	// One directory of per-file diffs for the whole review, removed when it
 	// ends, or when a run panics (see removeDiffsOnPanic).
@@ -265,6 +284,10 @@ func Run(ctx context.Context, req Request) []SkillResult {
 	defer r.removeDiffs()
 	var wg sync.WaitGroup
 	for i, s := range req.Skills {
+		if reserved && s.Name == ImpactSkill {
+			results[i] = SkillResult{Skill: s.Name, Verdict: Failed, Failures: []BatchFailure{{Message: reservedMessage}}}
+			continue
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -273,6 +296,10 @@ func Run(ctx context.Context, req Request) []SkillResult {
 		}()
 	}
 	wg.Wait()
+	if len(req.Linked) > 0 && !reserved {
+		// After the skills, within the same budget and run limit.
+		results = append(results, r.impact(ctx))
+	}
 	return results
 }
 
@@ -711,9 +738,31 @@ func (r *reviewer) run(ctx context.Context, s skill.Skill, label string, files [
 	return r.runWithPrompt(ctx, s, label, s.Prompt(), files, message)
 }
 
+// runMode is what a run gets beyond the sandbox every run has. The zero value
+// is a normal run.
+type runMode struct {
+	// linked are the directories of linked repositories the run may read. Only
+	// the impact run and its verification set it: a normal run, a repair run
+	// and a cross-batch run read nothing outside the repository.
+	linked []string
+	// noInstructions leaves out Sandbox.Instructions, which are for reviews of
+	// this repository. The impact run gets none.
+	noInstructions bool
+}
+
 // runWithPrompt is run with an explicit agent prompt in place of the
 // skill's own.
 func (r *reviewer) runWithPrompt(ctx context.Context, s skill.Skill, label, prompt string, files []string, message string) (runner.RunResult, error) {
+	return r.runWith(ctx, s, label, prompt, files, message, runMode{})
+}
+
+// runWith is runWithPrompt with a mode.
+func (r *reviewer) runWith(ctx context.Context, s skill.Skill, label, prompt string, files []string, message string, mode runMode) (runner.RunResult, error) {
+	if len(mode.linked) > 0 && !r.req.Sandbox.Hardened {
+		// The clones are scrubbed, and the permission to read them written, only
+		// for a hardened review.
+		return runner.RunResult{}, errNoSandboxConfig
+	}
 	if !r.acquire(ctx) {
 		return runner.RunResult{}, errNotStarted
 	}
@@ -724,6 +773,7 @@ func (r *reviewer) runWithPrompt(ctx context.Context, s skill.Skill, label, prom
 		ContextLimit: r.req.ContextLimit,
 		Prompt:       prompt,
 		RepoPath:     r.req.RepoPath,
+		Linked:       mode.linked,
 	}
 	var logPrefix string
 	var excludeEnv []string
@@ -731,6 +781,9 @@ func (r *reviewer) runWithPrompt(ctx context.Context, s skill.Skill, label, prom
 		opts.Prompt = strings.TrimRight(prompt, "\n") + "\n\n" + untrustedSection + "\n"
 		opts.ExplicitInstructions = true
 		opts.Instructions = sb.Instructions
+		if mode.noInstructions {
+			opts.Instructions = nil
+		}
 		opts.DenySecretFiles = true
 		logPrefix = fmt.Sprintf("[%s %s]", s.Name, label)
 		excludeEnv = sb.ExcludeEnv
