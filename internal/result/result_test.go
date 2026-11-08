@@ -3,6 +3,7 @@ package result
 import (
 	"bytes"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -48,7 +49,7 @@ func TestBuild_Shape(t *testing.T) {
 		}},
 		Batches: 2, BatchesFinished: 1,
 		Reviewed: []string{"x.go"},
-		Usage:    runner.Usage{Input: 8, Output: 3},
+		Usage:    runner.Usage{Input: 8, Output: 3, Reasoning: 2, CacheRead: 40, CacheWrite: 5},
 		Duration: 2 * time.Second,
 	}
 
@@ -76,8 +77,9 @@ func TestBuild_Shape(t *testing.T) {
 		t.Errorf("duration_seconds = %v", sk["duration_seconds"])
 	}
 	tok := sk["tokens"].(map[string]any)
-	if tok["input"] != float64(8) || tok["output"] != float64(3) {
-		t.Errorf("tokens = %v", tok)
+	want := map[string]any{"input": float64(8), "output": float64(3), "reasoning": float64(2), "cache_read": float64(40), "cache_write": float64(5)}
+	if !reflect.DeepEqual(tok, want) {
+		t.Errorf("tokens = %v, want %v", tok, want)
 	}
 	files := sk["files"].(map[string]any)
 	nr := files["not_reviewed"].([]any)
@@ -106,6 +108,22 @@ func TestBuild_Shape(t *testing.T) {
 	}
 	if sk["batches"] != float64(2) || sk["batches_finished"] != float64(1) {
 		t.Errorf("batches = %v/%v", sk["batches"], sk["batches_finished"])
+	}
+}
+
+// A skill with no usage still carries all five keys: pergent.sh reads a
+// missing key as unknown and a zero as none.
+func TestBuild_TokensZeroKeepsKeys(t *testing.T) {
+	sr := review.SkillResult{Skill: "code-review", Verdict: review.NoBlockingIssues}
+	b, err := Encode(Build(testMeta(), []review.SkillResult{sr}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sk := decode(t, b)["skills"].([]any)[0].(map[string]any)
+	tok := sk["tokens"].(map[string]any)
+	want := map[string]any{"input": float64(0), "output": float64(0), "reasoning": float64(0), "cache_read": float64(0), "cache_write": float64(0)}
+	if !reflect.DeepEqual(tok, want) {
+		t.Errorf("tokens = %v, want %v", tok, want)
 	}
 }
 
