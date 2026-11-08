@@ -1,6 +1,6 @@
 # Agent result schema (version 1)
 
-`pergent agent` reviews a checkout and delivers one JSON document: the **result**. This page describes that document, the error codes, the exit codes and how HTTP delivery treats the receiver's replies. For the command itself, see [Agent mode](../README.md#agent-mode) in the README.
+`pergent agent` reviews a checkout and delivers one JSON document: the **result**. This page describes that document, the error codes, the exit codes and how HTTP delivery treats the receiver's replies. For the command itself, see [Agent mode](concepts/agent-mode.md) in the README.
 
 A failed review is still a result. A review that could not run at all is an **error result** with the same envelope.
 
