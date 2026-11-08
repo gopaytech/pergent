@@ -529,6 +529,11 @@ func usageStep(in, out int) string {
 	return fmt.Sprintf(`{"type":"step_finish","part":{"type":"step-finish","reason":"tool-calls","tokens":{"total":%d,"input":%d,"output":%d}}}`+"\n", in+out, in, out)
 }
 
+// usageStepCache is usageStep with cache.read set.
+func usageStepCache(in, out, cacheRead int) string {
+	return fmt.Sprintf(`{"type":"step_finish","part":{"type":"step-finish","reason":"tool-calls","tokens":{"total":%d,"input":%d,"output":%d,"cache":{"read":%d}}}}`+"\n", in+out+cacheRead, in, out, cacheRead)
+}
+
 func TestRun_UsageAcrossAttempts(t *testing.T) {
 	shortBackoff(t)
 	rateLimited, err := os.ReadFile(filepath.Join("testdata", "rate_limited.ndjson"))
@@ -545,9 +550,9 @@ func TestRun_UsageAcrossAttempts(t *testing.T) {
 	}
 	completed := `{"type":"step_start","part":{"type":"step-start"}}` + "\n" +
 		`{"type":"text","part":{"type":"text","text":"done"}}` + "\n" +
-		strings.Replace(usageStep(7, 2), "tool-calls", "stop", 1)
+		strings.Replace(usageStepCache(7, 2, 25), "tool-calls", "stop", 1)
 	fakeOpencode(t,
-		fakeAttempt{stdout: `{"type":"step_start","part":{"type":"step-start"}}` + "\n" + usageStep(5, 1) + errLine, code: 1},
+		fakeAttempt{stdout: `{"type":"step_start","part":{"type":"step-start"}}` + "\n" + usageStepCache(5, 1, 40) + errLine, code: 1},
 		fakeAttempt{stdout: completed},
 	)
 
@@ -555,7 +560,7 @@ func TestRun_UsageAcrossAttempts(t *testing.T) {
 	if got.Status != StatusCompleted {
 		t.Fatalf("Run() = %+v, want completed", got)
 	}
-	if want := (Usage{Input: 12, Output: 3}); got.Usage != want {
+	if want := (Usage{Input: 12, Output: 3, CacheRead: 65}); got.Usage != want {
 		t.Errorf("Usage = %+v, want %+v", got.Usage, want)
 	}
 }
