@@ -142,10 +142,15 @@ type Cause struct {
 	Message string `json:"message"`
 }
 
-// Tokens is the model usage of a skill's runs.
+// Tokens is the model usage of a skill's runs. Input and Output keep their
+// meaning from the first version of the schema; the other three are counted
+// apart and never included in them.
 type Tokens struct {
-	Input  int `json:"input"`
-	Output int `json:"output"`
+	Input      int `json:"input"`
+	Output     int `json:"output"`
+	Reasoning  int `json:"reasoning"`
+	CacheRead  int `json:"cache_read"`
+	CacheWrite int `json:"cache_write"`
 }
 
 // Comment is the rendered review comment. The caller fills it.
@@ -217,7 +222,8 @@ func buildSkill(s review.SkillResult, ids map[string]string) Skill {
 		Batches:          s.Batches,
 		BatchesFinished:  s.BatchesFinished,
 		DurationSeconds:  math.Round(s.Duration.Seconds()*10) / 10,
-		Tokens:           Tokens{Input: s.Usage.Input, Output: s.Usage.Output},
+		Tokens: Tokens{Input: s.Usage.Input, Output: s.Usage.Output, Reasoning: s.Usage.Reasoning,
+			CacheRead: s.Usage.CacheRead, CacheWrite: s.Usage.CacheWrite},
 	}
 	for _, f := range s.Findings {
 		out.Findings = append(out.Findings, buildFinding(f, ids))

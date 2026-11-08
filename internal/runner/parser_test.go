@@ -233,12 +233,12 @@ func TestStripThinkTags(t *testing.T) {
 
 func TestParseOutput_Usage(t *testing.T) {
 	stdout := `{"type":"step_start","part":{"type":"step-start"}}
-{"type":"step_finish","part":{"type":"step-finish","reason":"tool-calls","tokens":{"total":99,"input":10,"output":3,"cache":{"read":50,"write":1}}}}
+{"type":"step_finish","part":{"type":"step-finish","reason":"tool-calls","tokens":{"total":99,"input":10,"output":3,"reasoning":4,"cache":{"read":50,"write":1}}}}
 {"type":"step_start","part":{"type":"step-start"}}
 {"type":"step_finish","part":{"type":"step-finish","reason":"stop","tokens":{"total":200,"input":20,"output":5}}}
 `
 	got := ParseOutput([]byte(stdout))
-	if want := (Usage{Input: 30, Output: 8}); got.Usage != want {
+	if want := (Usage{Input: 30, Output: 8, Reasoning: 4, CacheRead: 50, CacheWrite: 1}); got.Usage != want {
 		t.Errorf("Usage = %+v, want %+v", got.Usage, want)
 	}
 }

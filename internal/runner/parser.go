@@ -82,15 +82,20 @@ type EventError struct {
 	IsRetryable bool
 }
 
-// Usage is the tokens a run consumed: the sum of the input and output tokens
-// of every finished step (cache tokens and totals are not counted).
+// Usage is the tokens a run consumed, summed over every finished step.
+// Input and Output are what opencode reports as input and output; Reasoning,
+// CacheRead and CacheWrite are reported apart and never added to them.
 type Usage struct {
-	Input, Output int
+	Input, Output                    int
+	Reasoning, CacheRead, CacheWrite int
 }
 
 // Add returns u plus o.
 func (u Usage) Add(o Usage) Usage {
-	return Usage{Input: u.Input + o.Input, Output: u.Output + o.Output}
+	return Usage{
+		Input: u.Input + o.Input, Output: u.Output + o.Output,
+		Reasoning: u.Reasoning + o.Reasoning, CacheRead: u.CacheRead + o.CacheRead, CacheWrite: u.CacheWrite + o.CacheWrite,
+	}
 }
 
 // Transcript is what pergent can observe about one opencode run.
@@ -130,8 +135,8 @@ type Transcript struct {
 	// over maxOutputLine), empty when all of it was read. The output went on
 	// past that point, so nothing in the transcript is trusted as an answer.
 	ReadErr string
-	// Usage sums part.tokens.input and part.tokens.output over all
-	// step_finish events.
+	// Usage sums part.tokens.input, output, reasoning and cache.read/write
+	// over all step_finish events.
 	Usage Usage
 }
 
@@ -201,6 +206,9 @@ func ParseOutput(stdout []byte) Transcript {
 				if event.Part.Tokens != nil {
 					t.Usage.Input += event.Part.Tokens.Input
 					t.Usage.Output += event.Part.Tokens.Output
+					t.Usage.Reasoning += event.Part.Tokens.Reasoning
+					t.Usage.CacheRead += event.Part.Tokens.Cache.Read
+					t.Usage.CacheWrite += event.Part.Tokens.Cache.Write
 					prevStepTokens = t.LastStepTokens
 					t.LastStepTokens = event.Part.Tokens.used()
 				}

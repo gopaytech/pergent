@@ -83,7 +83,7 @@ A failed review is still a result. A review that could not run at all is an **er
       "batches": 1,
       "batches_finished": 1,
       "duration_seconds": 84.2,
-      "tokens": { "input": 52310, "output": 1840 }
+      "tokens": { "input": 52310, "output": 1840, "reasoning": 0, "cache_read": 41200, "cache_write": 3100 }
     },
     {
       "name": "security-review",
@@ -113,7 +113,7 @@ A failed review is still a result. A review that could not run at all is an **er
       "batches": 1,
       "batches_finished": 0,
       "duration_seconds": 600.0,
-      "tokens": { "input": 98120, "output": 2210 }
+      "tokens": { "input": 98120, "output": 2210, "reasoning": 0, "cache_read": 76400, "cache_write": 5200 }
     }
   ],
   "comment": {
@@ -190,7 +190,7 @@ Each entry of `skills`:
 | `notes` | array | Plain-text notes, such as "Checks omitted to fit the 10 MB result limit." When the run had `--dismissals` entries for the skill and the model left findings out because of them, one note lists them: `Left out because of past dismissals: <title> (<rejected title>); ...`, at most 20 entries followed by `and N more`. It is a note, not a field, and never changes the verdict. |
 | `batches`, `batches_finished` | number | Batches the skill needed, and how many finished. |
 | `duration_seconds` | number | Wall-clock time for the skill, to a tenth of a second. |
-| `tokens` | object | `input` and `output` token counts, summed over every run of the skill: batch, repair, verification and cross-batch runs. A provider that reports no usage gives zeros. |
+| `tokens` | object | Token counts summed over every run of the skill: batch, repair, verification and cross-batch runs, retries included. `input` and `output` are what the provider reports as input and output. `reasoning`, `cache_read` and `cache_write` are counted apart: pergent does not add them to `input` or `output` (whether a provider's own output already contains reasoning is up to the provider); they are new in pergent v0.9.0, and an older pergent leaves them out. An additive field: `schema_version` stays `1`, and a reader that doesn't know them can ignore them. A provider that reports no usage gives zeros. |
 
 `confidence` is the model's own score. A caller showing it applies the caps first: a blocking finding caps it at 3, a failed skill is not scored, and a `deleted`, `binary`, `vendored`, `lockfile` or `generated` skip caps it at 4 (`render.SkillScore` does this). A skill with `verdict: failed` may still carry `confidence`; the caller applies the "not scored" cap. It is information only and says nothing about approval.
 
