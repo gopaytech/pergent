@@ -1,0 +1,16 @@
+# Agent sandbox
+
+When `OPENCODE_PROVIDER` is set, pergent writes a temporary `opencode.json` for each opencode run and points opencode at it with `OPENCODE_CONFIG`. That config:
+
+- defines a `pergent` agent that carries the skill's prompt (its body plus pergent's output-format instructions) and `--max-turns` as its step limit, and makes it the default agent (pergent also passes `--agent pergent`). The prompt is written to a file next to `opencode.json` (mode 0600, removed with it) and the config names the file with `{file:...}`, because opencode expands `{env:VAR}` and `{file:path}` anywhere in a config's text: a skill that mentions `{env:GITLAB_TOKEN}` or `{file:missing}` reaches the model exactly as written
+- allows only `read`, `glob`, `grep` and `list`, and denies `edit` (which covers file writes and patches), `bash`, `task`, `skill`, `webfetch` and `websearch`
+- denies reading `*.env` / `*.env.*` files (except `*.env.example`)
+- turns off language servers (`lsp: false`), because opencode's `read` tool starts them whatever the permissions say, and a server can be a program from the reviewed branch (such as `node_modules/.bin/biome`) running with your LLM key in its environment
+- turns off opencode's auto-compaction (`compaction.auto: false`), so a run that fills the model's context fails with the overflow error instead of continuing from a summary
+- leaves the model's context and output limits to opencode's model registry, unless you set `--context-limit`
+
+pergent also sets `OPENCODE_DISABLE_PROJECT_CONFIG=true`, so an `opencode.json` or `.opencode/` directory (agents, plugins, commands) in the reviewed branch can't change these permissions or run plugin code while your LLM key is in the environment. `GITHUB_TOKEN` and `GITLAB_TOKEN` are removed from opencode's environment: only pergent uses them. Because that setting also stops opencode from finding `AGENTS.md` / `CLAUDE.md` by itself, pergent passes the root file to opencode explicitly.
+
+opencode checks the path it is asked to read, not where a symlink leads, so a link in the reviewed branch could expose a file beyond the checkout (`x -> /etc/passwd`, `x -> ..`). In platform mode (GitHub or GitLab CI), before any run, pergent deletes every symlink in the checkout whose target resolves outside it, or whose real target the read rules deny (`safe.txt -> prod.env`; the rules match the name being read, not where a link leads), and logs each path. `.git` is skipped. A link that dangles counts as leaving unless its target can be shown to stay inside. The link is deleted, never its target, and the review goes on; a link that cannot be deleted, or a directory that cannot be read, is a warning. `--local` never deletes anything: it reviews your own working tree and trusts the checkout. (Agent mode: see `--scrub-instructions`.)
+
+Each opencode run also gets its own empty `XDG_DATA_HOME`, removed when the run ends. The agent can read only the `tool-output` folder in it, where opencode saves a long tool result, not the rest (your `auth.json` and the session database). opencode creates its SQLite database there on first start, and runs started at the same moment in one fresh directory (a new CI container) race on that setup. The losers exit before the model's first step. Your `auth.json`, if you have one, is copied in, so `opencode auth login` still works.
