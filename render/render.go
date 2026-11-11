@@ -100,6 +100,10 @@ type Failure struct {
 // escaped beyond comments and layout tags.
 type Skipped struct{ Path, Rule string }
 
+// Rename is a file the change renamed without changing it: Path is the new
+// path and From the old one.
+type Rename struct{ Path, From string }
+
 // DismissedFinding is a finding someone set aside.
 type DismissedFinding struct {
 	Finding Finding
@@ -117,6 +121,13 @@ type Skill struct {
 	Skipped  []Skipped
 	Reviewed []string
 	Notes    []string
+
+	// Deleted lists the reviewed files the change deleted, and Renamed the
+	// reviewed files it renamed. The Files list marks them, and a finding on
+	// a deleted file shows no link and no suggested change. Both are
+	// caller-owned paths, escaped like any path.
+	Deleted []string `json:",omitempty"` // omitted when empty, so a golden input without them is unchanged
+	Renamed []Rename `json:",omitempty"`
 
 	// Confidence is the model's score for the review, 1 to 5; 0 means none.
 	// SkillScore lowers it for the comment.

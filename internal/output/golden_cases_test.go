@@ -50,6 +50,7 @@ func goldenCases() []goldenCase {
 		{name: "failures", results: failureResults(), changed: []string{"a.go", "b.go"}, maxLens: []int{0, 2500, 900}},
 		{name: "confidence", results: confidenceGoldenResults(), changed: []string{"main.go", "util.go", "gen/api.pb.go", "README.md"}, maxLens: []int{0}},
 		{name: "hostile", results: hostileResults(), changed: []string{"we`ird.go", "ghp_secretvalue123.txt"}, maxLens: []int{0, 2000, 1200}},
+		{name: "deleted-and-renamed", results: deletedRenamedResults(), changed: []string{"cmd/run.go", "internal/new/util.go", "internal/old/helper.go"}, maxLens: []int{0, 1800}},
 	}
 }
 
@@ -217,5 +218,31 @@ func hostileResults() []review.SkillResult {
 			Skipped:   []diff.Skip{{Path: "x`y.go", Rule: "rule </details>"}},
 		},
 		{Skill: "sk<!--ill", Verdict: review.NoBlockingIssues},
+	}
+}
+
+// deletedRenamedResults is one deleted file reviewed by one of two skills (the
+// other leaves it out of scope) and one pure rename. The finding on the
+// deleted file carries a suggestion, which the comment must not show.
+func deletedRenamedResults() []review.SkillResult {
+	return []review.SkillResult{
+		{
+			Skill: "code-review", Verdict: review.HasBlockingIssues, Batches: 1, BatchesFinished: 1,
+			Confidence: 4, ConfidenceReason: "The old helper is still imported from one file.",
+			Findings: []finding.Finding{
+				{File: "internal/old/helper.go", Line: 12, EndLine: 14, Severity: finding.Blocking, Title: "Deleted helper is still imported", Explanation: "cmd/run.go still imports the deleted package.", SuggestedFix: "Move the import to the new package.", Suggestion: "import \"example.com/app/internal/new\"", Fingerprint: "aaaaaaaaaaaa"},
+				{File: "docs/guide.md", Line: 3, Severity: finding.Suggestion, Title: "Old path in the guide", Explanation: "The guide names the old path.", Fingerprint: "bbbbbbbbbbbb"},
+			},
+			Reviewed: []string{"cmd/run.go", "internal/new/util.go", "internal/old/helper.go"},
+			Deleted:  []string{"internal/old/helper.go"},
+			Renamed:  []review.Rename{{Path: "internal/new/util.go", From: "internal/old/util.go"}},
+		},
+		{
+			Skill: "security", Verdict: review.NoBlockingIssues, Batches: 1, BatchesFinished: 1,
+			Confidence: 5, ConfidenceReason: "Nothing here touches input or secrets.",
+			Skipped:  []diff.Skip{{Path: "internal/old/helper.go", Rule: "out of scope"}},
+			Reviewed: []string{"cmd/run.go", "internal/new/util.go"},
+			Renamed:  []review.Rename{{Path: "internal/new/util.go", From: "internal/old/util.go"}},
+		},
 	}
 }

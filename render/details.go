@@ -393,6 +393,8 @@ type fileRow struct {
 	path     string
 	reviewed []int // indexes of the skills that reviewed it
 	skipped  []fileSkip
+	deleted  bool   // some skill reviewed it as deleted
+	from     string // the old path, when some skill reviewed it as a rename
 }
 
 type fileSkip struct {
@@ -418,6 +420,14 @@ func fileRows(skills []Skill, o Options) []fileRow {
 		row(p)
 	}
 	for i, s := range skills {
+		for _, p := range s.Deleted {
+			row(p).deleted = true
+		}
+		for _, rn := range s.Renamed {
+			if r := row(rn.Path); r.from == "" {
+				r.from = rn.From
+			}
+		}
 		for _, p := range s.Reviewed {
 			r := row(p)
 			if n := len(r.reviewed); n == 0 || r.reviewed[n-1] != i {
@@ -434,6 +444,19 @@ func fileRows(skills []Skill, o Options) []fileRow {
 
 // metaFileCount is the number of paths in the Files block.
 func metaFileCount(skills []Skill, o Options) int { return len(fileRows(skills, o)) }
+
+// fileMark is what follows a path's code span when a skill reviewed it as
+// deleted or renamed. It shows once however many skills did.
+func fileMark(r fileRow) string {
+	var mark string
+	if r.deleted {
+		mark = " (deleted)"
+	}
+	if r.from != "" {
+		mark += " (renamed from " + codeSpan(r.from) + ")"
+	}
+	return mark
+}
 
 // fileLine is what follows a path in the Files block: nothing when every skill
 // reviewed it.
@@ -490,7 +513,7 @@ func writeFiles(b *strings.Builder, skills []Skill, o Options, l layout) {
 	}
 	lines := make([]string, len(rows))
 	for i, r := range rows {
-		lines[i] = codeSpan(r.path) + fileLine(r, skills)
+		lines[i] = codeSpan(r.path) + fileMark(r) + fileLine(r, skills)
 	}
 	fmt.Fprintf(b, "<details%s><summary>Files (%d)</summary>\n\n", openAttr(l.openFiles), len(rows))
 	writeList(b, lines, l.listLimit)

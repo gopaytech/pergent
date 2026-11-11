@@ -168,6 +168,12 @@ func toRender(results []review.SkillResult, ids map[string]string) []render.Skil
 		for _, p := range r.Reviewed {
 			s.Reviewed = append(s.Reviewed, redact.String(p))
 		}
+		for _, p := range r.Deleted {
+			s.Deleted = append(s.Deleted, redact.String(p))
+		}
+		for _, rn := range r.Renamed {
+			s.Renamed = append(s.Renamed, render.Rename{Path: redact.String(rn.Path), From: redact.String(rn.From)})
+		}
 		for _, n := range r.Notes {
 			s.Notes = append(s.Notes, redact.String(n))
 		}

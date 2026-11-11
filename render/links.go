@@ -59,3 +59,28 @@ func location(f Finding) string {
 	}
 	return loc
 }
+
+// deletedLocation is location for a finding on a file the change deleted:
+// "path (deleted), line N", "path (deleted), lines N–M" or "path (deleted)".
+func deletedLocation(f Finding) string {
+	loc := f.File + " (deleted)"
+	switch {
+	case f.Line <= 0:
+	case f.EndLine > f.Line:
+		loc += ", lines " + strconv.Itoa(f.Line) + "–" + strconv.Itoa(f.EndLine)
+	default:
+		loc += ", line " + strconv.Itoa(f.Line)
+	}
+	return loc
+}
+
+// deletedFiles is every path some skill reviewed as deleted.
+func deletedFiles(skills []Skill) map[string]bool {
+	set := map[string]bool{}
+	for _, s := range skills {
+		for _, p := range s.Deleted {
+			set[p] = true
+		}
+	}
+	return set
+}

@@ -1,0 +1,93 @@
+{
+ "Skills": [
+  {
+   "Name": "code-review",
+   "Verdict": "has_blocking_issues",
+   "Findings": [
+    {
+     "ID": "",
+     "Fingerprint": "aaaaaaaaaaaa",
+     "File": "internal/old/helper.go",
+     "Line": 12,
+     "EndLine": 14,
+     "Severity": "blocking",
+     "Title": "Deleted helper is still imported",
+     "Explanation": "cmd/run.go still imports the deleted package.",
+     "SuggestedFix": "Move the import to the new package.",
+     "Suggestion": "import \"example.com/app/internal/new\""
+    },
+    {
+     "ID": "",
+     "Fingerprint": "bbbbbbbbbbbb",
+     "File": "docs/guide.md",
+     "Line": 3,
+     "EndLine": 0,
+     "Severity": "suggestion",
+     "Title": "Old path in the guide",
+     "Explanation": "The guide names the old path.",
+     "SuggestedFix": "",
+     "Suggestion": ""
+    }
+   ],
+   "Failures": null,
+   "Skipped": null,
+   "Reviewed": [
+    "cmd/run.go",
+    "internal/new/util.go",
+    "internal/old/helper.go"
+   ],
+   "Notes": null,
+   "Deleted": [
+    "internal/old/helper.go"
+   ],
+   "Renamed": [
+    {
+     "Path": "internal/new/util.go",
+     "From": "internal/old/util.go"
+    }
+   ],
+   "Confidence": 4,
+   "ConfidenceReason": "The old helper is still imported from one file.",
+   "Batches": 1,
+   "BatchesFinished": 1,
+   "Summaries": null,
+   "Checks": null,
+   "Dismissed": null
+  },
+  {
+   "Name": "security",
+   "Verdict": "no_blocking_issues",
+   "Findings": [],
+   "Failures": null,
+   "Skipped": [
+    {
+     "Path": "internal/old/helper.go",
+     "Rule": "out of scope"
+    }
+   ],
+   "Reviewed": [
+    "cmd/run.go",
+    "internal/new/util.go"
+   ],
+   "Notes": null,
+   "Renamed": [
+    {
+     "Path": "internal/new/util.go",
+     "From": "internal/old/util.go"
+    }
+   ],
+   "Confidence": 5,
+   "ConfidenceReason": "Nothing here touches input or secrets.",
+   "Batches": 1,
+   "BatchesFinished": 1,
+   "Summaries": null,
+   "Checks": null,
+   "Dismissed": null
+  }
+ ],
+ "ChangedFiles": [
+  "cmd/run.go",
+  "internal/new/util.go",
+  "internal/old/helper.go"
+ ]
+}
