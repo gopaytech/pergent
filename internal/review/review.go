@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -233,6 +234,10 @@ type reviewer struct {
 	diffIndex string
 	diffDir   string
 	diffOnce  sync.Once
+	// atHead holds the path of every file in the diff, and live the paths of
+	// those that are not deleted: a deleted path that is also live changed
+	// type (a file became a symlink) and still exists.
+	atHead, live map[string]bool
 }
 
 // Run reviews the change with every skill and batch concurrently, with at
@@ -264,7 +269,11 @@ func Run(ctx context.Context, req Request) []SkillResult {
 		classifier = diff.NewClassifier(req.RepoPath)
 	}
 	// The request decides, whatever the caller's classifier says: off is off.
+	// A deleted file the runs may not read is never batched; the deny flag is
+	// every run's (see eligibleDiffs).
 	classifier.ReviewDeleted = req.CheckDeleted
+	deny := req.Sandbox.Hardened
+	classifier.DeniedDeleted = func(p string) bool { return config.ReadDenied(p, deny) }
 	req.Description = changeText(req.Description)
 	r := &reviewer{
 		req:         req,
@@ -274,6 +283,14 @@ func Run(ctx context.Context, req Request) []SkillResult {
 		slots:       make(chan struct{}, req.Concurrency),
 		start:       start,
 		deadline:    deadline,
+		atHead:      make(map[string]bool, len(files)),
+		live:        make(map[string]bool, len(files)),
+	}
+	for _, f := range files {
+		r.atHead[f.Path] = true
+		if !f.Deleted {
+			r.live[f.Path] = true
+		}
 	}
 
 	results := make([]SkillResult, len(req.Skills))
@@ -473,6 +490,9 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillRes
 	// listSeen is set when a run that carried the reference list finished with
 	// it: only then do the renames on it count.
 	listSeen := false
+	// With the check on, a path can be in two entries of one change (a type
+	// change): it is reviewed once.
+	reviewed := map[string]bool{}
 	for i, o := range outcomes {
 		res.Usage = res.Usage.Add(o.usage)
 		if o.dismissalsFailed {
@@ -506,8 +526,12 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillRes
 				res.Checks = append(res.Checks, BatchChecks{Batch: i + 1, Checks: o.checks, Dropped: o.dropped, Findings: len(o.findings)})
 			}
 			for _, f := range batches[i] {
+				if r.req.CheckDeleted && reviewed[f.Path] {
+					continue
+				}
+				reviewed[f.Path] = true
 				res.Reviewed = append(res.Reviewed, f.Path)
-				if f.Deleted {
+				if r.gone(f) {
 					res.Deleted = append(res.Deleted, f.Path)
 				}
 			}
@@ -654,13 +678,18 @@ func (r *reviewer) reviewBatch(ctx context.Context, s skill.Skill, batch []diff.
 		label = "references"
 	}
 	paths := make([]string, len(batch))
-	var deleted []string
+	// The batch's deleted files, and its renames whose old path is gone, get
+	// the reference check.
+	var deleted, renamed []string
 	var patch strings.Builder
 	for i, f := range batch {
 		paths[i] = f.Path
 		patch.WriteString(f.Patch)
-		if f.Deleted {
+		switch {
+		case r.gone(f):
 			deleted = append(deleted, f.Path)
+		case r.renamedAway(f):
+			renamed = append(renamed, strconv.Quote(f.OldPath)+" renamed to "+strconv.Quote(f.Path))
 		}
 	}
 	notReviewed := func(format string, args ...any) batchOutcome {
@@ -717,11 +746,14 @@ func (r *reviewer) reviewBatch(ctx context.Context, s skill.Skill, batch []diff.
 	}
 	attachments = append(attachments, attachment{"changed-files.md", r.changedList})
 	// After the diffs sentence, which says to report only on files in the diff.
-	if len(deleted) > 0 || deletedPath != "" {
+	if len(deleted) > 0 || len(renamed) > 0 || deletedPath != "" {
 		message = carveOut(message)
 	}
 	if len(deleted) > 0 {
 		message += " " + fmt.Sprintf(deletedBatchMessage, quotedPaths(deleted))
+	}
+	if len(renamed) > 0 {
+		message += " " + fmt.Sprintf(renamedBatchMessage, cappedNames(renamed, "renamed"))
 	}
 	if deletedPath != "" {
 		message += " " + deletedMessage

@@ -121,6 +121,26 @@ func TestExclusion_ReviewDeleted(t *testing.T) {
 	}
 }
 
+// A deleted file the read rules deny stays "deleted"; DeniedDeleted touches
+// nothing else.
+func TestExclusion_DeniedDeleted(t *testing.T) {
+	c := NewClassifierFrom(nil, nil)
+	c.ReviewDeleted = true
+	c.DeniedDeleted = func(p string) bool { return strings.HasSuffix(p, ".env") }
+	del := func(p string) FileDiff {
+		return FileDiff{Path: p, Deleted: true, Patch: "diff --git a/" + p + " b/" + p + "\ndeleted file mode 100644\n--- a/" + p + "\n+++ /dev/null\n@@ -1 +0,0 @@\n-A=1\n"}
+	}
+	if rule, opt := c.Exclusion(del("prod.env")); rule != "deleted" || opt {
+		t.Errorf("denied deletion: (%q, %v), want (\"deleted\", false)", rule, opt)
+	}
+	if rule, _ := c.Exclusion(del("a.go")); rule != "" {
+		t.Errorf("allowed deletion: %q, want \"\"", rule)
+	}
+	if rule, _ := c.Exclusion(FileDiff{Path: "prod.env", Patch: patchWithHunk("prod.env", "A=1")}); rule != "" {
+		t.Errorf("changed denied file: %q, want \"\" (not a deletion)", rule)
+	}
+}
+
 // With the switch off, a hunk that looks like a deletion is not read on its
 // removed side, whatever the file is.
 func TestExclusion_RemovedLinesIgnoredWhenOff(t *testing.T) {

@@ -29,10 +29,14 @@ type Classifier struct {
 	// itself then does not skip the file.
 	generatedAtBase func(path string) bool
 	// ReviewDeleted lets a deleted file through to batching, unless it cannot
-	// be batched (binary, no hunk, or no diff from the platform: rule
-	// "deleted"). Its path rules and generated header still skip it. Off, every
+	// be batched (binary, no hunk, no diff from the platform, or denied by
+	// DeniedDeleted: rule "deleted"). Its path rules and generated header still skip it. Off, every
 	// deleted file is skipped as "deleted".
 	ReviewDeleted bool
+	// DeniedDeleted, when set, reports whether the read rules deny a path. With
+	// ReviewDeleted, a deleted file it denies stays "deleted": its removed
+	// lines must not reach a run any more than the file itself could.
+	DeniedDeleted func(path string) bool
 }
 
 // NewClassifier reads <repoPath>/.gitattributes, if present, and keeps the
@@ -60,7 +64,8 @@ func (c Classifier) Exclusion(f FileDiff) (rule string, optIn bool) {
 	scan := scanPatch(f.Patch, reviewDeleted)
 	// A deleted file that cannot be batched stays "deleted", never falling to
 	// "binary" or "no content changes": the latter does not block approval.
-	if reviewDeleted && (f.NotReviewed != "" || f.Binary || scan.binary || !scan.hasHunk) {
+	if reviewDeleted && (f.NotReviewed != "" || f.Binary || scan.binary || !scan.hasHunk ||
+		(c.DeniedDeleted != nil && c.DeniedDeleted(f.Path))) {
 		return "deleted", false
 	}
 	// A file whose diff the platform did not return has no hunks to look at,

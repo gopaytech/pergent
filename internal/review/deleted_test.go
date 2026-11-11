@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -1203,5 +1204,205 @@ func TestVerifyDeletedPatchThatCannotBeWritten(t *testing.T) {
 	}
 	if !slices.Contains(r.Notes, deletedPatchNote) || r.Verdict != HasBlockingIssues || len(r.Findings) != 1 {
 		t.Errorf("Notes = %q, Verdict = %q, Findings = %v; want the finding kept and %q", r.Notes, r.Verdict, r.Findings, deletedPatchNote)
+	}
+}
+
+// anyContentHas reports whether any run's message or attachment holds s.
+func anyContentHas(f *fake, s string) bool {
+	for _, c := range f.calls {
+		if strings.Contains(c.opts.Message, s) {
+			return true
+		}
+		for _, content := range c.contents {
+			if strings.Contains(content, s) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// A deleted file the read rules deny never reaches a run's content: it stays
+// skipped as deleted and is checked for references by path only.
+func TestDeniedDeletionIsListedNotBatched(t *testing.T) {
+	for _, tt := range []struct {
+		name, path string
+		hardened   bool
+	}{
+		{"env file, CI mode", "config/prod.env", false},
+		{"key file, agent mode", "keys/id.pem", true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			// The batch's finding is on the denied file, so verification would
+			// attach its diff if it were reviewed.
+			f := blockingAnswer(t, tt.path)
+			req := deletedReq(t, f, patch("a/x.go", "x")+deletedPatchOf(tt.path, "DB_PASSWORD=hunter2"))
+			req.Sandbox.Hardened = tt.hardened
+
+			r := Run(context.Background(), req)[0]
+
+			if anyContentHas(f, "hunter2") {
+				t.Error("the denied file's removed lines reached a run")
+			}
+			for _, c := range f.calls {
+				if hasFile(c, deletedPatchFile) {
+					t.Errorf("run %q got %s", c.opts.Message, deletedPatchFile)
+				}
+			}
+			if !slices.Equal(r.Skipped, []diff.Skip{{Path: tt.path, Rule: "deleted"}}) || len(r.Deleted) != 0 || !slices.Equal(r.Reviewed, []string{"a/x.go"}) {
+				t.Errorf("Skipped = %v, Deleted = %v, Reviewed = %v", r.Skipped, r.Deleted, r.Reviewed)
+			}
+			var batch call
+			for _, c := range f.calls {
+				if !isVerifyCall(c) {
+					batch = c
+				}
+			}
+			if got, _ := deletedContent(batch); got != strconv.Quote(tt.path)+"\n" {
+				t.Errorf("deleted-files.md = %q, want the path on the list", got)
+			}
+		})
+	}
+}
+
+// The deny rules only change deleted files: a changed .env file is batched as
+// on master, and a .pem file outside agent mode is a deletion like any other.
+func TestDenyRulesOnlyTouchDeletions(t *testing.T) {
+	f := answering(t)
+	r := Run(context.Background(), deletedReq(t, f, patch("config/prod.env", "A=1")+deletedPatch("keys/id.pem")))[0]
+	if !slices.Equal(r.Reviewed, []string{"config/prod.env", "keys/id.pem"}) || !slices.Equal(r.Deleted, []string{"keys/id.pem"}) {
+		t.Errorf("Reviewed = %v, Deleted = %v", r.Reviewed, r.Deleted)
+	}
+}
+
+// editedRenamePatch renames from to to and changes its content.
+func editedRenamePatch(from, to string) string {
+	return "diff --git a/" + from + " b/" + to + "\nsimilarity index 90%\nrename from " + from + "\nrename to " + to + "\n--- a/" + from + "\n+++ b/" + to + "\n@@ -1 +1 @@\n-old\n+new\n"
+}
+
+// A rename with content changes is reviewed under its new path as before, and
+// its batch checks what still refers to the old path.
+func TestEditedRenameOldPathIsChecked(t *testing.T) {
+	diffText := editedRenamePatch("old/a.go", "new/a.go")
+	t.Run("on", func(t *testing.T) {
+		f := answering(t)
+		r := Run(context.Background(), deletedReq(t, f, diffText))[0]
+		if len(f.calls) != 1 {
+			t.Fatalf("runner called %d times, want 1", len(f.calls))
+		}
+		c := f.calls[0]
+		if want := singleBatchMessage + " " + fmt.Sprintf(renamedBatchMessage, `"old/a.go" renamed to "new/a.go"`); c.opts.Message != want {
+			t.Errorf("Message =\n%s\nwant\n%s", c.opts.Message, want)
+		}
+		if hasFile(c, "deleted-files.md") {
+			t.Error("an edited rename went on the list")
+		}
+		if !slices.Equal(r.Reviewed, []string{"new/a.go"}) || len(r.Renamed) != 0 || len(r.Deleted) != 0 || len(r.Skipped) != 0 {
+			t.Errorf("Reviewed = %v, Renamed = %v, Deleted = %v, Skipped = %v", r.Reviewed, r.Renamed, r.Deleted, r.Skipped)
+		}
+	})
+	t.Run("multi-batch gets the carve-out", func(t *testing.T) {
+		f := answering(t)
+		req := deletedReq(t, f, twoBatchDiff()+editedRenamePatch("c/old.go", "c/new.go"))
+		req.ContextLimit = twoBatchContextLimit
+		Run(context.Background(), req)
+		found := false
+		for _, c := range f.calls {
+			if strings.Contains(c.opts.Message, `"c/old.go" renamed to "c/new.go"`) {
+				found = true
+				if !strings.Contains(c.opts.Message, "except as the reference check below asks") {
+					t.Errorf("message has no carve-out: %q", c.opts.Message)
+				}
+			} else if strings.Contains(c.opts.Message, "reference check") {
+				t.Errorf("a batch without the rename got the check: %q", c.opts.Message)
+			}
+		}
+		if !found {
+			t.Error("no batch named the rename")
+		}
+	})
+	t.Run("off", func(t *testing.T) {
+		f := answering(t)
+		Run(context.Background(), newRequest(t, f, diffText))
+		if f.calls[0].opts.Message != singleBatchMessage {
+			t.Errorf("Message = %q, want the plain one", f.calls[0].opts.Message)
+		}
+	})
+	t.Run("old path re-created", func(t *testing.T) {
+		f := answering(t)
+		Run(context.Background(), deletedReq(t, f, diffText+newFilePatch("old/a.go", "package a")))
+		if anyContentHas(f, "renamed to") {
+			t.Errorf("the rename was named although old/a.go exists: %q", sortedMessages(f.calls))
+		}
+	})
+	t.Run("copy", func(t *testing.T) {
+		f := answering(t)
+		cp := "diff --git a/x.go b/y.go\nsimilarity index 90%\ncopy from x.go\ncopy to y.go\n--- a/x.go\n+++ b/y.go\n@@ -1 +1 @@\n-old\n+new\n"
+		Run(context.Background(), deletedReq(t, f, cp))
+		if anyContentHas(f, "renamed to") {
+			t.Errorf("a copy was named as a rename: %q", sortedMessages(f.calls))
+		}
+	})
+}
+
+// typeChangeDiff turns the file link into a symlink: git writes a deletion
+// and a new file under the same path.
+func typeChangeDiff() string {
+	return deletedPatchOf("link", "package old") +
+		"diff --git a/link b/link\nnew file mode 120000\n--- /dev/null\n+++ b/link\n@@ -0,0 +1 @@\n+target\n\\ No newline at end of file\n"
+}
+
+// A path that still exists at head is not a deleted file.
+func TestTypeChangeIsNotDeleted(t *testing.T) {
+	w := watchDiffs(t)
+	var entries []indexEntry
+	var patchFile string
+	f := &fake{respond: func(int, call) runner.RunResult {
+		dir := w.dir(t)
+		entries = parseIndex(t, dir)
+		for _, e := range entries {
+			if e.path == "link" {
+				data, err := os.ReadFile(filepath.Join(dir, e.file))
+				if err != nil {
+					t.Error(err)
+				}
+				patchFile += string(data)
+			}
+		}
+		return completed(answer(t))
+	}}
+	r := Run(context.Background(), deletedReq(t, f, typeChangeDiff()+patch("a/x.go", "x")))[0]
+
+	if !slices.Equal(r.Reviewed, []string{"link", "a/x.go"}) || len(r.Deleted) != 0 {
+		t.Errorf("Reviewed = %v, Deleted = %v, want link once and nothing deleted", r.Reviewed, r.Deleted)
+	}
+	if anyContentHas(f, "This change deletes") {
+		t.Errorf("a run calls link deleted: %q", sortedMessages(f.calls))
+	}
+	var paths []string
+	for _, e := range entries {
+		paths = append(paths, e.path)
+	}
+	if !slices.Contains(paths, "link") || strings.Contains(patchFile, "deleted file mode") || !strings.Contains(patchFile, "new file mode 120000") {
+		t.Errorf("index paths = %v; link's diff = %q, want the new file's", paths, patchFile)
+	}
+}
+
+// A type change whose old content can't be batched is not on the list either,
+// for the batch or for verification: the path still exists.
+func TestTypeChangeIsNotListed(t *testing.T) {
+	f := blockingAnswer(t, "img")
+	d := binaryDeletedPatch("img") + "diff --git a/img b/img\nnew file mode 120000\n--- /dev/null\n+++ b/img\n@@ -0,0 +1 @@\n+target\n"
+	r := Run(context.Background(), deletedReq(t, f, d))[0]
+	if len(f.calls) != 2 {
+		t.Fatalf("calls = %d, want the batch and its verification", len(f.calls))
+	}
+	for _, c := range f.calls {
+		if hasFile(c, "deleted-files.md") || hasFile(c, deletedPatchFile) {
+			t.Errorf("run %q got %v, want no list and no deleted patch", c.opts.Message, baseNames(c))
+		}
+	}
+	if !slices.Equal(r.Reviewed, []string{"img"}) || len(r.Deleted) != 0 {
+		t.Errorf("Reviewed = %v, Deleted = %v", r.Reviewed, r.Deleted)
 	}
 }

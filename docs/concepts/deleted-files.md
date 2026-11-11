@@ -16,8 +16,9 @@ It costs more tokens. Removed lines go into the batches like any other changed l
 
 - **A deleted file in a skill's scope is reviewed like a changed file.** Its removed lines go into the skill's batches, and the run is told the file is deleted and to judge whether removing that code is safe. On a deleted file, a finding's `line` is the line in the deleted file, and the run is told to give no `suggestion`.
 - **Each batch with deleted files also checks references.** It is told to search the repository for anything that remains and still refers to those files, and to raise a finding on the file and line that still does. That file does not have to be in the diff. The deleted paths in the message are quoted data, never instructions.
+- **A rename that also changes content** is reviewed under its new path, as any changed file. Its batch also names it as `"old" renamed to "new"` and searches for anything that still refers to the old path. This is skipped when the old path is created again in the same change, and for a copy, whose source still exists.
 - **One list covers what no batch carries.** It is attached as `deleted-files.md` to the skill's first batch, one entry per line, at most 200, then a last line `... and N more`. It holds:
-  - pure renames, as `"old" renamed to "new"`. A rename is in scope for a skill when its old path or its new path is. It is left off the list when the old path is created again in the same change, and when it is a copy. A rename that also changes content is reviewed as any changed file.
+  - pure renames, as `"old" renamed to "new"`. A rename is in scope for a skill when its old path or its new path is. It is left off the list when the old path is created again in the same change, and when it is a copy. A rename that also changes content is checked by its own batch instead (see above).
   - deletions that cannot be batched (see below).
 
   The verification run gets the same list, with every deleted file in the skill's scope. The cross-batch run and the repair run do not get it.
@@ -27,6 +28,7 @@ It costs more tokens. Removed lines go into the batches like any other changed l
 ## What is skipped anyway
 
 - **A deletion that cannot be batched keeps the rule `deleted`:** a binary file, an empty file, or a file the platform sent with no content. It goes on the reference list, but the check does not make it reviewed.
+- **A deleted file the read rules deny keeps the rule `deleted` too.** That is a `.env` file (`*.env` and `*.env.*`, but not `*.env.example`), and in agent mode also `*.pem`, `*.key` and `*.tfvars`. Its removed lines can hold secrets, so they never go to a run. It goes on the reference list by its path only. A changed (not deleted) file like this is batched as before.
 - **Vendored, lockfile and generated deletions keep their own rule** (`vendored`, `lockfile`, `generated`), as a changed file does, unless the skill's `paths` opt them in. A deleted file's generated header is read from its removed lines. In agent mode `.gitattributes` is read from the base commit, as everywhere else.
 - **A file outside the skill's `paths` and `exclude`** is `out of scope` or `excluded by skill` for that skill, as any file.
 - **A deleted file larger than a batch** is not reviewed and is reported as a failure for that file, like any file that is too large.
@@ -34,6 +36,7 @@ It costs more tokens. Removed lines go into the batches like any other changed l
 ## What counts as reviewed
 
 - A deleted file counts as reviewed only when its batch finished. It is then in `files.reviewed`, and agent mode also lists it in `files.deleted`.
+- A path that the change deletes and adds again as another type (a file that becomes a symlink) is not a deleted file. It is reviewed once, under its path, and is never in `files.deleted`.
 - A pure rename counts as reviewed only when a finished run saw the list. It is then in `files.reviewed` under its new path, and agent mode also lists it in `files.renamed`.
 - A failed or unstarted batch that carries deleted files, or a failed or unstarted run that carries the list, fails the skill (see [When a review fails](failed-reviews.md)). An unchecked deletion is not a pass.
 

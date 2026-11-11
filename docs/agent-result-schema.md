@@ -183,7 +183,7 @@ Each entry of `skills`:
 | `summaries` | array | `{batch, text}`: the model's summary of each batch. Omitted when empty. |
 | `checks` | array | One entry per batch that reported a checklist: `batch`, `dropped` (valid checks beyond the per-answer limit), `findings` (the number of findings in that batch) and `checks`, a list of `{section, name, status, detail}` where `status` is `pass`, `fail` or `n/a`. Omitted when no batch reported checks. |
 | `files.reviewed` | array | Paths the skill reviewed. The verdict covers these files and nothing else. |
-| `files.deleted` | array | The reviewed files the change deleted: a subset of `files.reviewed`. Set only with `--check-deleted`, for a deleted file whose batch finished. Omitted when empty. An additive field: `schema_version` stays `1`, and a reader that doesn't know it can ignore it. |
+| `files.deleted` | array | The reviewed files the change deleted: a subset of `files.reviewed`. Set only with `--check-deleted`, for a deleted file whose batch finished. A path the change also adds again (a type change, such as a file that becomes a symlink) is never listed. Omitted when empty. An additive field: `schema_version` stays `1`, and a reader that doesn't know it can ignore it. |
 | `files.renamed` | array | `{path, from}`: the reviewed files the change renamed without changing them, with `path` the new path (also in `files.reviewed`) and `from` the old one. Set only with `--check-deleted`, for a rename a finished run checked for references. Omitted when empty. Also additive. |
 | `files.carried` | array | Paths the caller's previous review covers; not reviewed in this run. Omitted when empty. |
 | `files.skipped` | array | `{path, rule}`: files left out, the machine-readable record of what was not reviewed. `rule` is one of the values in [What a verdict covers](#what-a-verdict-covers). |
@@ -220,7 +220,7 @@ A skill's `verdict` covers only its `files.reviewed`. A file in `files.skipped` 
 
 | `rule` | Applies when |
 |---|---|
-| `deleted` | The change deletes the file. With `--check-deleted` it applies only to a deletion that cannot be batched (a binary or empty file, or a file the platform sent with no content); any other deletion in the skill's scope is reviewed. |
+| `deleted` | The change deletes the file. With `--check-deleted` it applies only to a deletion that cannot be batched (a binary or empty file, or a file the platform sent with no content) and to a deleted file the read rules deny (`*.env`, `*.env.*` but not `*.env.example`; in agent mode also `*.pem`, `*.key`, `*.tfvars`), whose removed lines never reach a run; any other deletion in the skill's scope is reviewed. |
 | `binary` | git shows the file as binary (its own NUL-byte check, with `.gitattributes` read from the base commit). |
 | `no content changes` | The diff has no content hunks, for example a rename or mode change only. With `--check-deleted`, a pure rename in the skill's scope that a finished run checked for references is reviewed instead (in `files.renamed`); one past the list's cap of 200 stays here. |
 | `lockfile` | The file name is a known lockfile (`go.sum`, `package-lock.json`, `yarn.lock` and the like). A skill's `paths` can opt it back in. |
