@@ -1104,3 +1104,104 @@ func TestCheckDeleted_OddPathStaysOnOneLine(t *testing.T) {
 		t.Errorf("deleted-files.md has more than one line: %q", got)
 	}
 }
+
+// verifyCall returns the verification run, failing the test without one.
+func verifyCall(t *testing.T, f *fake) call {
+	t.Helper()
+	for _, c := range f.calls {
+		if isVerifyCall(c) {
+			return c
+		}
+	}
+	t.Fatalf("no verification run among %d runs", len(f.calls))
+	return call{}
+}
+
+// blockingAnswer answers every batch with one blocking finding on file, and the
+// verification with "real".
+func blockingAnswer(t *testing.T, file string) *fake {
+	f := &fake{}
+	f.respond = func(_ int, c call) runner.RunResult {
+		if isVerifyCall(c) {
+			return completed(verifyAnswer(t, map[string]any{"id": "1", "real": true, "reason": "r"}))
+		}
+		return completed(answer(t, finding.Finding{File: file, Line: 1, Severity: finding.Blocking, Title: "Removes the check", Explanation: "e"}))
+	}
+	return f
+}
+
+// A blocking finding on a reviewed deleted file reaches verification with that
+// file's diff attached: with one batch the diffs on disk are not pointed at,
+// and in own-config mode there are none.
+func TestVerifyGetsTheDeletedFilesPatch(t *testing.T) {
+	diffText := patch("a/x.go", "x") + deletedPatchOf("old.go", "func Check() {}") + deletedPatchOf("other.go", "o")
+	for _, tt := range []struct {
+		name      string
+		ownConfig bool
+	}{{"generated config", false}, {"own config", true}} {
+		t.Run(tt.name, func(t *testing.T) {
+			f := blockingAnswer(t, "old.go")
+			req := deletedReq(t, f, diffText)
+			if tt.ownConfig {
+				t.Setenv("OPENCODE_PROVIDER", "")
+			}
+
+			r := Run(context.Background(), req)[0]
+
+			c := verifyCall(t, f)
+			got, ok := attached(c, deletedPatchFile)
+			if want := deletedPatchOf("old.go", "func Check() {}"); !ok || got != want {
+				t.Errorf("%s = %q (attached %v), want only old.go's diff %q", deletedPatchFile, got, ok, want)
+			}
+			if !strings.Contains(c.opts.Message, verifyDeletedMessage+" "+verifyDeletedPatchMessage) {
+				t.Errorf("verification message = %q, want it to point at %s", c.opts.Message, deletedPatchFile)
+			}
+			if r.Verdict != HasBlockingIssues || len(r.Findings) != 1 {
+				t.Errorf("Verdict = %q, Findings = %v, want the verified finding", r.Verdict, r.Findings)
+			}
+		})
+	}
+}
+
+// Off, or with no blocking finding on a deleted file, verification is as it
+// was: no patch, no sentence about it.
+func TestVerifyGetsNoPatchWithoutADeletedFinding(t *testing.T) {
+	diffText := patch("a/x.go", "x") + deletedPatch("old.go")
+	t.Run("finding on a changed file", func(t *testing.T) {
+		f := blockingAnswer(t, "a/x.go")
+		Run(context.Background(), deletedReq(t, f, diffText))
+		c := verifyCall(t, f)
+		if hasFile(c, deletedPatchFile) || c.opts.Message != verifyMessage+" "+verifyDeletedMessage {
+			t.Errorf("files %v, message %q; want the list and no patch", baseNames(c), c.opts.Message)
+		}
+	})
+	t.Run("off", func(t *testing.T) {
+		f := blockingAnswer(t, "old.go")
+		req := newRequest(t, f, diffText)
+		req.Budget = 5 * time.Minute // room for verification
+		Run(context.Background(), req)
+		c := verifyCall(t, f)
+		if !slices.Equal(baseNames(c), []string{"blocking-findings.json"}) || c.opts.Message != verifyMessage {
+			t.Errorf("files %v, message %q; want only the findings", baseNames(c), c.opts.Message)
+		}
+	})
+}
+
+// A patch that cannot be written leaves verification as it was and says so;
+// it never passes anything.
+func TestVerifyDeletedPatchThatCannotBeWritten(t *testing.T) {
+	old := writeDeletedPatch
+	t.Cleanup(func() { writeDeletedPatch = old })
+	writeDeletedPatch = func(string, []byte, os.FileMode) error { return errors.New("disk full") }
+
+	f := blockingAnswer(t, "old.go")
+	r := Run(context.Background(), deletedReq(t, f, patch("a/x.go", "x")+deletedPatch("old.go")))[0]
+
+	c := verifyCall(t, f)
+	if hasFile(c, deletedPatchFile) || c.opts.Message != verifyMessage+" "+verifyDeletedMessage {
+		t.Errorf("files %v, message %q; want the run without the patch", baseNames(c), c.opts.Message)
+	}
+	if !slices.Contains(r.Notes, deletedPatchNote) || r.Verdict != HasBlockingIssues || len(r.Findings) != 1 {
+		t.Errorf("Notes = %q, Verdict = %q, Findings = %v; want the finding kept and %q", r.Notes, r.Verdict, r.Findings, deletedPatchNote)
+	}
+}

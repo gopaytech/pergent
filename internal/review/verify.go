@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -182,6 +183,19 @@ func (r *reviewer) verify(ctx context.Context, s skill.Skill, res *SkillResult) 
 		} else {
 			files = append(files, p)
 			message += " " + verifyDeletedMessage
+		}
+	}
+	// A finding on a deleted file is about removed lines the checkout no longer
+	// has: the run gets their diff.
+	if patch := r.deletedPatch(res); patch != "" {
+		p := filepath.Join(dir, deletedPatchFile)
+		if err := writeDeletedPatch(p, []byte(patch), 0600); err != nil {
+			if !slices.Contains(res.Notes, deletedPatchNote) {
+				res.Notes = append(res.Notes, deletedPatchNote)
+			}
+		} else {
+			files = append(files, p)
+			message += " " + verifyDeletedPatchMessage
 		}
 	}
 	var rejected []finding.Rejected
