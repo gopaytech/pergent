@@ -68,21 +68,21 @@ func deleteRepo(t *testing.T) (dir, base, head string) {
 	return dir, base, commitAll(t, dir, "head")
 }
 
-// attachedDeleted returns the contents of the deleted-files.md each run got
-// ("" when it had none), read while the run was in progress.
-func attachedDeleted(t *testing.T, args []string, env func(string) string) []string {
+// deletionBatched reports, for each run, whether the diff.patch it got holds
+// the deletion of old.go, read while the run was in progress.
+func deletionBatched(t *testing.T, args []string, env func(string) string) []bool {
 	t.Helper()
 	var mu sync.Mutex
-	var got []string
+	var got []bool
 	run := func(ctx context.Context, o runner.Options) runner.RunResult {
-		seen := ""
+		seen := false
 		for _, p := range o.Files {
-			if filepath.Base(p) == "deleted-files.md" {
+			if filepath.Base(p) == "diff.patch" {
 				data, err := os.ReadFile(p)
 				if err != nil {
 					t.Error(err)
 				}
-				seen = string(data)
+				seen = strings.Contains(string(data), "--- a/old.go\n+++ /dev/null\n")
 			}
 		}
 		mu.Lock()
@@ -103,30 +103,30 @@ func TestRunAgent_CheckDeleted(t *testing.T) {
 	args := agentArgs(dir, base, head, oneSkill(t))
 
 	t.Setenv("PERGENT_CHECK_DELETED", "")
-	if got := attachedDeleted(t, args, agentEnv(nil)); len(got) != 1 || got[0] != "" {
-		t.Errorf("default: runs got deleted-files.md %q, want none", got)
+	if got := deletionBatched(t, args, agentEnv(nil)); len(got) != 1 || got[0] {
+		t.Errorf("default: runs batched the deletion %v, want one run without it", got)
 	}
-	if got := attachedDeleted(t, append(args, "--check-deleted"), agentEnv(nil)); len(got) != 1 || got[0] != "\"old.go\"\n" {
-		t.Errorf("--check-deleted: runs got deleted-files.md %q, want the deleted path", got)
+	if got := deletionBatched(t, append(args, "--check-deleted"), agentEnv(nil)); len(got) != 1 || !got[0] {
+		t.Errorf("--check-deleted: runs batched the deletion %v, want one run with it", got)
 	}
-	if got := attachedDeleted(t, append(args, "--check-deleted=false"), agentEnv(nil)); len(got) != 1 || got[0] != "" {
-		t.Errorf("--check-deleted=false: runs got deleted-files.md %q, want none", got)
+	if got := deletionBatched(t, append(args, "--check-deleted=false"), agentEnv(nil)); len(got) != 1 || got[0] {
+		t.Errorf("--check-deleted=false: runs batched the deletion %v, want one run without it", got)
 	}
 	t.Setenv("PERGENT_CHECK_DELETED", "true")
-	if got := attachedDeleted(t, args, agentEnv(nil)); len(got) != 1 || got[0] != "\"old.go\"\n" {
-		t.Errorf("PERGENT_CHECK_DELETED=true: runs got deleted-files.md %q, want the deleted path", got)
+	if got := deletionBatched(t, args, agentEnv(nil)); len(got) != 1 || !got[0] {
+		t.Errorf("PERGENT_CHECK_DELETED=true: runs batched the deletion %v, want one run with it", got)
 	}
 	t.Setenv("PERGENT_CHECK_DELETED", "false")
-	if got := attachedDeleted(t, args, agentEnv(nil)); len(got) != 1 || got[0] != "" {
-		t.Errorf("PERGENT_CHECK_DELETED=false: runs got deleted-files.md %q, want none", got)
+	if got := deletionBatched(t, args, agentEnv(nil)); len(got) != 1 || got[0] {
+		t.Errorf("PERGENT_CHECK_DELETED=false: runs batched the deletion %v, want one run without it", got)
 	}
-	if got := attachedDeleted(t, append(args, "--check-deleted"), agentEnv(nil)); len(got) != 1 || got[0] != "\"old.go\"\n" {
-		t.Errorf("--check-deleted beats the variable: runs got %q, want the deleted path", got)
+	if got := deletionBatched(t, append(args, "--check-deleted"), agentEnv(nil)); len(got) != 1 || !got[0] {
+		t.Errorf("--check-deleted beats the variable: runs batched the deletion %v, want one run with it", got)
 	}
 }
 
-// A change that only deletes a file still gets the check, and its result
-// still lists the file as skipped for the rule deleted.
+// A change that only deletes a file gets one batch, and its result lists the
+// deleted file as reviewed.
 func TestRunAgent_CheckDeletedDeleteOnly(t *testing.T) {
 	sandboxEnv(t)
 	t.Setenv("PERGENT_CHECK_DELETED", "true")
@@ -154,14 +154,14 @@ func TestRunAgent_CheckDeletedDeleteOnly(t *testing.T) {
 		t.Fatalf("runs = %d, skills = %d, want 1 and 1", seen, len(r.Skills))
 	}
 	sk := r.Skills[0]
-	if len(sk.Files.Reviewed) != 0 || len(sk.Files.Skipped) != 1 || sk.Files.Skipped[0].Path != "old.go" || sk.Files.Skipped[0].Rule != "deleted" {
-		t.Errorf("files = %+v, want nothing reviewed and old.go skipped as deleted", sk.Files)
+	if len(sk.Files.Reviewed) != 1 || sk.Files.Reviewed[0] != "old.go" || len(sk.Files.Skipped) != 0 {
+		t.Errorf("files = %+v, want old.go reviewed and nothing skipped", sk.Files)
 	}
 }
 
 // main passes the setting to the review in CI mode. It runs in a process of
-// its own against a fake GitLab and a stub opencode that copies the
-// deleted-files.md it is given.
+// its own against a fake GitLab and a stub opencode that copies the diff.patch
+// it is given.
 func TestMain_CheckDeletedInPlatformMode(t *testing.T) {
 	if root := os.Getenv("PERGENT_TEST_CHECKDELETED_REPO"); root != "" {
 		os.Args = append([]string{"pergent", "--platform", "gitlab", "--skill", "code-review", "--repo-path", root},
@@ -187,10 +187,10 @@ func TestMain_CheckDeletedInPlatformMode(t *testing.T) {
 	defer srv.Close()
 
 	stubDir := t.TempDir()
-	record := filepath.Join(stubDir, "deleted.txt")
+	record := filepath.Join(stubDir, "diff.txt")
 	script := "#!/bin/sh\nprev=\n" +
 		"for a in \"$@\"; do\n" +
-		"  if [ \"$prev\" = --file ] && [ \"$(basename \"$a\")\" = deleted-files.md ]; then cat \"$a\" >> \"" + record + "\"; fi\n" +
+		"  if [ \"$prev\" = --file ] && [ \"$(basename \"$a\")\" = diff.patch ]; then cat \"$a\" >> \"" + record + "\"; fi\n" +
 		"  prev=$a\n" +
 		"done\n"
 	bin := filepath.Join(stubDir, "bin")
@@ -202,12 +202,13 @@ func TestMain_CheckDeletedInPlatformMode(t *testing.T) {
 	}
 
 	for _, tt := range []struct {
-		name, args, env, want string
+		name, args, env string
+		want            bool
 	}{
-		{"default", "", "", ""},
-		{"flag on", "--check-deleted", "", "\"gone.go\"\n"},
-		{"env on", "", "PERGENT_CHECK_DELETED=true", "\"gone.go\"\n"},
-		{"flag off beats env on", "--check-deleted=false", "PERGENT_CHECK_DELETED=true", ""},
+		{"default", "", "", false},
+		{"flag on", "--check-deleted", "", true},
+		{"env on", "", "PERGENT_CHECK_DELETED=true", true},
+		{"flag off beats env on", "--check-deleted=false", "PERGENT_CHECK_DELETED=true", false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			os.Remove(record)
@@ -231,8 +232,11 @@ func TestMain_CheckDeletedInPlatformMode(t *testing.T) {
 				t.Fatalf("main() failed: %v\n%s", err, out)
 			}
 			got, _ := os.ReadFile(record)
-			if string(got) != tt.want {
-				t.Errorf("the run got deleted-files.md %q, want %q", got, tt.want)
+			if !strings.Contains(string(got), "+++ b/a.go") {
+				t.Fatalf("the run got diff.patch %q, want a.go in it", got)
+			}
+			if batched := strings.Contains(string(got), "+++ /dev/null"); batched != tt.want {
+				t.Errorf("the run got diff.patch %q; the deletion of gone.go in it = %v, want %v", got, batched, tt.want)
 			}
 		})
 	}

@@ -15,6 +15,9 @@ type FileDiff struct {
 	Patch   string
 	Deleted bool
 	Binary  bool
+	// Copied is set when OldPath is the source of a copy ("copy from"), not
+	// of a rename: the source still exists.
+	Copied bool
 	// NotReviewed, when set, says why the file's diff is missing: the
 	// platform did not return it. Such a file must be reported as not
 	// reviewed, never skipped as having no content changes.
@@ -81,6 +84,7 @@ func parseFile(lines []string) FileDiff {
 			renameTo = unquote(strings.TrimPrefix(line, "rename to "))
 		case strings.HasPrefix(line, "copy from "):
 			renameFrom = unquote(strings.TrimPrefix(line, "copy from "))
+			f.Copied = true
 		case strings.HasPrefix(line, "copy to "):
 			renameTo = unquote(strings.TrimPrefix(line, "copy to "))
 		case strings.HasPrefix(line, "--- "):

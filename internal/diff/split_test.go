@@ -72,6 +72,25 @@ rename to new.yaml
 	if files[0].Path != "new.yaml" || files[0].OldPath != "old.yaml" {
 		t.Errorf("Path/OldPath = %q/%q, want new.yaml/old.yaml", files[0].Path, files[0].OldPath)
 	}
+	if files[0].Copied {
+		t.Error("Copied = true for a rename")
+	}
+}
+
+// A copy names its source as OldPath too, but the source still exists.
+func TestSplit_Copy(t *testing.T) {
+	in := `diff --git a/old.yaml b/new.yaml
+similarity index 100%
+copy from old.yaml
+copy to new.yaml
+`
+	files := Split(in)
+	if len(files) != 1 {
+		t.Fatalf("len = %d, want 1", len(files))
+	}
+	if f := files[0]; f.Path != "new.yaml" || f.OldPath != "old.yaml" || !f.Copied {
+		t.Errorf("Path/OldPath/Copied = %q/%q/%v, want new.yaml/old.yaml/true", f.Path, f.OldPath, f.Copied)
+	}
 }
 
 func TestSplit_QuotedPathWithSpaces(t *testing.T) {

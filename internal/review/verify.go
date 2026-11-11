@@ -173,9 +173,11 @@ func (r *reviewer) verify(ctx context.Context, s skill.Skill, res *SkillResult) 
 	if note := r.diffsNote(verifyDiffsMessage, own); note != "" {
 		message += " " + note
 	}
-	if deleted := r.deletedPaths(s); len(deleted) > 0 {
+	// Every deleted file in the skill's scope, batched or not, and the renames:
+	// a finding may be on a deleted file, or on what still refers to one.
+	if refs, _, _ := r.referenceList(s, nil); len(refs) > 0 {
 		p := filepath.Join(dir, deletedFile)
-		if err := writeDeleted(p, []byte(deletedList(deleted)), 0600); err != nil {
+		if err := writeDeleted(p, []byte(deletedList(refs)), 0600); err != nil {
 			res.noteDeletedFailed()
 		} else {
 			files = append(files, p)
