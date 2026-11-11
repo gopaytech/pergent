@@ -15,7 +15,7 @@
 | `--max-tokens` | **Deprecated and ignored.** It used to set the context window, which made opencode compact far below the model's real limit. Prints a warning | — |
 | `--timeout` | **Breaking:** max wall-clock time for the whole review, all skills, batches, retries and checks together. It used to apply to each skill run separately, so a job that relied on a per-skill limit now shares one budget | `10m` |
 | `--concurrency` | Max opencode runs in flight at once, across all skills and batches. Must be at least 1 | `4` |
-| `--check-deleted` | Check what still refers to the files the change deletes (see [Deleted files](../concepts/deleted-files.md)). Pass `--check-deleted=false` to turn it off | `true` |
+| `--check-deleted` | Review the lines a change deletes, and check what still uses deleted files and the old paths of renamed files. Costs more tokens (see [Deleted files](../concepts/deleted-files.md)) | `false` |
 | `--repo-path` | Path to repo root | `.` |
 
 ## 🌱 Environment variables
@@ -47,7 +47,7 @@
 | `PERGENT_TIMEOUT` | Max wall-clock time for the whole review (see `--timeout`; **breaking**: it used to be per skill run) |
 | `PERGENT_CONCURRENCY` | Max opencode runs in flight at once (see `--concurrency`) |
 | `PERGENT_PREVIOUS_REVIEW` | `true`/`false` — attach the previous review's findings as context (explicit `--previous-review` flag wins over this) |
-| `PERGENT_CHECK_DELETED` | `true`/`false` — check what still refers to the files the change deletes (explicit `--check-deleted` flag wins over this; default `true`) |
+| `PERGENT_CHECK_DELETED` | `true`/`false`: review deleted files and check what still uses deleted and renamed files (explicit `--check-deleted` flag wins over this; default `false`; any other value is a config error) |
 
 ### Own-config mode
 

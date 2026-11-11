@@ -171,7 +171,7 @@ jobs:
 | [Skills](docs/concepts/skills.md) | Preset and custom skills, scope, what counts as blocking |
 | [The review comment](docs/concepts/review-comment.md) | What the comment shows, and its layouts |
 | [The change's title and description](docs/concepts/change-description.md) | How a review uses what the author wrote |
-| [Deleted files](docs/concepts/deleted-files.md) | How a review checks what still depends on a file the change deletes |
+| [Deleted files](docs/concepts/deleted-files.md) | The opt-in check of deleted and renamed files, and what still uses them |
 | [Previous review as context](docs/concepts/previous-review.md) | How a re-review knows what it said before |
 | [When a review fails](docs/concepts/failed-reviews.md) | What a failed run means, and when CI goes red |
 | [Agent sandbox](docs/concepts/sandbox.md) | What the review agent can and can't do |
