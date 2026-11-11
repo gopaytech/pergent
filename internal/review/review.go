@@ -57,11 +57,11 @@ type Request struct {
 	// reviews. A skill's list is attached to its batch runs, its cross-batch
 	// run and, for the blocking entries, its verification run.
 	Dismissals map[string][]finding.Rejected
-	// CheckDeleted attaches to each skill's runs the files the change deleted
-	// that are in the skill's scope, so the run can look for what still refers
-	// to them. A skill whose scope the change only deletes from gets one run
-	// with no diff. The deleted files stay skipped either way. False changes
-	// nothing.
+	// CheckDeleted attaches to each skill's first batch run and its
+	// verification run the files the change deleted that are in the skill's
+	// scope, so the run can look for what still refers to them. A skill with
+	// such files and no batch gets one run with no diff, and fails if it does.
+	// The deleted files stay skipped either way. False changes nothing.
 	CheckDeleted bool
 	// Description is the change's title and description as its author wrote
 	// them, "" when there is none. It is attached to the batch and cross-batch
@@ -326,6 +326,9 @@ type batchOutcome struct {
 	// dismissalsFailed is set when the rejected findings could not be
 	// attached to one of the batch's runs.
 	dismissalsFailed bool
+	// deletedFailed is set when the list of deleted files could not be
+	// attached to the batch's run.
+	deletedFailed bool
 	// leftOut is what the batch's answer says it left out because of past
 	// dismissals.
 	leftOut []finding.LeftOut
@@ -340,12 +343,10 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillRes
 	// The deleted files stay in Skipped. With the check on, the skill's runs
 	// also look for what still refers to them.
 	deleted := r.deletedPaths(s)
-	if len(in) == 0 {
+	if len(in) == 0 && len(deleted) == 0 {
+		res.Verdict = NoBlockingIssues
 		res.Notes = append(res.Notes, noFilesNote)
-		if len(deleted) == 0 {
-			res.Verdict = NoBlockingIssues
-			return res
-		}
+		return res
 	}
 
 	// Carried files were reviewed earlier: they stay in the changed-file list
@@ -432,7 +433,13 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillRes
 		go func() {
 			defer wg.Done()
 			defer r.removeDiffsOnPanic()
-			outcomes[i] = r.reviewBatch(ctx, s, b, i+1, len(batches), prev, hasPrev, len(res.Carried) > 0, deleted)
+			// One run per skill carries the list, and the first batch is the
+			// one that is always there.
+			var list []string
+			if i == 0 {
+				list = deleted
+			}
+			outcomes[i] = r.reviewBatch(ctx, s, b, i+1, len(batches), prev, hasPrev, len(res.Carried) > 0, list)
 		}()
 	}
 	wg.Wait()
@@ -447,6 +454,9 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillRes
 		res.Usage = res.Usage.Add(o.usage)
 		if o.dismissalsFailed {
 			res.noteDismissalsFailed()
+		}
+		if o.deletedFailed {
+			res.noteDeletedFailed()
 		}
 		switch {
 		case o.notStarted:
@@ -481,7 +491,7 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillRes
 		res.Confidence, res.ConfidenceReason = 0, ""
 	}
 	if len(batches) == 0 && len(deleted) > 0 {
-		all = append(all, res.takeDeletedOnly(deletedOnly, r.stopReason(ctx))...)
+		all = append(all, res.takeDeletedOnly(deletedOnly, len(deleted), r.stopReason(ctx))...)
 		leftOut = append(leftOut, deletedOnly.leftOut...)
 	}
 	if len(unstarted) > 0 {
@@ -597,13 +607,13 @@ func attachRejected(dir string, rejected []finding.Rejected) (string, error) {
 // reviewBatch runs the review of one batch, and one repair run when the
 // answer is not in the required format. It returns the batch's findings, why
 // the batch was not reviewed, or that its run never started. deleted lists the
-// files the change deleted in the skill's scope, attached to the run. A batch
-// of no files is the run of a skill whose scope the change only deletes from:
-// it has no diff.
+// files the change deleted in the skill's scope, attached to the run when it
+// is not empty. A batch of no files is the run of a skill that has deleted
+// files to check and nothing to batch: it has no diff.
 func (r *reviewer) reviewBatch(ctx context.Context, s skill.Skill, batch []diff.FileDiff, n, total int, prev []finding.Finding, hasPrev, hasCarried bool, deleted []string) (o batchOutcome) {
 	var usage runner.Usage
-	dismissalsFailed := false
-	defer func() { o.usage, o.dismissalsFailed = usage, dismissalsFailed }()
+	dismissalsFailed, deletedFailed := false, false
+	defer func() { o.usage, o.dismissalsFailed, o.deletedFailed = usage, dismissalsFailed, deletedFailed }()
 	label := fmt.Sprintf("%d/%d", n, total)
 	if len(batch) == 0 {
 		label = "deleted"
@@ -626,6 +636,21 @@ func (r *reviewer) reviewBatch(ctx context.Context, s skill.Skill, batch []diff.
 	write := func(name, content string) (string, error) {
 		p := filepath.Join(dir, name)
 		return p, os.WriteFile(p, []byte(content), 0600)
+	}
+
+	// The list is only a help to a batch that has a diff: its write failing
+	// costs the run nothing then. A run with no diff has nothing else to do.
+	var deletedPath string
+	if len(deleted) > 0 {
+		p := filepath.Join(dir, deletedFile)
+		if err := writeDeleted(p, []byte(deletedList(deleted)), 0600); err != nil {
+			if len(batch) == 0 {
+				return notReviewed("could not write the list of deleted files: %v", err)
+			}
+			deletedFailed = true
+		} else {
+			deletedPath = p
+		}
 	}
 
 	message := singleBatchMessage
@@ -653,9 +678,8 @@ func (r *reviewer) reviewBatch(ctx context.Context, s skill.Skill, batch []diff.
 	}
 	attachments = append(attachments, attachment{"changed-files.md", r.changedList})
 	// After the diffs sentence, which says to report only on files in the diff.
-	if len(deleted) > 0 {
-		attachments = append(attachments, attachment{deletedFile, deletedList(deleted)})
-		message += " " + deletedMessage
+	if deletedPath != "" {
+		message = carveOut(message) + " " + deletedMessage
 	}
 	if hasPrev {
 		if prev == nil {
@@ -679,6 +703,9 @@ func (r *reviewer) reviewBatch(ctx context.Context, s skill.Skill, batch []diff.
 			return notReviewed("could not write the batch files: %v", err)
 		}
 		files = append(files, p)
+	}
+	if deletedPath != "" {
+		files = append(files, deletedPath)
 	}
 	if rejected := r.req.Dismissals[s.Name]; len(rejected) > 0 {
 		if p, err := attachRejected(dir, rejected); err != nil {

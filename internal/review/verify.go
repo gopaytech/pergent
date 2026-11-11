@@ -175,12 +175,12 @@ func (r *reviewer) verify(ctx context.Context, s skill.Skill, res *SkillResult) 
 	}
 	if deleted := r.deletedPaths(s); len(deleted) > 0 {
 		p := filepath.Join(dir, deletedFile)
-		if err := os.WriteFile(p, []byte(deletedList(deleted)), 0600); err != nil {
-			fail("could not write the findings file: %v", err)
-			return
+		if err := writeDeleted(p, []byte(deletedList(deleted)), 0600); err != nil {
+			res.noteDeletedFailed()
+		} else {
+			files = append(files, p)
+			message += " " + verifyDeletedMessage
 		}
-		files = append(files, p)
-		message += " " + verifyDeletedMessage
 	}
 	var rejected []finding.Rejected
 	for _, d := range r.req.Dismissals[s.Name] {

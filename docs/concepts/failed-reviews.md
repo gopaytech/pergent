@@ -1,6 +1,6 @@
 # 🩺 When a review fails
 
-Each opencode run (one per batch) ends in one of two ways: the model's own final answer, in the required format, is parsed into findings, or the batch is reported as **Review failed:** with the cause and the files it covered. pergent never posts opencode's internal messages or the model's in-progress text ("Let me check...") as a review. A skill with any failed batch has the verdict **failed**, never "no blocking issues", even if the other batches found nothing.
+Each opencode run (one per batch) ends in one of two ways: the model's own final answer, in the required format, is parsed into findings, or the batch is reported as **Review failed:** with the cause and the files it covered. pergent never posts opencode's internal messages or the model's in-progress text ("Let me check...") as a review. A skill with any failed batch has the verdict **failed**, never "no blocking issues", even if the other batches found nothing. The same holds for the [deleted-files check](deleted-files.md) when it runs on its own, for a skill with deleted files and no batch: if that run fails or never starts, the skill is **failed**, with a failure that names no file.
 
 | Cause | Example |
 |---|---|

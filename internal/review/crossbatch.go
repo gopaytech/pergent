@@ -73,15 +73,6 @@ func (r *reviewer) crossBatch(ctx context.Context, s skill.Skill, res *SkillResu
 	if note := r.diffsNote(crossDiffsMessage, nil); note != "" {
 		message += " " + note
 	}
-	if deleted := r.deletedPaths(s); len(deleted) > 0 {
-		p := filepath.Join(dir, deletedFile)
-		if err := os.WriteFile(p, []byte(deletedList(deleted)), 0600); err != nil {
-			fail("could not write the check's files: %v", err)
-			return
-		}
-		files = append(files, p)
-		message += " " + deletedMessage
-	}
 	if rejected := r.req.Dismissals[s.Name]; len(rejected) > 0 {
 		if p, err := attachRejected(dir, rejected); err != nil {
 			res.noteDismissalsFailed()

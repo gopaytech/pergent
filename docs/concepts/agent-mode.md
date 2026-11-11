@@ -43,7 +43,7 @@ stdout carries only the result, and only with `--result -`; all logs go to stder
 | `--result` | Write the result to this file, or `-` for stdout. A file is written to `<path>.tmp`, fsynced, then renamed | — |
 | `--result-url` | `POST` the result here, with `PERGENT_RESULT_TOKEN` as the bearer token | — |
 | `--timeout`, `--concurrency`, `--max-turns`, `--context-limit` | As in CI mode | as in CI mode |
-| `--check-deleted` | As in CI mode: each skill's batch, cross-batch and verification runs get the files the change deletes in the skill's scope as `deleted-files.md`, to check what still refers to them (see [Deleted files](deleted-files.md)). `--check-deleted=false` or `PERGENT_CHECK_DELETED=false` turns it off. The deleted files stay in `files.skipped` with the rule `deleted` either way | `true` |
+| `--check-deleted` | As in CI mode: each skill's first batch run and its verification run get the files the change deletes in the skill's scope as `deleted-files.md`, to check what still refers to them (see [Deleted files](deleted-files.md)). `--check-deleted=false` or `PERGENT_CHECK_DELETED=false` turns it off. The deleted files stay in `files.skipped` with the rule `deleted` either way | `true` |
 
 At least one of `--result` and `--result-url` is required; both can be used together. `--local`, `--platform`, `--previous-review` and `--base-branch` are CI-mode flags and are a usage error here.
 
