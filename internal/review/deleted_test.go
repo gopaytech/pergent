@@ -16,6 +16,7 @@ import (
 	"github.com/gopaytech/pergent/internal/finding"
 	"github.com/gopaytech/pergent/internal/runner"
 	"github.com/gopaytech/pergent/internal/skill"
+	"github.com/gopaytech/pergent/render"
 )
 
 // deletedContent returns the contents of the run's deleted-files.md, and
@@ -308,7 +309,7 @@ func TestRenameRidesOnBatchOne(t *testing.T) {
 			!slices.Contains(r.Skipped, diff.Skip{Path: "c/b.go", Rule: "no content changes"}) {
 			t.Errorf("Verdict = %q, Renamed = %v, Reviewed = %v, Skipped = %v; want the rename still skipped", r.Verdict, r.Renamed, r.Reviewed, r.Skipped)
 		}
-		if !slices.Contains(r.Notes, "1 renamed files were not checked for references.") {
+		if !slices.Contains(r.Notes, "1 renamed file was not checked for references.") {
 			t.Errorf("Notes = %q", r.Notes)
 		}
 	})
@@ -419,7 +420,7 @@ func TestDeletedFileTwoSkills(t *testing.T) {
 		t.Errorf("sa: Reviewed = %v, Deleted = %v", sa.Reviewed, sa.Deleted)
 	}
 	if len(sb.Deleted) != 0 || !slices.Equal(sb.Reviewed, []string{"b/x.go"}) ||
-		!slices.Contains(sb.Skipped, diff.Skip{Path: "a/gone.go", Rule: "out of scope"}) {
+		!slices.Contains(sb.Skipped, diff.Skip{Path: "a/gone.go", Rule: "deleted"}) {
 		t.Errorf("sb: Reviewed = %v, Deleted = %v, Skipped = %v", sb.Reviewed, sb.Deleted, sb.Skipped)
 	}
 }
@@ -449,7 +450,7 @@ func TestRenamePastCapStaysSkipped(t *testing.T) {
 	if !slices.Equal(r.Skipped, []diff.Skip{{Path: "new/f200.go", Rule: "no content changes"}}) {
 		t.Errorf("Skipped = %v", r.Skipped)
 	}
-	if !slices.Contains(r.Notes, "1 renamed files were not checked for references.") ||
+	if !slices.Contains(r.Notes, "1 renamed file was not checked for references.") ||
 		!slices.Contains(r.Notes, "Checked the old paths of 200 renamed files for remaining references.") {
 		t.Errorf("Notes = %q", r.Notes)
 	}
@@ -930,7 +931,7 @@ func TestCheckDeleted_FailedDeleteOnlyRunFailsTheSkill(t *testing.T) {
 		!slices.Equal(r.Skipped, []diff.Skip{{Path: "pkg/gone.png", Rule: "deleted"}, {Path: "b.go", Rule: "no content changes"}}) {
 		t.Errorf("Reviewed = %v, Renamed = %v, Skipped = %v, want the file lists unchanged", r.Reviewed, r.Renamed, r.Skipped)
 	}
-	if !slices.Contains(r.Notes, "1 renamed files were not checked for references.") {
+	if !slices.Contains(r.Notes, "1 renamed file was not checked for references.") {
 		t.Errorf("Notes = %q", r.Notes)
 	}
 }
@@ -1404,5 +1405,57 @@ func TestTypeChangeIsNotListed(t *testing.T) {
 	}
 	if !slices.Equal(r.Reviewed, []string{"img"}) || len(r.Deleted) != 0 {
 		t.Errorf("Reviewed = %v, Deleted = %v", r.Reviewed, r.Deleted)
+	}
+}
+
+// A deletion outside the skill's scope stays "deleted", with the switch on or
+// off. It is not reviewed, and "out of scope" would not block approval.
+func TestRunDeletionOutsideScopeStaysDeleted(t *testing.T) {
+	for _, on := range []bool{true, false} {
+		f := answering(t)
+		req := deletedReq(t, f, patch("src/a.go", "x")+deletedPatch("scripts/x.sh"), skill.Skill{Name: "s", Paths: []string{"src/**"}})
+		req.CheckDeleted = on
+
+		r := Run(context.Background(), req)[0]
+
+		if !slices.Contains(r.Skipped, diff.Skip{Path: "scripts/x.sh", Rule: "deleted"}) {
+			t.Errorf("on=%v: Skipped = %v, want scripts/x.sh skipped as deleted", on, r.Skipped)
+		}
+		if !slices.Equal(r.Reviewed, []string{"src/a.go"}) || len(r.Deleted) != 0 {
+			t.Errorf("on=%v: Reviewed = %v, Deleted = %v, want only src/a.go reviewed", on, r.Reviewed, r.Deleted)
+		}
+	}
+}
+
+// The confidence cap follows the skips: a deleted file that was reviewed
+// leaves the model's score alone, one skipped as deleted caps it at 4.
+func TestConfidenceCapWithCheckDeleted(t *testing.T) {
+	score := func(on bool) (render.Score, SkillResult) {
+		f := &fake{}
+		f.respond = func(int, call) runner.RunResult { return completed(scored(t, 5, "Sure.")) }
+		req := deletedReq(t, f, patch("a/x.go", "x")+deletedPatch("old.go"))
+		req.CheckDeleted = on
+		r := Run(context.Background(), req)[0]
+		s := render.Skill{Verdict: string(r.Verdict), Confidence: r.Confidence}
+		for _, sk := range r.Skipped {
+			s.Skipped = append(s.Skipped, render.Skipped{Path: sk.Path, Rule: sk.Rule})
+		}
+		return render.SkillScore(s), r
+	}
+
+	got, r := score(true)
+	if got != (render.Score{Value: 5}) {
+		t.Errorf("switch on: score = %+v, want 5 uncapped", got)
+	}
+	if !slices.Equal(r.Deleted, []string{"old.go"}) || len(r.Skipped) != 0 {
+		t.Errorf("switch on: Deleted = %v, Skipped = %v, want old.go reviewed and nothing skipped", r.Deleted, r.Skipped)
+	}
+
+	got, r = score(false)
+	if got.Value != 4 {
+		t.Errorf("switch off: score = %+v, want capped at 4", got)
+	}
+	if !slices.Contains(r.Skipped, diff.Skip{Path: "old.go", Rule: "deleted"}) {
+		t.Errorf("switch off: Skipped = %v, want old.go skipped as deleted", r.Skipped)
 	}
 }

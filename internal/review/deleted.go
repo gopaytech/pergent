@@ -69,7 +69,7 @@ const (
 
 	// uncheckedRenamesNote counts the pure renames no finished run checked:
 	// past the list's cap, or on a list no finished run saw. They stay skipped.
-	uncheckedRenamesNote = "%d renamed files were not checked for references."
+	uncheckedRenamesNote = "%d renamed %s not checked for references."
 
 	// ruleNoContent is the rule that skips a pure rename.
 	ruleNoContent = "no content changes"
@@ -306,6 +306,6 @@ func (res *SkillResult) countRenames(listed []Rename, left int, seen bool) {
 		left += len(listed)
 	}
 	if left > 0 {
-		res.Notes = append(res.Notes, fmt.Sprintf(uncheckedRenamesNote, left))
+		res.Notes = append(res.Notes, fmt.Sprintf(uncheckedRenamesNote, left, plural(left, "file was", "files were")))
 	}
 }

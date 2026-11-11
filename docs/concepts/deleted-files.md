@@ -30,7 +30,7 @@ It costs more tokens. Removed lines go into the batches like any other changed l
 - **A deletion that cannot be batched keeps the rule `deleted`:** a binary file, an empty file, or a file the platform sent with no content. It goes on the reference list, but the check does not make it reviewed.
 - **A deleted file the read rules deny keeps the rule `deleted` too.** That is a `.env` file (`*.env` and `*.env.*`, but not `*.env.example`), and in agent mode also `*.pem`, `*.key` and `*.tfvars`. Its removed lines can hold secrets, so they never go to a run. It goes on the reference list by its path only. A changed (not deleted) file like this is batched as before.
 - **Vendored, lockfile and generated deletions keep their own rule** (`vendored`, `lockfile`, `generated`), as a changed file does, unless the skill's `paths` opt them in. A deleted file's generated header is read from its removed lines. In agent mode `.gitattributes` is read from the base commit, as everywhere else.
-- **A file outside the skill's `paths` and `exclude`** is `out of scope` or `excluded by skill` for that skill, as any file.
+- **A deleted file outside the skill's `paths`, or matched by its `exclude`,** keeps the rule `deleted` for that skill, as it does without the switch. (`out of scope` does not block approval, so a deletion that no skill covers must not turn into it.) A changed file there is `out of scope` or `excluded by skill`, as any file.
 - **A deleted file larger than a batch** is not reviewed and is reported as a failure for that file, like any file that is too large.
 
 ## What counts as reviewed
@@ -42,7 +42,7 @@ It costs more tokens. Removed lines go into the batches like any other changed l
 
 ## The cap
 
-The list holds 200 entries. Renames past that stay skipped as `no content changes`, and the skill gets the note `N renamed files were not checked for references.` The same note counts the renames on a list that no finished run saw. A pure rename never blocked approval, so this is no weaker than before. Deletions past the cap keep the rule `deleted`, as before.
+The list holds 200 entries. Renames past that stay skipped as `no content changes`, and the skill gets the note `N renamed files were not checked for references` (`1 renamed file was not checked for references` for one). The same note counts the renames on a list that no finished run saw. A pure rename never blocked approval, so this is no weaker than before. Deletions past the cap keep the rule `deleted`, as before.
 
 If the list cannot be written for a run, that run goes on without it and the skill gets the note `The list of deleted and renamed files could not be attached to every run.`
 

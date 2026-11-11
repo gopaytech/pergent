@@ -93,3 +93,63 @@ func TestSelect(t *testing.T) {
 		})
 	}
 }
+
+// A deletion that a skill's scope or exclude skips is "deleted" with the
+// switch on, as with it off: "out of scope" does not block approval.
+func TestSelectDeletedOutsideScope(t *testing.T) {
+	files := diff.Split(strings.Join([]string{
+		patch("src/a.go", "x"),
+		deletedPatch("scripts/x.sh"),
+		deletedPatch("src/b.go"),
+		deletedPatch("vendor/foo.go"),
+	}, ""))
+	tests := []struct {
+		name        string
+		skill       skill.Skill
+		on          bool
+		wantIn      []string
+		wantSkipped []diff.Skip
+	}{
+		{
+			name:   "paths, switch on",
+			skill:  skill.Skill{Name: "s", Paths: []string{"src/**"}},
+			on:     true,
+			wantIn: []string{"src/a.go", "src/b.go"},
+			wantSkipped: []diff.Skip{
+				{Path: "scripts/x.sh", Rule: "deleted"},
+				{Path: "vendor/foo.go", Rule: "deleted"},
+			},
+		},
+		{
+			name:   "paths, switch off",
+			skill:  skill.Skill{Name: "s", Paths: []string{"src/**"}},
+			wantIn: []string{"src/a.go"},
+			wantSkipped: []diff.Skip{
+				{Path: "scripts/x.sh", Rule: "deleted"},
+				{Path: "src/b.go", Rule: "deleted"},
+				{Path: "vendor/foo.go", Rule: "deleted"},
+			},
+		},
+		{
+			name:   "exclude, switch on",
+			skill:  skill.Skill{Name: "s", Exclude: []string{"scripts/**"}},
+			on:     true,
+			wantIn: []string{"src/a.go", "src/b.go"},
+			wantSkipped: []diff.Skip{
+				{Path: "scripts/x.sh", Rule: "deleted"},
+				{Path: "vendor/foo.go", Rule: "vendored"},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			in, skipped := Select(tt.skill, files, diff.Classifier{ReviewDeleted: tt.on})
+			if got := paths(in); !slices.Equal(got, tt.wantIn) {
+				t.Errorf("in = %q, want %q", got, tt.wantIn)
+			}
+			if !slices.Equal(skipped, tt.wantSkipped) {
+				t.Errorf("skipped = %+v, want %+v", skipped, tt.wantSkipped)
+			}
+		})
+	}
+}
