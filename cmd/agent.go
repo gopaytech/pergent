@@ -327,7 +327,7 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 	flags.IntVar(&contextLimit, "context-limit", 0, "Model context window in tokens, only for models opencode has no limits for")
 	flags.IntVar(&conc, "concurrency", 0, "Max opencode runs in flight at once (default 4)")
 	flags.DurationVar(&timeout, "timeout", 0, "Max wall-clock time for the whole review (default 10m)")
-	flags.BoolVar(&checkDeleted, "check-deleted", true, "Check what still refers to the files the change deleted (default true; --check-deleted=false turns it off)")
+	flags.BoolVar(&checkDeleted, "check-deleted", false, "Review deleted files and check what still uses deleted and renamed files (off by default)")
 	// CI-mode flags, defined only to refuse them by name.
 	flags.BoolVar(&local, "local", false, "CI mode only")
 	flags.StringVar(&platformFlag, "platform", "", "CI mode only")

@@ -26,9 +26,10 @@ func TestParseAgent_CheckDeleted(t *testing.T) {
 		env   string
 		want  bool
 	}{
-		{"default is on", nil, "", true},
+		{"default is off", nil, "", false},
 		{"flag off", []string{"--check-deleted=false"}, "", false},
 		{"flag on", []string{"--check-deleted"}, "", true},
+		{"env on", nil, "true", true},
 		{"env off", nil, "false", false},
 		{"flag on beats env off", []string{"--check-deleted=true"}, "false", true},
 		{"flag off beats env on", []string{"--check-deleted=false"}, "true", false},
@@ -102,11 +103,18 @@ func TestRunAgent_CheckDeleted(t *testing.T) {
 	args := agentArgs(dir, base, head, oneSkill(t))
 
 	t.Setenv("PERGENT_CHECK_DELETED", "")
-	if got := attachedDeleted(t, args, agentEnv(nil)); len(got) != 1 || got[0] != "\"old.go\"\n" {
-		t.Errorf("default: runs got deleted-files.md %q, want the deleted path", got)
+	if got := attachedDeleted(t, args, agentEnv(nil)); len(got) != 1 || got[0] != "" {
+		t.Errorf("default: runs got deleted-files.md %q, want none", got)
+	}
+	if got := attachedDeleted(t, append(args, "--check-deleted"), agentEnv(nil)); len(got) != 1 || got[0] != "\"old.go\"\n" {
+		t.Errorf("--check-deleted: runs got deleted-files.md %q, want the deleted path", got)
 	}
 	if got := attachedDeleted(t, append(args, "--check-deleted=false"), agentEnv(nil)); len(got) != 1 || got[0] != "" {
 		t.Errorf("--check-deleted=false: runs got deleted-files.md %q, want none", got)
+	}
+	t.Setenv("PERGENT_CHECK_DELETED", "true")
+	if got := attachedDeleted(t, args, agentEnv(nil)); len(got) != 1 || got[0] != "\"old.go\"\n" {
+		t.Errorf("PERGENT_CHECK_DELETED=true: runs got deleted-files.md %q, want the deleted path", got)
 	}
 	t.Setenv("PERGENT_CHECK_DELETED", "false")
 	if got := attachedDeleted(t, args, agentEnv(nil)); len(got) != 1 || got[0] != "" {
@@ -121,7 +129,7 @@ func TestRunAgent_CheckDeleted(t *testing.T) {
 // still lists the file as skipped for the rule deleted.
 func TestRunAgent_CheckDeletedDeleteOnly(t *testing.T) {
 	sandboxEnv(t)
-	t.Setenv("PERGENT_CHECK_DELETED", "")
+	t.Setenv("PERGENT_CHECK_DELETED", "true")
 	dir := t.TempDir()
 	gitIn(t, dir, "init", "-q")
 	writeFile(t, dir, "old.go", "package a\n")
@@ -196,9 +204,10 @@ func TestMain_CheckDeletedInPlatformMode(t *testing.T) {
 	for _, tt := range []struct {
 		name, args, env, want string
 	}{
-		{"default", "", "", "\"gone.go\"\n"},
-		{"flag off", "--check-deleted=false", "", ""},
-		{"env off", "", "PERGENT_CHECK_DELETED=false", ""},
+		{"default", "", "", ""},
+		{"flag on", "--check-deleted", "", "\"gone.go\"\n"},
+		{"env on", "", "PERGENT_CHECK_DELETED=true", "\"gone.go\"\n"},
+		{"flag off beats env on", "--check-deleted=false", "PERGENT_CHECK_DELETED=true", ""},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			os.Remove(record)

@@ -65,7 +65,7 @@ func main() {
 	flag.StringVar(&baseBranch, "base-branch", "", "Base branch for git diff (default main in local mode)")
 	flag.BoolVar(&testMode, "test", false, "Test opencode connection by sending a hello prompt")
 	flag.BoolVar(&previousReview, "previous-review", false, "Attach pergent's previous review comment as context (platform mode only)")
-	flag.BoolVar(&checkDeleted, "check-deleted", true, "Check what still refers to the files the change deleted (default true; --check-deleted=false turns it off)")
+	flag.BoolVar(&checkDeleted, "check-deleted", false, "Review deleted files and check what still uses deleted and renamed files (off by default)")
 	flag.Parse()
 
 	previousReviewSet, concurrencySet, checkDeletedSet := false, false, false

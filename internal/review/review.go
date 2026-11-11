@@ -61,7 +61,7 @@ type Request struct {
 	// verification run the files the change deleted that are in the skill's
 	// scope, so the run can look for what still refers to them. A skill with
 	// such files and no batch gets one run with no diff, and fails if it does.
-	// The deleted files stay skipped either way. False changes nothing.
+	// The deleted files stay skipped either way. False (the default) changes nothing.
 	CheckDeleted bool
 	// Description is the change's title and description as its author wrote
 	// them, "" when there is none. It is attached to the batch and cross-batch

@@ -68,7 +68,7 @@ type Config struct {
 	Local          bool
 	BaseBranch     string
 	PreviousReview bool
-	// CheckDeleted is --check-deleted / PERGENT_CHECK_DELETED (default true):
+	// CheckDeleted is --check-deleted / PERGENT_CHECK_DELETED (default false):
 	// the runs also look for what still refers to a file the change deleted.
 	CheckDeleted bool
 	// UseOpenCodeConfig is PERGENT_USE_OPENCODE_CONFIG: the opt-in to run on
@@ -212,7 +212,7 @@ func resolveReview(opts Options) (Config, error) {
 	if cfg.Timeout, err = resolveDuration(opts.Timeout, "PERGENT_TIMEOUT", 10*time.Minute); err != nil {
 		return Config{}, err
 	}
-	if cfg.CheckDeleted, err = resolveBool(opts.CheckDeleted, opts.CheckDeletedSet, "PERGENT_CHECK_DELETED", true); err != nil {
+	if cfg.CheckDeleted, err = resolveBool(opts.CheckDeleted, opts.CheckDeletedSet, "PERGENT_CHECK_DELETED", false); err != nil {
 		return Config{}, err
 	}
 

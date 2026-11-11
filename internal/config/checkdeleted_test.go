@@ -12,9 +12,10 @@ func TestResolve_CheckDeleted(t *testing.T) {
 		opts Options
 		want bool
 	}{
-		{"default is on", "", Options{}, true},
+		{"default is off", "", Options{}, false},
 		{"env false turns it off", "false", Options{}, false},
 		{"env true", "true", Options{}, true},
+		{"flag on", "", Options{CheckDeleted: true, CheckDeletedSet: true}, true},
 		{"flag off", "", Options{CheckDeleted: false, CheckDeletedSet: true}, false},
 		{"flag off beats env true", "true", Options{CheckDeleted: false, CheckDeletedSet: true}, false},
 		{"flag on beats env false", "false", Options{CheckDeleted: true, CheckDeletedSet: true}, true},
@@ -48,13 +49,13 @@ func TestResolve_CheckDeleted(t *testing.T) {
 
 func TestResolve_CheckDeletedLocalMode(t *testing.T) {
 	t.Setenv("OPENCODE_PROVIDER", "anthropic")
-	t.Setenv("PERGENT_CHECK_DELETED", "false")
+	t.Setenv("PERGENT_CHECK_DELETED", "true")
 	cfg, err := Resolve(Options{Skills: []string{"./skills/code-review.md"}, Local: true})
 	if err != nil {
 		t.Fatalf("Resolve() error: %v", err)
 	}
-	if cfg.CheckDeleted {
-		t.Error("CheckDeleted = true, want PERGENT_CHECK_DELETED=false honoured with --local")
+	if !cfg.CheckDeleted {
+		t.Error("CheckDeleted = false, want PERGENT_CHECK_DELETED=true honoured with --local")
 	}
 }
 
