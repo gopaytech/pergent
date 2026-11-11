@@ -115,6 +115,17 @@ type Files struct {
 	Carried     []string      `json:"carried,omitempty"`
 	Skipped     []Skipped     `json:"skipped"`
 	NotReviewed []NotReviewed `json:"not_reviewed"`
+	// Deleted is the reviewed files the change deleted (also in Reviewed), and
+	// Renamed the reviewed renames; both are left out when empty.
+	Deleted []string  `json:"deleted,omitempty"`
+	Renamed []Renamed `json:"renamed,omitempty"`
+}
+
+// Renamed is a reviewed file the change renamed: Path is the new path and
+// From the old one.
+type Renamed struct {
+	Path string `json:"path"`
+	From string `json:"from"`
 }
 
 // Skipped is a file excluded by a default exclusion rule.
@@ -182,11 +193,17 @@ func Build(meta Meta, skills []review.SkillResult) Result {
 		}
 	}
 	ids := render.AssignIDs(fps)
+	deleted := map[string]bool{}
+	for _, s := range skills {
+		for _, p := range s.Deleted {
+			deleted[p] = true
+		}
+	}
 
 	r := baseResult(meta, StatusCompleted)
 	r.Skills = make([]Skill, 0, len(skills))
 	for _, s := range skills {
-		r.Skills = append(r.Skills, buildSkill(s, ids))
+		r.Skills = append(r.Skills, buildSkill(s, ids, deleted))
 	}
 	return r
 }
@@ -209,7 +226,10 @@ func baseResult(meta Meta, status string) Result {
 	return r
 }
 
-func buildSkill(s review.SkillResult, ids map[string]string) Skill {
+// buildSkill converts one skill. deleted holds every path any skill reviewed as
+// deleted: a finding on one carries no suggestion, as exact replacement text for
+// a removed line has nothing to replace.
+func buildSkill(s review.SkillResult, ids map[string]string, deleted map[string]bool) Skill {
 	out := Skill{
 		Name:             s.Skill,
 		Verdict:          string(s.Verdict),
@@ -227,6 +247,13 @@ func buildSkill(s review.SkillResult, ids map[string]string) Skill {
 	}
 	for _, f := range s.Findings {
 		out.Findings = append(out.Findings, buildFinding(f, ids))
+		if deleted[f.File] {
+			out.Findings[len(out.Findings)-1].Suggestion = ""
+		}
+	}
+	out.Files.Deleted = s.Deleted
+	for _, r := range s.Renamed {
+		out.Files.Renamed = append(out.Files.Renamed, Renamed{Path: r.Path, From: r.From})
 	}
 	for _, sum := range s.Summaries {
 		out.Summaries = append(out.Summaries, Summary{Batch: sum.Batch, Text: sum.Text})
@@ -417,6 +444,16 @@ func redactSkill(s Skill) Skill {
 	s.Files.Reviewed = redactStrings(s.Files.Reviewed)
 	if s.Files.Carried != nil {
 		s.Files.Carried = redactStrings(s.Files.Carried)
+	}
+	if s.Files.Deleted != nil {
+		s.Files.Deleted = redactStrings(s.Files.Deleted)
+	}
+	if s.Files.Renamed != nil {
+		renamed := make([]Renamed, len(s.Files.Renamed))
+		for i, x := range s.Files.Renamed {
+			renamed[i] = Renamed{Path: redact.String(x.Path), From: redact.String(x.From)}
+		}
+		s.Files.Renamed = renamed
 	}
 	skipped := make([]Skipped, len(s.Files.Skipped))
 	for i, x := range s.Files.Skipped {

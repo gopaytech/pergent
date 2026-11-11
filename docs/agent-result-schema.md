@@ -183,6 +183,8 @@ Each entry of `skills`:
 | `summaries` | array | `{batch, text}`: the model's summary of each batch. Omitted when empty. |
 | `checks` | array | One entry per batch that reported a checklist: `batch`, `dropped` (valid checks beyond the per-answer limit), `findings` (the number of findings in that batch) and `checks`, a list of `{section, name, status, detail}` where `status` is `pass`, `fail` or `n/a`. Omitted when no batch reported checks. |
 | `files.reviewed` | array | Paths the skill reviewed. The verdict covers these files and nothing else. |
+| `files.deleted` | array | The reviewed files the change deleted: a subset of `files.reviewed`. Set only with `--check-deleted`, for a deleted file whose batch finished. A path the change also adds again (a type change, such as a file that becomes a symlink) is never listed. Omitted when empty. An additive field: `schema_version` stays `1`, and a reader that doesn't know it can ignore it. |
+| `files.renamed` | array | `{path, from}`: the reviewed files the change renamed without changing them, with `path` the new path (also in `files.reviewed`) and `from` the old one. Set only with `--check-deleted`, for a rename a finished run checked for references. Omitted when empty. Also additive. |
 | `files.carried` | array | Paths the caller's previous review covers; not reviewed in this run. Omitted when empty. |
 | `files.skipped` | array | `{path, rule}`: files left out, the machine-readable record of what was not reviewed. `rule` is one of the values in [What a verdict covers](#what-a-verdict-covers). |
 | `files.not_reviewed` | array | `{path, cause}`: in-scope files whose batch failed. `cause` is plain one-line text. |
@@ -201,13 +203,13 @@ Each entry of `findings`:
 | `id` | string | Short ID, unique within this result. See below. |
 | `fingerprint` | string | Stable identity of the finding across runs, 12 hex characters. Derived from the skill, the file and the normalised title, so it survives line moves. A finding the model reworded keeps the previous fingerprint only on the same file and line. |
 | `file` | string | Path from the repo root. |
-| `line` | number | Line in the head version. Omitted when the finding has none. |
+| `line` | number | Line in the head version. On a file in `files.deleted`, the line in the deleted file. Omitted when the finding has none. |
 | `end_line` | number | Last line of the range that starts at `line`. Omitted when not given. |
 | `severity` | string | `blocking` or `suggestion`. |
 | `title` | string | One-line title. |
 | `explanation` | string | Why it is a problem. |
 | `suggested_fix` | string | A proposed fix. Omitted when empty. |
-| `suggestion` | string | The exact replacement text for lines `line` to `end_line` (or `line` alone). Omitted when empty. |
+| `suggestion` | string | The exact replacement text for lines `line` to `end_line` (or `line` alone). Omitted when empty, and always omitted on a file in `files.deleted`. |
 | `linked` | object | `{repo, file, line}`: the caller, in a linked repository, that an impact finding says the change breaks. `repo` is the link's name from `--linked-repos`. Set only on a finding of the `impact` skill and only when pergent found the file and line in the clone. Omitted on every other finding. An additive field: `schema_version` stays `1`, and a reader that doesn't know it can ignore it. |
 
 `failures[].message` and `files.not_reviewed[].cause` are one line of plain text with no markdown and no opencode stderr, made for machines. The markdown version is in `comment.markdown`.
@@ -218,9 +220,9 @@ A skill's `verdict` covers only its `files.reviewed`. A file in `files.skipped` 
 
 | `rule` | Applies when |
 |---|---|
-| `deleted` | The change deletes the file. |
+| `deleted` | The change deletes the file. With `--check-deleted` it applies only to a deletion that cannot be batched (a binary or empty file, or a file the platform sent with no content) and to a deleted file the read rules deny (`*.env`, `*.env.*` but not `*.env.example`; in agent mode also `*.pem`, `*.key`, `*.tfvars`), whose removed lines never reach a run; any other deletion in the skill's scope is batched and is reviewed once its batch finishes (a vendored, lockfile or generated deletion keeps that rule, and one too big for a batch is in `not_reviewed`). A deletion outside the skill's scope (not matched by `paths`, or matched by `exclude`) stays `deleted`, as without the switch. |
 | `binary` | git shows the file as binary (its own NUL-byte check, with `.gitattributes` read from the base commit). |
-| `no content changes` | The diff has no content hunks, for example a rename or mode change only. |
+| `no content changes` | The diff has no content hunks, for example a rename or mode change only. With `--check-deleted`, a pure rename in the skill's scope that a finished run checked for references is reviewed instead (in `files.renamed`); one past the list's cap of 200 stays here. |
 | `lockfile` | The file name is a known lockfile (`go.sum`, `package-lock.json`, `yarn.lock` and the like). A skill's `paths` can opt it back in. |
 | `vendored` | A path segment is `vendor`, `node_modules` or `third_party`. A skill's `paths` can opt it back in. |
 | `generated` | The base commit's `.gitattributes` marks it `linguist-generated`, or the change shows a generated-file header ("Code generated ... DO NOT EDIT" and the like) that the base version of the file already had. A skill's `paths` can opt it back in. |
@@ -228,6 +230,10 @@ A skill's `verdict` covers only its `files.reviewed`. A file in `files.skipped` 
 | `excluded by skill` | One of the skill's `exclude` patterns matches. |
 
 Only `.gitattributes` and the generated header come from the base commit. `lockfile` and `vendored` are fixed path rules, and `binary`, `deleted` and `no content changes` follow the change itself, so a change decides on its own whether those apply to it. A change whose files are all skipped gets `files.reviewed: []` and `no_blocking_issues`.
+
+Without `--check-deleted` (the default), every deleted file is in `files.skipped` with the rule `deleted`, and `files.deleted` and `files.renamed` are absent. With the switch on, a deleted file outside the skill's scope keeps the rule `deleted` too. With it, a deleted file in the skill's scope is batched and judged on its removed lines, so it is in `files.reviewed`, and in `files.deleted`, when its batch finished. `files.reviewed` holds a deleted file only when `files.deleted` lists it. A deleted file in a batch that failed is in `files.not_reviewed`, and the skill is `failed`. A pure rename counts as reviewed (in `files.reviewed` under its new path and in `files.renamed`) only when a finished run saw the reference list. The schema stays version 1: the two fields are new and omitted when empty, so an older reader ignores them and an older pergent never sets them. See [Deleted files](concepts/deleted-files.md) for what is checked.
+
+A skill with deleted or renamed files in its scope and nothing to batch (for example a change that only deletes) gets one run with no diff, so its verdict follows that run's findings. If that run fails or never starts, the verdict is `failed`, with a `failures` entry that has an empty `files` list. A pure rename that run checked is in `files.reviewed`; when it only checked deletions that cannot be batched, `files.reviewed` stays empty. Renames past the cap leave the note `N renamed files were not checked for references` (`1 renamed file was not checked for references` for one).
 
 A caller deciding on approval must therefore not treat `no_blocking_issues` as approval when `files.reviewed` is empty, when `files.carried` is non-empty (those files were not reviewed in this run, so the verdict says nothing about them), or when `files.skipped` holds `deleted`, `binary`, `vendored`, `lockfile` or `generated` entries, unless its own policy accepts those changes unreviewed.
 

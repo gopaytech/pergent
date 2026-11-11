@@ -605,3 +605,81 @@ func TestBuild_ImpactFailureListsNoNotReviewedFile(t *testing.T) {
 		t.Errorf("skill = %+v, want the repository in the failure message only", s)
 	}
 }
+
+func TestBuildSkillDeletedFields(t *testing.T) {
+	files := func(sr review.SkillResult) map[string]any {
+		b, err := Encode(Build(testMeta(), []review.SkillResult{sr}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := decode(t, b)
+		if m["schema_version"] != float64(1) {
+			t.Errorf("schema_version = %v, want 1", m["schema_version"])
+		}
+		return m["skills"].([]any)[0].(map[string]any)["files"].(map[string]any)
+	}
+	plain := files(review.SkillResult{Skill: "s", Verdict: review.NoBlockingIssues, Reviewed: []string{"a.go"}})
+	for _, k := range []string{"deleted", "renamed"} {
+		if _, ok := plain[k]; ok {
+			t.Errorf("files.%s present when nothing was deleted or renamed", k)
+		}
+	}
+	got := files(review.SkillResult{
+		Skill: "s", Verdict: review.NoBlockingIssues, Reviewed: []string{"b.go", "old.go"},
+		Deleted: []string{"old.go"}, Renamed: []review.Rename{{Path: "b.go", From: "a.go"}},
+	})
+	if d, _ := got["deleted"].([]any); len(d) != 1 || d[0] != "old.go" {
+		t.Errorf("files.deleted = %v", got["deleted"])
+	}
+	r, _ := got["renamed"].([]any)
+	if len(r) != 1 || r[0].(map[string]any)["path"] != "b.go" || r[0].(map[string]any)["from"] != "a.go" {
+		t.Errorf("files.renamed = %v", got["renamed"])
+	}
+}
+
+func TestBuildSkillRedactsDeletedFields(t *testing.T) {
+	const secret = "s3cr3t-tok3n-value"
+	t.Setenv("GITHUB_TOKEN", secret)
+	sr := review.SkillResult{
+		Skill: "s", Verdict: review.NoBlockingIssues,
+		Deleted: []string{"dir/" + secret + ".go"},
+		Renamed: []review.Rename{{Path: "n/" + secret + ".go", From: "o/" + secret + ".go"}},
+	}
+	b, err := Encode(Build(testMeta(), []review.SkillResult{sr}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), secret) {
+		t.Errorf("the encoded result holds the token: %s", b)
+	}
+}
+
+// A finding on a deleted file carries no suggestion: exact replacement text
+// for a removed line has nothing to replace. Its fix prose stays.
+func TestBuildClearsSuggestionOnDeletedFile(t *testing.T) {
+	onDeleted := finding.Finding{File: "old.go", Line: 3, Severity: finding.Blocking, Title: "T",
+		Explanation: "e", SuggestedFix: "Drop the import.", Suggestion: "x := 1", Fingerprint: "a1b2c3d4e5f6"}
+	onOther := finding.Finding{File: "main.go", Line: 3, Severity: finding.Blocking, Title: "T",
+		Explanation: "e", Suggestion: "y := 2", Fingerprint: "b1b2c3d4e5f6"}
+	// The deletion is in the other skill's list: the file is deleted for the change.
+	a := review.SkillResult{Skill: "a", Verdict: review.HasBlockingIssues, Findings: []finding.Finding{onDeleted, onOther}}
+	b := review.SkillResult{Skill: "b", Verdict: review.NoBlockingIssues, Deleted: []string{"old.go"}}
+	out, err := Encode(Build(testMeta(), []review.SkillResult{a, b}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fs := decode(t, out)["skills"].([]any)[0].(map[string]any)["findings"].([]any)
+	if _, ok := fs[0].(map[string]any)["suggestion"]; ok {
+		t.Errorf("finding on a deleted file has a suggestion: %v", fs[0])
+	}
+	if fs[0].(map[string]any)["suggested_fix"] != "Drop the import." {
+		t.Errorf("suggested_fix = %v", fs[0].(map[string]any)["suggested_fix"])
+	}
+	if fs[1].(map[string]any)["suggestion"] != "y := 2" {
+		t.Errorf("finding on another file lost its suggestion: %v", fs[1])
+	}
+	// Build must not change the caller's findings.
+	if a.Findings[0].Suggestion != "x := 1" {
+		t.Error("Build changed the input finding")
+	}
+}

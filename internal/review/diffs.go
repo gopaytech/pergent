@@ -71,6 +71,10 @@ func (r *reviewer) eligibleDiffs() []diff.FileDiff {
 		if f.NotReviewed != "" || seen[f.Path] || !inScope[f.Path] {
 			continue
 		}
+		if f.Deleted && r.live[f.Path] {
+			// A type change: the path's diff is the entry it has now.
+			continue
+		}
 		if rule, _ := r.classifier.Exclusion(f); rule != "" {
 			continue
 		}

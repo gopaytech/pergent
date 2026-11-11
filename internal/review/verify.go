@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -172,6 +173,30 @@ func (r *reviewer) verify(ctx context.Context, s skill.Skill, res *SkillResult) 
 	}
 	if note := r.diffsNote(verifyDiffsMessage, own); note != "" {
 		message += " " + note
+	}
+	// Every deleted file in the skill's scope, batched or not, and the renames:
+	// a finding may be on a deleted file, or on what still refers to one.
+	if refs, _, _ := r.referenceList(s, nil); len(refs) > 0 {
+		p := filepath.Join(dir, deletedFile)
+		if err := writeDeleted(p, []byte(deletedList(refs)), 0600); err != nil {
+			res.noteDeletedFailed()
+		} else {
+			files = append(files, p)
+			message += " " + verifyDeletedMessage
+		}
+	}
+	// A finding on a deleted file is about removed lines the checkout no longer
+	// has: the run gets their diff.
+	if patch := r.deletedPatch(res); patch != "" {
+		p := filepath.Join(dir, deletedPatchFile)
+		if err := writeDeletedPatch(p, []byte(patch), 0600); err != nil {
+			if !slices.Contains(res.Notes, deletedPatchNote) {
+				res.Notes = append(res.Notes, deletedPatchNote)
+			}
+		} else {
+			files = append(files, p)
+			message += " " + verifyDeletedPatchMessage
+		}
 	}
 	var rejected []finding.Rejected
 	for _, d := range r.req.Dismissals[s.Name] {

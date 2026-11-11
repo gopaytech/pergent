@@ -11,8 +11,13 @@ import (
 // scope.Decide's, applied to each file's default exclusion from c.
 func Select(s skill.Skill, files []diff.FileDiff, c diff.Classifier) (in []diff.FileDiff, skipped []diff.Skip) {
 	for _, f := range files {
-		rule, optIn := c.Exclusion(f)
-		if rule = scope.Decide(s.Paths, s.Exclude, f.Path, rule, optIn); rule != "" {
+		own, optIn := c.Exclusion(f)
+		if rule := scope.Decide(s.Paths, s.Exclude, f.Path, own, optIn); rule != "" {
+			// A deletion the skill's scope or exclude skips stays "deleted", as with
+			// the switch off: "out of scope" does not block approval.
+			if f.Deleted && rule != own {
+				rule = "deleted"
+			}
 			skipped = append(skipped, diff.Skip{Path: f.Path, Rule: rule})
 			continue
 		}

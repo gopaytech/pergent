@@ -602,3 +602,20 @@ func TestFormatReview_FailureStderrCannotForgeMarkers(t *testing.T) {
 		t.Errorf("log text was escaped:\n%s", log)
 	}
 }
+
+func TestToRender_DeletedAndRenamedRedacted(t *testing.T) {
+	const secret = "ghp_secretvalue123"
+	t.Setenv("GITHUB_TOKEN", secret)
+	got := toRender([]review.SkillResult{{
+		Skill: "s", Deleted: []string{"a/" + secret + ".go"},
+		Renamed: []review.Rename{{Path: "n/" + secret + ".go", From: "o/" + secret + ".go"}},
+	}}, nil)[0]
+	if len(got.Deleted) != 1 || len(got.Renamed) != 1 {
+		t.Fatalf("Deleted = %v, Renamed = %v", got.Deleted, got.Renamed)
+	}
+	for _, p := range []string{got.Deleted[0], got.Renamed[0].Path, got.Renamed[0].From} {
+		if strings.Contains(p, secret) {
+			t.Errorf("path %q holds the token", p)
+		}
+	}
+}

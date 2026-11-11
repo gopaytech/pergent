@@ -189,7 +189,8 @@ func writeFailures(b *strings.Builder, skills []Skill) {
 // findingRow is a finding to list, with the skill that reported it.
 type findingRow struct {
 	Finding
-	skill string
+	skill   string
+	deleted bool // the file is one a skill reviewed as deleted
 }
 
 // writeFindings writes the inline note and the findings list: every finding
@@ -197,13 +198,19 @@ type findingRow struct {
 func writeFindings(b *strings.Builder, skills []Skill, o Options, l layout) {
 	var rows []findingRow
 	inline := 0
+	deleted := deletedFiles(skills)
 	for _, s := range skills {
 		for _, f := range s.Findings {
 			if f.Fingerprint != "" && o.Inline[f.Fingerprint] {
 				inline++
 				continue
 			}
-			rows = append(rows, findingRow{f, s.Name})
+			row := findingRow{Finding: f, skill: s.Name, deleted: deleted[f.File]}
+			if row.deleted {
+				// Exact replacement text for a removed line has nothing to replace.
+				row.Suggestion = ""
+			}
+			rows = append(rows, row)
 		}
 	}
 	if inline > 0 {
@@ -256,7 +263,7 @@ func writeFindings(b *strings.Builder, skills []Skill, o Options, l layout) {
 		// stays text.
 		b.WriteString(detailsDroppedNote + "\n\n<ul>\n")
 		for _, r := range suggestions {
-			fmt.Fprintf(b, "<li>💡 <b>%s</b>%s", findingTitleHTML(r.Title), locationPart(r.Finding, o))
+			fmt.Fprintf(b, "<li>💡 <b>%s</b>%s", findingTitleHTML(r.Title), locationPart(r.Finding, o, r.deleted))
 			if many {
 				fmt.Fprintf(b, " · <code>%s</code>", escapeSummary(r.skill))
 			}
@@ -286,10 +293,14 @@ func findingTitleHTML(s string) string {
 }
 
 // locationHTML is the finding's location as <code>, linked to the file when
-// the caller gave o.FileURL.
-func locationHTML(f Finding, o Options) string {
+// the caller gave o.FileURL. A deleted file's location says so and has no
+// link: the file is not at the commit.
+func locationHTML(f Finding, o Options, deleted bool) string {
 	if f.File == "" {
 		return ""
+	}
+	if deleted {
+		return "<code>" + escapeSummary(deletedLocation(f)) + "</code>"
 	}
 	code := "<code>" + escapeSummary(location(f)) + "</code>"
 	if o.FileURL == nil {
@@ -323,8 +334,8 @@ func safeLinkURL(u string) bool {
 
 // locationPart is " · <location>" for a summary line, or nothing for a
 // finding with no file.
-func locationPart(f Finding, o Options) string {
-	if loc := locationHTML(f, o); loc != "" {
+func locationPart(f Finding, o Options, deleted bool) string {
+	if loc := locationHTML(f, o, deleted); loc != "" {
 		return " · " + loc
 	}
 	return ""
@@ -348,7 +359,7 @@ func writeFindingRow(b *strings.Builder, r findingRow, o Options, withSkill, ope
 	if f.Severity != Suggestion {
 		icon, open = "❌", " open"
 	}
-	fmt.Fprintf(b, "<details%s><summary>%s <b>%s</b>%s", open, icon, findingTitleHTML(f.Title), locationPart(f, o))
+	fmt.Fprintf(b, "<details%s><summary>%s <b>%s</b>%s", open, icon, findingTitleHTML(f.Title), locationPart(f, o, r.deleted))
 	if withSkill {
 		fmt.Fprintf(b, " · <code>%s</code>", escapeSummary(r.skill))
 	}

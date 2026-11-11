@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -57,6 +58,15 @@ type Request struct {
 	// reviews. A skill's list is attached to its batch runs, its cross-batch
 	// run and, for the blocking entries, its verification run.
 	Dismissals map[string][]finding.Rejected
+	// CheckDeleted reviews the files the change deletes in each skill's
+	// batches, like any changed file, and has the runs check what still refers
+	// to them. One run per skill (its first batch, or a run with no diff when it
+	// has none) also gets the skill's reference list: its pure renames and the
+	// deletions that cannot be batched (binary, empty or with no diff from the
+	// platform, which stay skipped as deleted). A pure rename on the list counts
+	// as reviewed once that run finishes. The verification run gets the list
+	// with every deleted file in scope. False (the default) changes nothing.
+	CheckDeleted bool
 	// Description is the change's title and description as its author wrote
 	// them, "" when there is none. It is attached to the batch and cross-batch
 	// runs, never to a verification run: the author's text must not help talk
@@ -115,11 +125,19 @@ type SkillResult struct {
 	// Summaries are the model's summaries of the batches that finished, in
 	// batch order. Batches whose answer had no summary are left out.
 	Summaries []BatchSummary
-	// Reviewed lists the files of the batches that finished, in batch order.
+	// Reviewed lists the files of the batches that finished, in batch order,
+	// then the paths of the pure renames in Renamed.
 	Reviewed []string
 	// Carried lists the files left out because the request carried them, in
 	// diff order.
 	Carried []string
+	// Deleted lists the files in Reviewed that the change deletes, sorted
+	// (CheckDeleted only).
+	Deleted []string
+	// Renamed lists the pure renames whose old path a finished run checked for
+	// references, sorted by Path (CheckDeleted only). Their new paths are in
+	// Reviewed.
+	Renamed []Rename
 	// Checks are the checklist results of the batches that finished, in
 	// batch order. Batches that reported no checks are left out.
 	Checks []BatchChecks
@@ -216,6 +234,10 @@ type reviewer struct {
 	diffIndex string
 	diffDir   string
 	diffOnce  sync.Once
+	// atHead holds the path of every file in the diff, and live the paths of
+	// those that are not deleted: a deleted path that is also live changed
+	// type (a file became a symlink) and still exists.
+	atHead, live map[string]bool
 }
 
 // Run reviews the change with every skill and batch concurrently, with at
@@ -246,6 +268,12 @@ func Run(ctx context.Context, req Request) []SkillResult {
 	} else {
 		classifier = diff.NewClassifier(req.RepoPath)
 	}
+	// The request decides, whatever the caller's classifier says: off is off.
+	// A deleted file the runs may not read is never batched; the deny flag is
+	// every run's (see eligibleDiffs).
+	classifier.ReviewDeleted = req.CheckDeleted
+	deny := req.Sandbox.Hardened
+	classifier.DeniedDeleted = func(p string) bool { return config.ReadDenied(p, deny) }
 	req.Description = changeText(req.Description)
 	r := &reviewer{
 		req:         req,
@@ -255,6 +283,14 @@ func Run(ctx context.Context, req Request) []SkillResult {
 		slots:       make(chan struct{}, req.Concurrency),
 		start:       start,
 		deadline:    deadline,
+		atHead:      make(map[string]bool, len(files)),
+		live:        make(map[string]bool, len(files)),
+	}
+	for _, f := range files {
+		r.atHead[f.Path] = true
+		if !f.Deleted {
+			r.live[f.Path] = true
+		}
 	}
 
 	results := make([]SkillResult, len(req.Skills))
@@ -320,6 +356,9 @@ type batchOutcome struct {
 	// dismissalsFailed is set when the rejected findings could not be
 	// attached to one of the batch's runs.
 	dismissalsFailed bool
+	// deletedFailed is set when the list of deleted files could not be
+	// attached to the batch's run.
+	deletedFailed bool
 	// leftOut is what the batch's answer says it left out because of past
 	// dismissals.
 	leftOut []finding.LeftOut
@@ -331,7 +370,16 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillRes
 	res.Skill = s.Name
 	in, skipped := Select(s, r.files, r.classifier)
 	res.Skipped = skipped
-	if len(in) == 0 {
+	// With the check on, a deleted file the skill can batch is in `in`, and
+	// its batch checks what still refers to it. The reference list holds what
+	// no batch shows: pure renames, and deletions that cannot be batched,
+	// which stay skipped as deleted.
+	taken := make(map[string]bool, len(in))
+	for _, f := range in {
+		taken[f.Path] = true
+	}
+	refs, renamedIn, renamedLeft := r.referenceList(s, taken)
+	if len(in) == 0 && len(refs) == 0 {
 		res.Verdict = NoBlockingIssues
 		res.Notes = append(res.Notes, noFilesNote)
 		return res
@@ -354,7 +402,7 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillRes
 		}
 		in = rest
 	}
-	if len(in) == 0 {
+	if len(in) == 0 && len(refs) == 0 {
 		res.Verdict = NoBlockingIssues
 		return res
 	}
@@ -402,14 +450,33 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillRes
 		// Nothing left to attach: no empty list, no previous-review message.
 		hasPrev = len(prev) > 0
 	}
-	outcomes := make([]batchOutcome, len(batches))
+	// A skill with nothing to batch but a reference list gets one run with no
+	// diff, kept apart from the batches: it reviews no diff, so it counts in no
+	// batch total, summary, check list or confidence. Only the renames on its
+	// list can count as reviewed.
+	var deletedOnly batchOutcome
 	var wg sync.WaitGroup
+	if len(batches) == 0 && len(refs) > 0 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer r.removeDiffsOnPanic()
+			deletedOnly = r.reviewBatch(ctx, s, nil, 0, 0, prev, hasPrev, len(res.Carried) > 0, refs)
+		}()
+	}
+	outcomes := make([]batchOutcome, len(batches))
 	for i, b := range batches {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			defer r.removeDiffsOnPanic()
-			outcomes[i] = r.reviewBatch(ctx, s, b, i+1, len(batches), prev, hasPrev, len(res.Carried) > 0)
+			// One run per skill carries the list, and the first batch is the
+			// one that is always there.
+			var list []string
+			if i == 0 {
+				list = refs
+			}
+			outcomes[i] = r.reviewBatch(ctx, s, b, i+1, len(batches), prev, hasPrev, len(res.Carried) > 0, list)
 		}()
 	}
 	wg.Wait()
@@ -420,10 +487,19 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillRes
 	var leftOut []finding.LeftOut
 	var unstarted []string
 	unscored := false
+	// listSeen is set when a run that carried the reference list finished with
+	// it: only then do the renames on it count.
+	listSeen := false
+	// With the check on, a path can be in two entries of one change (a type
+	// change): it is reviewed once.
+	reviewed := map[string]bool{}
 	for i, o := range outcomes {
 		res.Usage = res.Usage.Add(o.usage)
 		if o.dismissalsFailed {
 			res.noteDismissalsFailed()
+		}
+		if o.deletedFailed {
+			res.noteDeletedFailed()
 		}
 		switch {
 		case o.notStarted:
@@ -450,13 +526,32 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillRes
 				res.Checks = append(res.Checks, BatchChecks{Batch: i + 1, Checks: o.checks, Dropped: o.dropped, Findings: len(o.findings)})
 			}
 			for _, f := range batches[i] {
+				if r.req.CheckDeleted && reviewed[f.Path] {
+					continue
+				}
+				reviewed[f.Path] = true
 				res.Reviewed = append(res.Reviewed, f.Path)
+				if r.gone(f) {
+					res.Deleted = append(res.Deleted, f.Path)
+				}
+			}
+			if i == 0 && len(refs) > 0 && !o.deletedFailed {
+				listSeen = true
 			}
 		}
 	}
 	if unscored {
 		res.Confidence, res.ConfidenceReason = 0, ""
 	}
+	if len(batches) == 0 && len(refs) > 0 {
+		shown := min(len(refs), maxDeleted)
+		found, finished := res.takeDeletedOnly(deletedOnly, shown-len(renamedIn), len(renamedIn), r.stopReason(ctx))
+		all = append(all, found...)
+		leftOut = append(leftOut, deletedOnly.leftOut...)
+		listSeen = finished
+	}
+	res.countRenames(renamedIn, renamedLeft, listSeen)
+	slices.Sort(res.Deleted)
 	if len(unstarted) > 0 {
 		res.Failures = append(res.Failures, BatchFailure{
 			Files:   unstarted,
@@ -569,17 +664,33 @@ func attachRejected(dir string, rejected []finding.Rejected) (string, error) {
 
 // reviewBatch runs the review of one batch, and one repair run when the
 // answer is not in the required format. It returns the batch's findings, why
-// the batch was not reviewed, or that its run never started.
-func (r *reviewer) reviewBatch(ctx context.Context, s skill.Skill, batch []diff.FileDiff, n, total int, prev []finding.Finding, hasPrev, hasCarried bool) (o batchOutcome) {
+// the batch was not reviewed, or that its run never started. refs is the
+// skill's reference list (referenceList), attached to the run when it is not
+// empty. A batch's deleted files are named in its message. A batch of no files
+// is the run of a skill that has a reference list and nothing to batch: it has
+// no diff.
+func (r *reviewer) reviewBatch(ctx context.Context, s skill.Skill, batch []diff.FileDiff, n, total int, prev []finding.Finding, hasPrev, hasCarried bool, refs []string) (o batchOutcome) {
 	var usage runner.Usage
-	dismissalsFailed := false
-	defer func() { o.usage, o.dismissalsFailed = usage, dismissalsFailed }()
+	dismissalsFailed, deletedFailed := false, false
+	defer func() { o.usage, o.dismissalsFailed, o.deletedFailed = usage, dismissalsFailed, deletedFailed }()
 	label := fmt.Sprintf("%d/%d", n, total)
+	if len(batch) == 0 {
+		label = "references"
+	}
 	paths := make([]string, len(batch))
+	// The batch's deleted files, and its renames whose old path is gone, get
+	// the reference check.
+	var deleted, renamed []string
 	var patch strings.Builder
 	for i, f := range batch {
 		paths[i] = f.Path
 		patch.WriteString(f.Patch)
+		switch {
+		case r.gone(f):
+			deleted = append(deleted, f.Path)
+		case r.renamedAway(f):
+			renamed = append(renamed, strconv.Quote(f.OldPath)+" renamed to "+strconv.Quote(f.Path))
+		}
 	}
 	notReviewed := func(format string, args ...any) batchOutcome {
 		return batchOutcome{failure: &BatchFailure{Files: paths, Message: "Not reviewed: " + fmt.Sprintf(format, args...)}}
@@ -595,22 +706,57 @@ func (r *reviewer) reviewBatch(ctx context.Context, s skill.Skill, batch []diff.
 		return p, os.WriteFile(p, []byte(content), 0600)
 	}
 
+	// The list is only a help to a batch that has a diff: its write failing
+	// costs the run nothing then. A run with no diff has nothing else to do.
+	var deletedPath string
+	if len(refs) > 0 {
+		p := filepath.Join(dir, deletedFile)
+		if err := writeDeleted(p, []byte(deletedList(refs)), 0600); err != nil {
+			if len(batch) == 0 {
+				return notReviewed("could not write the list of deleted and renamed files: %v", err)
+			}
+			deletedFailed = true
+		} else {
+			deletedPath = p
+		}
+	}
+
 	message := singleBatchMessage
 	if total > 1 {
 		message = fmt.Sprintf(multiBatchMessage, n, total)
+	}
+	if len(batch) == 0 {
+		message = noDiffMessage
 	}
 	if hasCarried {
 		message += " " + carriedMessage
 	}
 	// Where to find the diffs of the other changed files; nothing when this
-	// batch's diff already covers every file with a diff.
-	if note := r.diffsNote(diffsMessage, paths); note != "" {
-		message += " " + note
+	// batch's diff already covers every file with a diff, or when there is no
+	// diff in the skill's scope to compare them with.
+	if len(batch) > 0 {
+		if note := r.diffsNote(diffsMessage, paths); note != "" {
+			message += " " + note
+		}
 	}
 	type attachment struct{ name, content string }
-	attachments := []attachment{
-		{"diff.patch", patch.String()},
-		{"changed-files.md", r.changedList},
+	var attachments []attachment
+	if len(batch) > 0 {
+		attachments = append(attachments, attachment{"diff.patch", patch.String()})
+	}
+	attachments = append(attachments, attachment{"changed-files.md", r.changedList})
+	// After the diffs sentence, which says to report only on files in the diff.
+	if len(deleted) > 0 || len(renamed) > 0 || deletedPath != "" {
+		message = carveOut(message)
+	}
+	if len(deleted) > 0 {
+		message += " " + fmt.Sprintf(deletedBatchMessage, quotedPaths(deleted))
+	}
+	if len(renamed) > 0 {
+		message += " " + fmt.Sprintf(renamedBatchMessage, cappedNames(renamed, "renamed"))
+	}
+	if deletedPath != "" {
+		message += " " + deletedMessage
 	}
 	if hasPrev {
 		if prev == nil {
@@ -634,6 +780,9 @@ func (r *reviewer) reviewBatch(ctx context.Context, s skill.Skill, batch []diff.
 			return notReviewed("could not write the batch files: %v", err)
 		}
 		files = append(files, p)
+	}
+	if deletedPath != "" {
+		files = append(files, deletedPath)
 	}
 	if rejected := r.req.Dismissals[s.Name]; len(rejected) > 0 {
 		if p, err := attachRejected(dir, rejected); err != nil {
