@@ -61,7 +61,7 @@ Patterns use `/`-separated paths from the repo root. `*` matches within one path
 
 Every skill skips these files, and the comment's Files list shows them as skipped, with the reason:
 
-- **Always skipped:** deleted files, binary files, and files with no content changes (for example a pure rename).
+- **Always skipped:** deleted files, binary files, and files with no content changes (for example a pure rename). A deleted file's own lines are not reviewed, but by default the runs also check what still depends on it: see [Deleted files](deleted-files.md).
 - **Skipped unless a skill's `paths` match them:** lockfiles (`package-lock.json`, `go.sum`, `yarn.lock`, `pnpm-lock.yaml`, `Cargo.lock`, `composer.lock`, `Gemfile.lock`, `poetry.lock`, `Pipfile.lock`), vendored code (anything under a `vendor`, `node_modules` or `third_party` directory), and generated files (paths marked `linguist-generated` in the repo's `.gitattributes`, unless a later matching line unsets it with `-linguist-generated`, `linguist-generated=false` or `!linguist-generated`, or files whose first lines say the code is generated and not to be edited).
 
 A file larger than a batch can hold (about a quarter of the model's context window, 40,000 tokens when the window is unknown) is not reviewed and is reported as a failure for that file.

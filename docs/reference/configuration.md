@@ -15,6 +15,7 @@
 | `--max-tokens` | **Deprecated and ignored.** It used to set the context window, which made opencode compact far below the model's real limit. Prints a warning | — |
 | `--timeout` | **Breaking:** max wall-clock time for the whole review, all skills, batches, retries and checks together. It used to apply to each skill run separately, so a job that relied on a per-skill limit now shares one budget | `10m` |
 | `--concurrency` | Max opencode runs in flight at once, across all skills and batches. Must be at least 1 | `4` |
+| `--check-deleted` | Check what still refers to the files the change deletes (see [Deleted files](../concepts/deleted-files.md)). Pass `--check-deleted=false` to turn it off | `true` |
 | `--repo-path` | Path to repo root | `.` |
 
 ## 🌱 Environment variables
@@ -46,6 +47,7 @@
 | `PERGENT_TIMEOUT` | Max wall-clock time for the whole review (see `--timeout`; **breaking**: it used to be per skill run) |
 | `PERGENT_CONCURRENCY` | Max opencode runs in flight at once (see `--concurrency`) |
 | `PERGENT_PREVIOUS_REVIEW` | `true`/`false` — attach the previous review's findings as context (explicit `--previous-review` flag wins over this) |
+| `PERGENT_CHECK_DELETED` | `true`/`false` — check what still refers to the files the change deletes (explicit `--check-deleted` flag wins over this; default `true`) |
 
 ### Own-config mode
 
@@ -55,4 +57,4 @@
 
 Config resolution priority: CLI flags > `PERGENT_*` env vars > auto-detect from CI > defaults.
 
-An unset or empty variable means the default. A value that can't be used is a config error that names the variable and the value (`PERGENT_TIMEOUT="600" is not a duration such as 90s or 10m`), not a silent fall back to the default. Numbers must be whole (`PERGENT_MAX_TURNS` and `PERGENT_CONCURRENCY` at least 1, `PERGENT_CONTEXT_LIMIT` not negative), `PERGENT_TIMEOUT` needs a unit, and `PERGENT_PREVIOUS_REVIEW` and `PERGENT_USE_OPENCODE_CONFIG` are `true` or `false`. `--max-turns` below 1 is rejected as well. A flag that is passed wins, and its variable is not read.
+An unset or empty variable means the default. A value that can't be used is a config error that names the variable and the value (`PERGENT_TIMEOUT="600" is not a duration such as 90s or 10m`), not a silent fall back to the default. Numbers must be whole (`PERGENT_MAX_TURNS` and `PERGENT_CONCURRENCY` at least 1, `PERGENT_CONTEXT_LIMIT` not negative), `PERGENT_TIMEOUT` needs a unit, and `PERGENT_PREVIOUS_REVIEW`, `PERGENT_CHECK_DELETED` and `PERGENT_USE_OPENCODE_CONFIG` are `true` or `false`. `--max-turns` below 1 is rejected as well. A flag that is passed wins, and its variable is not read.

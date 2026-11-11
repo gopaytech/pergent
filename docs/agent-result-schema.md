@@ -229,6 +229,8 @@ A skill's `verdict` covers only its `files.reviewed`. A file in `files.skipped` 
 
 Only `.gitattributes` and the generated header come from the base commit. `lockfile` and `vendored` are fixed path rules, and `binary`, `deleted` and `no content changes` follow the change itself, so a change decides on its own whether those apply to it. A change whose files are all skipped gets `files.reviewed: []` and `no_blocking_issues`.
 
+A `deleted` file stays in `files.skipped`, and never in `files.reviewed`, even though by default (`--check-deleted`) the skill's runs are given the list of deleted files in its scope and look for what still refers to them. That check only adds findings, on the files that still refer to a deleted one; it changes no `rule`, no `files` list and no approval meaning. A change that only deletes files in a skill's scope gets one run with no diff, so its verdict follows that run's findings, with `files.reviewed: []`.
+
 A caller deciding on approval must therefore not treat `no_blocking_issues` as approval when `files.reviewed` is empty, when `files.carried` is non-empty (those files were not reviewed in this run, so the verdict says nothing about them), or when `files.skipped` holds `deleted`, `binary`, `vendored`, `lockfile` or `generated` entries, unless its own policy accepts those changes unreviewed.
 
 ### Finding IDs
