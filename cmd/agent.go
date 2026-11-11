@@ -243,6 +243,7 @@ func runAgent(ctx context.Context, args []string, getenv func(string) string, st
 		Carried:      in.Carried,
 		Dismissals:   in.Dismissals,
 		Description:  in.Description,
+		CheckDeleted: in.Review.CheckDeleted,
 		Linked:       in.Linked,
 		Run:          run,
 		Classifier:   &in.Classifier,
@@ -301,6 +302,7 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 		timeout                                 time.Duration
 		local, previousReview                   bool
 		platformFlag, baseBranch                string
+		checkDeleted                            bool
 	)
 
 	flags := flag.NewFlagSet("pergent agent", flag.ContinueOnError)
@@ -325,6 +327,7 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 	flags.IntVar(&contextLimit, "context-limit", 0, "Model context window in tokens, only for models opencode has no limits for")
 	flags.IntVar(&conc, "concurrency", 0, "Max opencode runs in flight at once (default 4)")
 	flags.DurationVar(&timeout, "timeout", 0, "Max wall-clock time for the whole review (default 10m)")
+	flags.BoolVar(&checkDeleted, "check-deleted", true, "Check what still refers to the files the change deleted (default true; --check-deleted=false turns it off)")
 	// CI-mode flags, defined only to refuse them by name.
 	flags.BoolVar(&local, "local", false, "CI mode only")
 	flags.StringVar(&platformFlag, "platform", "", "CI mode only")
@@ -402,12 +405,14 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 	}
 
 	rc, err := config.ResolveAgent(config.Options{
-		MaxTurns:       maxTurns,
-		MaxTokens:      maxTokens,
-		ContextLimit:   contextLimit,
-		Concurrency:    conc,
-		ConcurrencySet: set["concurrency"],
-		Timeout:        timeout,
+		MaxTurns:        maxTurns,
+		MaxTokens:       maxTokens,
+		ContextLimit:    contextLimit,
+		Concurrency:     conc,
+		ConcurrencySet:  set["concurrency"],
+		Timeout:         timeout,
+		CheckDeleted:    checkDeleted,
+		CheckDeletedSet: set["check-deleted"],
 	})
 	if err != nil {
 		return usage("%v", err)

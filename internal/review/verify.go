@@ -173,6 +173,15 @@ func (r *reviewer) verify(ctx context.Context, s skill.Skill, res *SkillResult) 
 	if note := r.diffsNote(verifyDiffsMessage, own); note != "" {
 		message += " " + note
 	}
+	if deleted := r.deletedPaths(s); len(deleted) > 0 {
+		p := filepath.Join(dir, deletedFile)
+		if err := os.WriteFile(p, []byte(deletedList(deleted)), 0600); err != nil {
+			fail("could not write the findings file: %v", err)
+			return
+		}
+		files = append(files, p)
+		message += " " + verifyDeletedMessage
+	}
 	var rejected []finding.Rejected
 	for _, d := range r.req.Dismissals[s.Name] {
 		if d.Severity == string(finding.Blocking) {

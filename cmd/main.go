@@ -51,6 +51,7 @@ func main() {
 	var baseBranch string
 	var testMode bool
 	var previousReview bool
+	var checkDeleted bool
 
 	flag.Var(&skills, "skill", "Preset name or path to skill .md file (repeatable)")
 	flag.StringVar(&platformFlag, "platform", "", "Platform: github or gitlab")
@@ -64,11 +65,14 @@ func main() {
 	flag.StringVar(&baseBranch, "base-branch", "", "Base branch for git diff (default main in local mode)")
 	flag.BoolVar(&testMode, "test", false, "Test opencode connection by sending a hello prompt")
 	flag.BoolVar(&previousReview, "previous-review", false, "Attach pergent's previous review comment as context (platform mode only)")
+	flag.BoolVar(&checkDeleted, "check-deleted", true, "Check what still refers to the files the change deleted (default true; --check-deleted=false turns it off)")
 	flag.Parse()
 
-	previousReviewSet, concurrencySet := false, false
+	previousReviewSet, concurrencySet, checkDeletedSet := false, false, false
 	flag.Visit(func(f *flag.Flag) {
 		switch f.Name {
+		case "check-deleted":
+			checkDeletedSet = true
 		case "previous-review":
 			previousReviewSet = true
 		case "concurrency":
@@ -95,6 +99,8 @@ func main() {
 		BaseBranch:        baseBranch,
 		PreviousReview:    previousReview,
 		PreviousReviewSet: previousReviewSet,
+		CheckDeleted:      checkDeleted,
+		CheckDeletedSet:   checkDeletedSet,
 	})
 	if err != nil {
 		log.Fatalf("config error: %v", err)
@@ -167,6 +173,7 @@ func main() {
 		ContextLimit: cfg.ContextLimit,
 		Previous:     previous,
 		Description:  description,
+		CheckDeleted: cfg.CheckDeleted,
 	})
 	failed := 0
 	for _, r := range results {

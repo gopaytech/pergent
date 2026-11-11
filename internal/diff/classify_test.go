@@ -119,3 +119,18 @@ func TestClassifierFrom_Gitattributes(t *testing.T) {
 		}
 	}
 }
+
+func TestClassifier_PathRule(t *testing.T) {
+	c := NewClassifierFrom([]byte("gen/** linguist-generated\n"), nil)
+	for path, want := range map[string]string{
+		"go.sum":            "lockfile",
+		"vendor/x/y.go":     "vendored",
+		"gen/api.go":        "generated",
+		"cmd/main.go":       "",
+		"docs/img/logo.png": "",
+	} {
+		if got := c.PathRule(path); got != want {
+			t.Errorf("PathRule(%q) = %q, want %q", path, got, want)
+		}
+	}
+}

@@ -57,6 +57,12 @@ type Request struct {
 	// reviews. A skill's list is attached to its batch runs, its cross-batch
 	// run and, for the blocking entries, its verification run.
 	Dismissals map[string][]finding.Rejected
+	// CheckDeleted attaches to each skill's runs the files the change deleted
+	// that are in the skill's scope, so the run can look for what still refers
+	// to them. A skill whose scope the change only deletes from gets one run
+	// with no diff. The deleted files stay skipped either way. False changes
+	// nothing.
+	CheckDeleted bool
 	// Description is the change's title and description as its author wrote
 	// them, "" when there is none. It is attached to the batch and cross-batch
 	// runs, never to a verification run: the author's text must not help talk
@@ -331,10 +337,15 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillRes
 	res.Skill = s.Name
 	in, skipped := Select(s, r.files, r.classifier)
 	res.Skipped = skipped
+	// The deleted files stay in Skipped. With the check on, the skill's runs
+	// also look for what still refers to them.
+	deleted := r.deletedPaths(s)
 	if len(in) == 0 {
-		res.Verdict = NoBlockingIssues
 		res.Notes = append(res.Notes, noFilesNote)
-		return res
+		if len(deleted) == 0 {
+			res.Verdict = NoBlockingIssues
+			return res
+		}
 	}
 
 	// Carried files were reviewed earlier: they stay in the changed-file list
@@ -354,7 +365,7 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillRes
 		}
 		in = rest
 	}
-	if len(in) == 0 {
+	if len(in) == 0 && len(deleted) == 0 {
 		res.Verdict = NoBlockingIssues
 		return res
 	}
@@ -402,14 +413,26 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillRes
 		// Nothing left to attach: no empty list, no previous-review message.
 		hasPrev = len(prev) > 0
 	}
-	outcomes := make([]batchOutcome, len(batches))
+	// A skill with nothing to batch but deleted files gets one run with no
+	// diff, kept apart from the batches: it reviews no file, so it counts in no
+	// batch total, reviewed list, summary, check list or confidence.
+	var deletedOnly batchOutcome
 	var wg sync.WaitGroup
+	if len(batches) == 0 && len(deleted) > 0 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer r.removeDiffsOnPanic()
+			deletedOnly = r.reviewBatch(ctx, s, nil, 0, 0, prev, hasPrev, len(res.Carried) > 0, deleted)
+		}()
+	}
+	outcomes := make([]batchOutcome, len(batches))
 	for i, b := range batches {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			defer r.removeDiffsOnPanic()
-			outcomes[i] = r.reviewBatch(ctx, s, b, i+1, len(batches), prev, hasPrev, len(res.Carried) > 0)
+			outcomes[i] = r.reviewBatch(ctx, s, b, i+1, len(batches), prev, hasPrev, len(res.Carried) > 0, deleted)
 		}()
 	}
 	wg.Wait()
@@ -456,6 +479,10 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillRes
 	}
 	if unscored {
 		res.Confidence, res.ConfidenceReason = 0, ""
+	}
+	if len(batches) == 0 && len(deleted) > 0 {
+		all = append(all, res.takeDeletedOnly(deletedOnly, r.stopReason(ctx))...)
+		leftOut = append(leftOut, deletedOnly.leftOut...)
 	}
 	if len(unstarted) > 0 {
 		res.Failures = append(res.Failures, BatchFailure{
@@ -569,12 +596,18 @@ func attachRejected(dir string, rejected []finding.Rejected) (string, error) {
 
 // reviewBatch runs the review of one batch, and one repair run when the
 // answer is not in the required format. It returns the batch's findings, why
-// the batch was not reviewed, or that its run never started.
-func (r *reviewer) reviewBatch(ctx context.Context, s skill.Skill, batch []diff.FileDiff, n, total int, prev []finding.Finding, hasPrev, hasCarried bool) (o batchOutcome) {
+// the batch was not reviewed, or that its run never started. deleted lists the
+// files the change deleted in the skill's scope, attached to the run. A batch
+// of no files is the run of a skill whose scope the change only deletes from:
+// it has no diff.
+func (r *reviewer) reviewBatch(ctx context.Context, s skill.Skill, batch []diff.FileDiff, n, total int, prev []finding.Finding, hasPrev, hasCarried bool, deleted []string) (o batchOutcome) {
 	var usage runner.Usage
 	dismissalsFailed := false
 	defer func() { o.usage, o.dismissalsFailed = usage, dismissalsFailed }()
 	label := fmt.Sprintf("%d/%d", n, total)
+	if len(batch) == 0 {
+		label = "deleted"
+	}
 	paths := make([]string, len(batch))
 	var patch strings.Builder
 	for i, f := range batch {
@@ -599,18 +632,30 @@ func (r *reviewer) reviewBatch(ctx context.Context, s skill.Skill, batch []diff.
 	if total > 1 {
 		message = fmt.Sprintf(multiBatchMessage, n, total)
 	}
+	if len(batch) == 0 {
+		message = noDiffMessage
+	}
 	if hasCarried {
 		message += " " + carriedMessage
 	}
 	// Where to find the diffs of the other changed files; nothing when this
-	// batch's diff already covers every file with a diff.
-	if note := r.diffsNote(diffsMessage, paths); note != "" {
-		message += " " + note
+	// batch's diff already covers every file with a diff, or when there is no
+	// diff in the skill's scope to compare them with.
+	if len(batch) > 0 {
+		if note := r.diffsNote(diffsMessage, paths); note != "" {
+			message += " " + note
+		}
 	}
 	type attachment struct{ name, content string }
-	attachments := []attachment{
-		{"diff.patch", patch.String()},
-		{"changed-files.md", r.changedList},
+	var attachments []attachment
+	if len(batch) > 0 {
+		attachments = append(attachments, attachment{"diff.patch", patch.String()})
+	}
+	attachments = append(attachments, attachment{"changed-files.md", r.changedList})
+	// After the diffs sentence, which says to report only on files in the diff.
+	if len(deleted) > 0 {
+		attachments = append(attachments, attachment{deletedFile, deletedList(deleted)})
+		message += " " + deletedMessage
 	}
 	if hasPrev {
 		if prev == nil {

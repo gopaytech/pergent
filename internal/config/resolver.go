@@ -24,6 +24,8 @@ type Options struct {
 	BaseBranch        string
 	PreviousReview    bool
 	PreviousReviewSet bool // true when the flag was explicitly passed on the command line
+	CheckDeleted      bool
+	CheckDeletedSet   bool // true when --check-deleted was explicitly passed on the command line
 }
 
 type GitHubConfig struct {
@@ -66,6 +68,9 @@ type Config struct {
 	Local          bool
 	BaseBranch     string
 	PreviousReview bool
+	// CheckDeleted is --check-deleted / PERGENT_CHECK_DELETED (default true):
+	// the runs also look for what still refers to a file the change deleted.
+	CheckDeleted bool
 	// UseOpenCodeConfig is PERGENT_USE_OPENCODE_CONFIG: the opt-in to run on
 	// opencode's own config when OPENCODE_PROVIDER is empty.
 	UseOpenCodeConfig bool
@@ -179,7 +184,7 @@ const (
 )
 
 // ResolveAgent resolves the review settings agent mode uses: Timeout,
-// Concurrency, MaxTurns and ContextLimit (flags > PERGENT_* env > defaults,
+// Concurrency, MaxTurns, ContextLimit and CheckDeleted (flags > PERGENT_* env > defaults,
 // validated as Resolve does). It never detects a platform, and leaves every
 // other field empty.
 func ResolveAgent(opts Options) (Config, error) {
@@ -205,6 +210,9 @@ func resolveReview(opts Options) (Config, error) {
 		return Config{}, err
 	}
 	if cfg.Timeout, err = resolveDuration(opts.Timeout, "PERGENT_TIMEOUT", 10*time.Minute); err != nil {
+		return Config{}, err
+	}
+	if cfg.CheckDeleted, err = resolveBool(opts.CheckDeleted, opts.CheckDeletedSet, "PERGENT_CHECK_DELETED", true); err != nil {
 		return Config{}, err
 	}
 
