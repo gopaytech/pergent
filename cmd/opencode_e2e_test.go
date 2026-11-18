@@ -137,3 +137,48 @@ func TestOpencodeE2E_OffersOnlyReadTools(t *testing.T) {
 		}
 	}
 }
+
+// A user's global opencode config is loaded before pergent's, and opencode 2
+// appends the agent's rules last. The agent's own allow-list must win over a
+// global "allow everything".
+func TestOpencodeE2E_GlobalConfigCantLoosenTheSandbox(t *testing.T) {
+	requireOpencode(t)
+	cfgDir := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "opencode")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	global := `{"permission": {"*": "allow", "read": "allow", "edit": "allow", "bash": "allow", "external_directory": "allow"}}`
+	if err := os.WriteFile(filepath.Join(cfgDir, "opencode.json"), []byte(global), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := newFakeModel(t, [][]fakeCall{{
+		{Name: "read", Args: map[string]any{"path": "src/.env"}},
+		{Name: "execute", Args: map[string]any{"code": "return 1"}},
+	}}, "")
+	useFakeModel(t, m)
+	repo, base, head := e2eRepo(t, map[string]string{"src/.env": "DB_PASSWORD=GLOBALSECRET\n"})
+	_, _ = runAgentE2E(t, repo, base, head)
+
+	reqs := m.Requests()
+	var executeResult string
+	for _, r := range reqs {
+		for id, text := range r.ToolResults {
+			if strings.Contains(text, "GLOBALSECRET") {
+				t.Errorf("a tool result carried the secret: %q", text)
+			}
+			if strings.HasSuffix(id, "_1") {
+				executeResult = text
+			}
+		}
+		if strings.Contains(r.System, "GLOBALSECRET") {
+			t.Error("a request carried the secret")
+		}
+	}
+	if executeResult == "" {
+		t.Fatal("the model never saw a result for execute")
+	}
+	low := strings.ToLower(executeResult)
+	if !strings.Contains(low, "no tool named") && !strings.Contains(low, "denied") && !strings.Contains(low, "refus") {
+		t.Errorf("execute did not come back as a refusal: %q", executeResult)
+	}
+}

@@ -73,19 +73,20 @@ func TestGenerateOpenCodeConfig(t *testing.T) {
 		t.Error("agent 'default' should not be generated")
 	}
 
-	// Check permission field restricts edit/bash and unneeded tools
-	for _, key := range []string{"edit", "bash", "task", "skill", "webfetch", "websearch"} {
-		if cfg.Permission[key] != "deny" {
-			t.Errorf("permission.%s = %v, want %q", key, cfg.Permission[key], "deny")
-		}
+	// An allow-list: "*" denies, so edit, bash and every other tool not named
+	// here are denied.
+	if cfg.Permission["*"] != "deny" {
+		t.Errorf(`permission["*"] = %v, want "deny"`, cfg.Permission["*"])
 	}
-	for _, key := range []string{"glob", "grep", "list"} {
+	for _, key := range []string{"glob", "grep"} {
 		if cfg.Permission[key] != "allow" {
 			t.Errorf("permission.%s = %v, want %q", key, cfg.Permission[key], "allow")
 		}
 	}
-	if _, ok := cfg.Permission["write"]; ok {
-		t.Error("permission.write should not be set (write is gated by edit)")
+	for _, key := range []string{"edit", "bash", "task", "skill", "webfetch", "websearch", "list", "write"} {
+		if _, ok := cfg.Permission[key]; ok {
+			t.Errorf("permission.%s should not be set (the allow-list denies it)", key)
+		}
 	}
 
 	// opencode's default for these is "ask", which `opencode run` rejects,
@@ -659,13 +660,29 @@ const goldenCIConfig = `{
       "mode": "primary",
       "model": "anthropic/claude-sonnet-4",
       "steps": 20,
-      "prompt": "{file:%[4]s}"
+      "prompt": "{file:%[4]s}",
+      "permission": {
+        "*": "deny",
+        "doom_loop": "allow",
+        "external_directory": {
+          "*": "deny",
+          "%[3]s": "allow",
+          "%[2]s": "allow"
+        },
+        "glob": "allow",
+        "grep": "allow",
+        "read": {
+          "*": "allow",
+          "*.env": "deny",
+          "*.env.*": "deny",
+          "*.env.example": "allow"
+        }
+      }
     }
   },
   "permission": {
-    "bash": "deny",
+    "*": "deny",
     "doom_loop": "allow",
-    "edit": "deny",
     "external_directory": {
       "*": "deny",
       "%[3]s": "allow",
@@ -673,22 +690,18 @@ const goldenCIConfig = `{
     },
     "glob": "allow",
     "grep": "allow",
-    "list": "allow",
     "read": {
       "*": "allow",
       "*.env": "deny",
       "*.env.*": "deny",
       "*.env.example": "allow"
-    },
-    "skill": "deny",
-    "task": "deny",
-    "webfetch": "deny",
-    "websearch": "deny"
+    }
   },
   "compaction": {
     "auto": false
   },
-  "lsp": false
+  "lsp": false,
+  "snapshot": false
 }`
 
 func TestGenerate_Unchanged(t *testing.T) {
@@ -818,13 +831,29 @@ const wantNoLinkedConfig = `{
       "description": "pergent review agent",
       "mode": "primary",
       "model": "anthropic/claude-sonnet-4",
-      "steps": 20
+      "steps": 20,
+      "permission": {
+        "*": "deny",
+        "doom_loop": "allow",
+        "external_directory": {
+          "*": "deny",
+          "%[1]s/opencode-data-pergent-*/opencode/tool-output/*": "allow",
+          "%[1]s/pergent-*": "allow"
+        },
+        "glob": "allow",
+        "grep": "allow",
+        "read": {
+          "*": "allow",
+          "*.env": "deny",
+          "*.env.*": "deny",
+          "*.env.example": "allow"
+        }
+      }
     }
   },
   "permission": {
-    "bash": "deny",
+    "*": "deny",
     "doom_loop": "allow",
-    "edit": "deny",
     "external_directory": {
       "*": "deny",
       "%[1]s/opencode-data-pergent-*/opencode/tool-output/*": "allow",
@@ -832,22 +861,18 @@ const wantNoLinkedConfig = `{
     },
     "glob": "allow",
     "grep": "allow",
-    "list": "allow",
     "read": {
       "*": "allow",
       "*.env": "deny",
       "*.env.*": "deny",
       "*.env.example": "allow"
-    },
-    "skill": "deny",
-    "task": "deny",
-    "webfetch": "deny",
-    "websearch": "deny"
+    }
   },
   "compaction": {
     "auto": false
   },
-  "lsp": false
+  "lsp": false,
+  "snapshot": false
 }`
 
 func TestExternalDirectoryOnlyForLinked(t *testing.T) {
@@ -915,6 +940,8 @@ func TestExternalDirectoryOnlyForLinked(t *testing.T) {
 		}
 		delete(a["permission"].(map[string]any), "external_directory")
 		delete(b["permission"].(map[string]any), "external_directory")
+		delete(a["agent"].(map[string]any)["pergent"].(map[string]any)["permission"].(map[string]any), "external_directory")
+		delete(b["agent"].(map[string]any)["pergent"].(map[string]any)["permission"].(map[string]any), "external_directory")
 		ab, _ := json.Marshal(a)
 		bb, _ := json.Marshal(b)
 		if !bytes.Equal(ab, bb) {
@@ -932,5 +959,52 @@ func TestLinkedAllowsRefusesWidePaths(t *testing.T) {
 	}
 	if got := linkedAllows("/work/linked-1/"); len(got) != 2 || got[0] != "/work/linked-1" || got[1] != "/work/linked-1/*" {
 		t.Errorf("linkedAllows(/work/linked-1/) = %v", got)
+	}
+}
+
+// The permissions are an allow-list: "*" denies, so a tool opencode adds
+// later is denied without a change here. The same block sits on the agent,
+// whose rules opencode 2 appends after every global rule.
+func TestGenerateOpenCodeConfig_AllowList(t *testing.T) {
+	t.Setenv("OPENCODE_PROVIDER", "anthropic")
+	t.Setenv("OPENCODE_MODEL", "claude-sonnet-4")
+
+	path, cleanup, err := GenerateOpenCodeConfigWith(OpenCodeOptions{MaxTurns: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw struct {
+		Permission map[string]json.RawMessage `json:"permission"`
+		Snapshot   *bool                      `json:"snapshot"`
+		Agent      map[string]struct {
+			Permission map[string]json.RawMessage `json:"permission"`
+		} `json:"agent"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"*", "read", "glob", "grep", "external_directory", "doom_loop"}
+	check := func(where string, perm map[string]json.RawMessage) {
+		if len(perm) != len(want) {
+			t.Errorf("%s has %d keys, want %v", where, len(perm), want)
+		}
+		for _, k := range want {
+			if _, ok := perm[k]; !ok {
+				t.Errorf("%s lacks %q", where, k)
+			}
+		}
+		if string(perm["*"]) != `"deny"` {
+			t.Errorf(`%s["*"] = %s, want "deny"`, where, perm["*"])
+		}
+	}
+	check("permission", raw.Permission)
+	check("agent.pergent.permission", raw.Agent[AgentName].Permission)
+	if raw.Snapshot == nil || *raw.Snapshot {
+		t.Errorf("snapshot = %v, want present and false", raw.Snapshot)
 	}
 }
