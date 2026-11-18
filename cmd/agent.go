@@ -227,6 +227,13 @@ func runAgent(ctx context.Context, args []string, getenv func(string) string, st
 	if e := prepareAgent(&in, logger); e != nil {
 		return failWith(e)
 	}
+	versionWarning, versionErr := checkOpencodeVersion(ctx)
+	if versionErr != nil {
+		return failWith(&result.Error{Code: result.CodeInternal, Message: versionErr.Error()})
+	}
+	if versionWarning != "" {
+		logger.Printf("warning: %s", versionWarning)
+	}
 
 	logger.Printf("Reviewing %d changed file(s) with %d skill(s), up to %d opencode runs at once, within %s",
 		len(in.Files), len(in.Skills), in.Review.Concurrency, in.Review.Timeout)

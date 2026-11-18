@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gopaytech/pergent/internal/result"
+	"github.com/gopaytech/pergent/internal/runner"
 )
 
 // These tests run `pergent agent` against the real opencode binary and a
@@ -26,6 +27,10 @@ import (
 // known.
 func requireOpencode(t *testing.T) string {
 	t.Helper()
+	// The e2e tests run the real check against the real binary.
+	old := checkOpencodeVersion
+	checkOpencodeVersion = runner.CheckOpencodeVersion
+	t.Cleanup(func() { checkOpencodeVersion = old })
 	src := os.Getenv("PERGENT_TEST_OPENCODE")
 	if src == "" {
 		t.Skip("PERGENT_TEST_OPENCODE is not set")

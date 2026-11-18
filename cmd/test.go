@@ -16,6 +16,14 @@ import (
 )
 
 func runTest(ctx context.Context) {
+	warning, err := checkOpencodeVersion(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "FAIL: %s\n", redact.String(err.Error()))
+		os.Exit(1)
+	}
+	if warning != "" {
+		fmt.Fprintf(os.Stderr, "warning: %s\n", warning)
+	}
 	if !checkOpencode(ctx, os.Stderr) {
 		os.Exit(1)
 	}
