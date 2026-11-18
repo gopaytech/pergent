@@ -30,9 +30,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install opencode: its release names amd64 "x64". The checksums are the
 # release assets' digests: change them together with the version.
-ARG OPENCODE_VERSION=1.19.4
-ARG OPENCODE_SHA256_X64=849bd6b3d959a1d2ef200ed1634a51c79a45ca236aa26665d75debd694805cce
-ARG OPENCODE_SHA256_ARM64=8568230ccd847dc93e95b9f6894379077d3e014a16b48040743573e77c23e85f
+ARG OPENCODE_VERSION=2.3.2
+ARG OPENCODE_SHA256_X64=563b5d663637226b6e3bb4bb6803281bc39b0d2cd88db06d674b6420aab009b0
+ARG OPENCODE_SHA256_ARM64=9d10185acdb72336e086e699ca363a6065f410fd3c1caed0dc8046e95ac06ccb
 RUN case "${TARGETARCH}" in \
       amd64) opencode_arch=x64; opencode_sha256="${OPENCODE_SHA256_X64}" ;; \
       arm64) opencode_arch=arm64; opencode_sha256="${OPENCODE_SHA256_ARM64}" ;; \
