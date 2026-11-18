@@ -33,12 +33,24 @@ type fakeRequest struct {
 type fakeModel struct {
 	URL string
 
-	t    *testing.T
+	t *testing.T
+	// only, when set, limits the scripted turns to requests whose system
+	// prompt contains it: any other run just answers.
+	only string
 	mu   sync.Mutex
 	reqs []fakeRequest
 }
 
 const fakeFinal = "Reviewed.\n\n```json\n{\"summary\":\"ok\",\"confidence\":5,\"confidence_reason\":\"small\",\"findings\":[]}\n```\n"
+
+// newFakeModelFor is newFakeModel with turns served only to the run whose
+// system prompt contains only. Other runs of the review get no tool calls.
+func newFakeModelFor(t *testing.T, only string, turns [][]fakeCall) *fakeModel {
+	t.Helper()
+	m := newFakeModel(t, turns, "")
+	m.only = only
+	return m
+}
 
 // newFakeModel starts the server. mode is "", "error500", "overflow" or
 // "hang" (never answers until the request's context ends).
@@ -144,7 +156,7 @@ func (m *fakeModel) handle(w http.ResponseWriter, r *http.Request, turns [][]fak
 	}
 
 	var calls []fakeCall
-	if len(req.Tools) > 0 && turn < len(turns) {
+	if len(req.Tools) > 0 && turn < len(turns) && (m.only == "" || strings.Contains(rec.System, m.only)) {
 		calls = turns[turn]
 	}
 	base := map[string]any{"id": "c1", "object": "chat.completion.chunk", "created": time.Now().Unix(), "model": "fake-model"}

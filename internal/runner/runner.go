@@ -27,8 +27,8 @@ type RunResult struct {
 	Cause     *Cause
 	// Usage is the tokens used, summed over all attempts.
 	Usage Usage
-	// Opened are the paths the completing attempt's successful read, grep,
-	// glob and list calls worked on (see Transcript.Opened).
+	// Opened are the paths the completing attempt's successful read, grep
+	// and glob calls worked on (see Transcript.Opened).
 	Opened []string
 }
 

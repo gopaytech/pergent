@@ -282,9 +282,27 @@ func TestParseOutput_OpenedPaths(t *testing.T) {
 		ev("read", "completed", `{}`) +
 		`{"type":"step_finish","part":{"type":"step-finish","reason":"stop","tokens":{"input":1,"output":1}}}` + "\n"
 	got := ParseOutput([]byte(stdout)).Opened
-	want := []string{"/work/linked-1/a.go", "/work/linked-1/svc", "/work/linked-1", "/work/linked-1"}
+	want := []string{"/work/linked-1/a.go", "/work/linked-1/svc", "/work/linked-1"}
 	if !slices.Equal(got, want) {
-		t.Errorf("Opened = %q, want %q: only a completed read, grep, glob or list with a path", got, want)
+		t.Errorf("Opened = %q, want %q: only a completed read, grep or glob with a path", got, want)
+	}
+}
+
+func TestParseOutput_OpenedV2(t *testing.T) {
+	ev := func(tool, state string) string {
+		return `{"type":"tool_use","timestamp":1,"sessionID":"s","part":{"partID":"p","sessionID":"s","messageID":"m","type":"tool","id":"call_0","tool":"` + tool + `","state":` + state + `}}` + "\n"
+	}
+	ok := func(input string) string {
+		return `{"status":"completed","input":` + input + `,"output":"x","title":"t","metadata":{},"time":{"start":1,"end":2}}`
+	}
+	stdout := ev("read", ok(`{"path":"/clone/a.go"}`)) +
+		ev("grep", ok(`{"pattern":"x","path":"/clone"}`)) +
+		ev("read", `{"status":"error","input":{"path":"/clone/.env"},"error":"Permission denied: read"}`) +
+		ev("list", ok(`{"path":"/clone"}`))
+	got := ParseOutput([]byte(stdout)).Opened
+	want := []string{"/clone/a.go", "/clone"}
+	if !slices.Equal(got, want) {
+		t.Errorf("Opened = %q, want %q: opencode 2 has no list tool, and an error call is not an open", got, want)
 	}
 }
 

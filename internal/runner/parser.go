@@ -147,8 +147,9 @@ type Transcript struct {
 	// reported, e.g. "read" and a file path.
 	LastTool       string
 	LastToolTarget string
-	// Opened are the paths that a completed read, grep, glob or list call
-	// worked on (its filePath or path argument), in order, at most maxOpened.
+	// Opened are the paths that a completed read, grep or glob call worked on
+	// (its path argument, or filePath), in order, at most maxOpened. opencode
+	// 2 has no list tool: read lists a directory.
 	// A call opencode refused (a denied read) ended in the error state and is
 	// not counted. A call with no path argument is not counted either: it
 	// worked on the working directory.
@@ -277,7 +278,7 @@ func ParseOutput(stdout []byte) Transcript {
 				t.LastToolTarget = toolTarget(event.Part.State.Input)
 				if event.Part.State.Status == "completed" && len(t.Opened) < maxOpened {
 					switch event.Part.Tool {
-					case "read", "grep", "glob", "list":
+					case "read", "grep", "glob":
 						if p := openedPath(event.Part.State.Input); p != "" {
 							t.Opened = append(t.Opened, p)
 						}
@@ -310,8 +311,8 @@ func isFinalReason(reason string) bool {
 	return true
 }
 
-// openedPath is the file or directory a read, grep, glob or list call was
-// pointed at: its filePath or path argument, not its pattern.
+// openedPath is the file or directory a read, grep or glob call was
+// pointed at: its path or filePath argument, not its pattern.
 func openedPath(input map[string]any) string {
 	for _, key := range []string{"filePath", "path"} {
 		if v, ok := input[key].(string); ok && v != "" {

@@ -431,3 +431,50 @@ func TestOpencodeE2E_ProviderErrors(t *testing.T) {
 		})
 	}
 }
+
+// The impact run proves it looked inside a clone by the paths of its completed
+// read, grep and glob calls (Transcript.Opened). The skill run of the same
+// review gets no tool calls: only the run whose prompt is the impact prompt
+// reads the clone.
+func TestOpencodeE2E_ImpactRunRecordsOpenedClone(t *testing.T) {
+	requireOpencode(t)
+	clone := t.TempDir()
+	const apiSrc = "package billing\n\nfunc CallerOfA() { A() }\n"
+	writeFile(t, clone, "api.go", apiSrc)
+	links := filepath.Join(t.TempDir(), "linked.json")
+	data, _ := json.Marshal([]map[string]any{{"name": "billing", "path": clone, "watched": []string{}, "can_block": true}})
+	if err := os.WriteFile(links, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := newFakeModelFor(t, "breaks code in other repositories that use it", [][]fakeCall{
+		{{Name: "read", Args: map[string]any{"path": filepath.Join(clone, "api.go")}}},
+	})
+	useFakeModel(t, m)
+	repo, base, head := e2eRepo(t, map[string]string{"b.go": "package a\n"})
+	res, stderr := runAgentE2E(t, repo, base, head, "--linked-repos", links)
+
+	var impact *result.Skill
+	for i := range res.Skills {
+		if res.Skills[i].Name == "impact" {
+			impact = &res.Skills[i]
+		}
+	}
+	if impact == nil {
+		t.Fatalf("no impact skill in the result: %+v\nstderr:\n%s", res.Skills, stderr)
+	}
+	if impact.Verdict == "failed" {
+		t.Fatalf("impact failed: %+v\nstderr:\n%s", impact.Failures, stderr)
+	}
+	found := false
+	for _, r := range m.Requests() {
+		for _, out := range r.ToolResults {
+			if strings.Contains(out, "func CallerOfA") {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Errorf("no tool result held the clone file's content\nstderr:\n%s", stderr)
+	}
+}
