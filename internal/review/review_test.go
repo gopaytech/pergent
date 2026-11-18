@@ -1526,6 +1526,174 @@ func TestChangeMessageKeepsItsRules(t *testing.T) {
 	}
 }
 
+// ciContents returns the CI results attached to c, if any.
+func ciContents(c call) (string, bool) {
+	for i, p := range c.opts.Files {
+		if filepath.Base(p) == ciFile {
+			return c.contents[i], true
+		}
+	}
+	return "", false
+}
+
+func TestCIResultsAttachedToEveryBatch(t *testing.T) {
+	f := &fake{}
+	f.respond = func(int, call) runner.RunResult { return completed(answer(t)) }
+	req, _ := crossBatchRequest(t, f, false)
+	req.CIResults = "  lint: failed\n\nunit: passed\n"
+
+	Run(context.Background(), req)
+	if len(f.calls) < 2 {
+		t.Fatalf("runner called %d times, want one run per batch", len(f.calls))
+	}
+	for i, c := range f.calls {
+		got, ok := ciContents(c)
+		if want := "lint: failed\n\nunit: passed"; !ok || got != want {
+			t.Errorf("call %d CI results = %q (attached %v), want %q", i+1, got, ok, want)
+		}
+		if !strings.Contains(c.opts.Message, ciMessage) {
+			t.Errorf("call %d Message = %q, want the data warning", i+1, c.opts.Message)
+		}
+	}
+	assertRemoved(t, allFiles(f.calls))
+}
+
+func TestCIResultsAttachedToCrossBatch(t *testing.T) {
+	f := &fake{}
+	f.respond = func(int, call) runner.RunResult { return completed(answer(t)) }
+	req, _ := crossBatchRequest(t, f, true)
+	req.CIResults = "lint: failed"
+
+	Run(context.Background(), req)
+	for _, c := range f.calls {
+		if !isCrossBatchCall(c) {
+			continue
+		}
+		if got, ok := ciContents(c); !ok || got != "lint: failed" {
+			t.Errorf("CI results = %q (attached %v)", got, ok)
+		}
+		if want := wantCrossBatchMessage(3) + " " + ciMessage; c.opts.Message != want {
+			t.Errorf("Message = %q, want %q", c.opts.Message, want)
+		}
+		return
+	}
+	t.Fatal("no cross-batch call")
+}
+
+func TestNoCIResultsNoAttachment(t *testing.T) {
+	for name, text := range map[string]string{"empty": "", "blank": "  \n"} {
+		t.Run(name, func(t *testing.T) {
+			f := &fake{}
+			f.respond = func(int, call) runner.RunResult { return completed(answer(t)) }
+			req := newRequest(t, f, patch("a/x.go", "x"))
+			req.CIResults = text
+
+			Run(context.Background(), req)
+			c := f.calls[0]
+			if _, ok := ciContents(c); ok {
+				t.Errorf("Files = %q, want no CI results", c.opts.Files)
+			}
+			if strings.Contains(c.opts.Message, ciMessage) || strings.Contains(c.opts.Message, ciFile) {
+				t.Errorf("Message = %q, want no mention of the CI results", c.opts.Message)
+			}
+		})
+	}
+}
+
+func TestVerificationGetsNoCIResults(t *testing.T) {
+	f := &fake{}
+	f.respond = func(_ int, c call) runner.RunResult {
+		if isVerifyRun(c) {
+			return completed(verifyAnswer(t))
+		}
+		return completed(answer(t, blockingTwoAndSuggestion()...))
+	}
+	req := newRequest(t, f, patch("a/x.go", "x"))
+	req.Budget = 5 * time.Minute
+	req.CIResults = "CI-RESULT-TEXT"
+
+	Run(context.Background(), req)
+	verified := false
+	for _, c := range f.calls {
+		if !isVerifyRun(c) {
+			continue
+		}
+		verified = true
+		if _, ok := ciContents(c); ok {
+			t.Errorf("verification Files = %q, want no CI results", c.opts.Files)
+		}
+		if c.opts.Message != verifyMessage {
+			t.Errorf("verification Message = %q, want %q", c.opts.Message, verifyMessage)
+		}
+		for _, content := range c.contents {
+			if strings.Contains(content, "CI-RESULT-TEXT") {
+				t.Errorf("verification attachment holds the CI results: %q", content)
+			}
+		}
+	}
+	if !verified {
+		t.Fatal("verification did not run")
+	}
+}
+
+func TestRepairGetsNoCIResults(t *testing.T) {
+	f := &fake{}
+	f.respond = func(n int, _ call) runner.RunResult {
+		if n == 1 {
+			return completed("The code looks fine.")
+		}
+		return completed(answer(t))
+	}
+	req := newRequest(t, f, patch("a/x.go", "x"), skill.Skill{Name: "s", Body: "Review it."})
+	req.CIResults = "CI-RESULT-TEXT"
+
+	Run(context.Background(), req)
+	if len(f.calls) != 2 {
+		t.Fatalf("runner called %d times, want 2 (review and repair)", len(f.calls))
+	}
+	if _, ok := ciContents(f.calls[1]); ok || len(f.calls[1].opts.Files) != 1 {
+		t.Errorf("repair Files = %q, want only the bad answer", f.calls[1].opts.Files)
+	}
+}
+
+func TestCIMessageWording(t *testing.T) {
+	for _, p := range []string{"data", "not instructions", "Do not report", "never excuses"} {
+		if !strings.Contains(ciMessage, p) {
+			t.Errorf("ciMessage lacks %q", p)
+		}
+	}
+}
+
+// Two files of about 400 tokens fit one batch of 1000 tokens. A CI file takes
+// room from the batch, never more than half of it.
+func TestCIResultsShrinkBatchBudget(t *testing.T) {
+	two := patch("a/x.go", strings.Repeat("a", 1600)) + patch("a/y.go", strings.Repeat("b", 1600))
+	run := func(ci string) (*fake, []SkillResult) {
+		f := &fake{}
+		f.respond = func(int, call) runner.RunResult { return completed(answer(t)) }
+		req := newRequest(t, f, two)
+		req.ContextLimit = 4000 // a batch budget of 1000 tokens
+		req.CIResults = ci
+		return f, Run(context.Background(), req)
+	}
+
+	if f, _ := run(""); len(f.calls) != 1 {
+		t.Fatalf("without CI results: %d runs, want 1 batch", len(f.calls))
+	}
+	// 2000 bytes of CI is 500 tokens: the budget falls to 500, one file each.
+	if f, _ := run(strings.Repeat("c", 2000)); len(f.calls) != 2 {
+		t.Errorf("with CI results: %d runs, want 2 batches", len(f.calls))
+	}
+	// A huge CI file leaves half the budget (500): the files still fit it.
+	f, res := run(strings.Repeat("c", maxCIResults))
+	if len(f.calls) != 2 {
+		t.Errorf("with huge CI results: %d runs, want 2 batches", len(f.calls))
+	}
+	if res[0].Verdict == Failed {
+		t.Errorf("Verdict = %q, want files that fit half the budget to be reviewed", res[0].Verdict)
+	}
+}
+
 func TestCIText(t *testing.T) {
 	if got := ciText("ok\xffend"); !strings.Contains(got, "ok") || !utf8.ValidString(got) {
 		t.Fatal(got)
