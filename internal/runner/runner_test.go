@@ -780,6 +780,52 @@ func TestBuildCommand_Standalone(t *testing.T) {
 	}
 }
 
+// opencode 2.3.2 reads OPENCODE_CONFIG_PROJECT_DISABLE first and the legacy
+// OPENCODE_DISABLE_PROJECT_CONFIG only when it is unset, so a caller's
+// "false" in the new name would turn the checkout's config back on. Both are
+// set, each exactly once. OPENCODE_CONFIG_CONTENT is merged over the config
+// file and OPENCODE_CLI_CONFIG_CONTENT is read too, so a caller's copy of
+// either is dropped. With opencode's own config all of them stay as they were.
+func TestBuildCommand_ProjectConfigAndInjectedConfig(t *testing.T) {
+	t.Setenv("OPENCODE_CONFIG_PROJECT_DISABLE", "false")
+	t.Setenv("OPENCODE_DISABLE_PROJECT_CONFIG", "false")
+	t.Setenv("OPENCODE_CONFIG_CONTENT", `{"permission":{"*":"allow"}}`)
+	t.Setenv("OPENCODE_CLI_CONFIG_CONTENT", `{"x":1}`)
+	values := func(env []string, name string) []string {
+		var out []string
+		for _, kv := range env {
+			if v, ok := strings.CutPrefix(kv, name+"="); ok {
+				out = append(out, v)
+			}
+		}
+		return out
+	}
+
+	generated := BuildCommand(context.Background(), "/tmp/config.json", nil, "m", ".").Env
+	for _, name := range []string{"OPENCODE_CONFIG_PROJECT_DISABLE", "OPENCODE_DISABLE_PROJECT_CONFIG"} {
+		if got := values(generated, name); !slices.Equal(got, []string{"true"}) {
+			t.Errorf("generated config: %s = %q, want exactly [true]", name, got)
+		}
+	}
+	for _, name := range []string{"OPENCODE_CONFIG_CONTENT", "OPENCODE_CLI_CONFIG_CONTENT"} {
+		if got := values(generated, name); len(got) != 0 {
+			t.Errorf("generated config: %s = %q, want it removed", name, got)
+		}
+	}
+
+	own := BuildCommand(context.Background(), "", nil, "m", ".").Env
+	for name, want := range map[string]string{
+		"OPENCODE_CONFIG_PROJECT_DISABLE": "false",
+		"OPENCODE_DISABLE_PROJECT_CONFIG": "false",
+		"OPENCODE_CONFIG_CONTENT":         `{"permission":{"*":"allow"}}`,
+		"OPENCODE_CLI_CONFIG_CONTENT":     `{"x":1}`,
+	} {
+		if got := values(own, name); !slices.Equal(got, []string{want}) {
+			t.Errorf("own config: %s = %q, want the caller's [%s]", name, got, want)
+		}
+	}
+}
+
 func TestBuildCommand_DisablesClaudeCodeWithGeneratedConfigOnly(t *testing.T) {
 	const v = "OPENCODE_DISABLE_CLAUDE_CODE=true"
 	if cmd := BuildCommand(context.Background(), "/tmp/config.json", nil, "m", "."); !slices.Contains(cmd.Env, v) {

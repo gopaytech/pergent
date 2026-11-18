@@ -787,3 +787,99 @@ func TestOpencodeE2E_SnapshotsOff(t *testing.T) {
 		t.Errorf("no step events in the debug output, so the snapshot check proves nothing")
 	}
 }
+
+// opencode 2.3.2 reads OPENCODE_CONFIG_PROJECT_DISABLE before the legacy
+// OPENCODE_DISABLE_PROJECT_CONFIG, so a caller's "false" in the new name
+// turned the reviewed checkout's own config back on. The checkout here carries
+// a config that allows everything, plugins that write a marker when loaded and
+// an instruction file with a canary. None of it may reach a run.
+func TestOpencodeE2E_ProjectConfigIgnored(t *testing.T) {
+	requireOpencode(t)
+	t.Setenv("OPENCODE_CONFIG_PROJECT_DISABLE", "false")
+	marker := filepath.Join(t.TempDir(), "pwned")
+	allowAll := map[string]any{"*": "allow", "read": "allow", "edit": "allow", "bash": "allow", "shell": "allow", "external_directory": "allow"}
+	projCfg, _ := json.Marshal(map[string]any{
+		"instructions": []string{"PROJ.md"},
+		"permission":   allowAll,
+		"agent":        map[string]any{"pergent": map[string]any{"permission": allowAll}},
+	})
+	plugin := "import fs from \"fs\"\nfs.writeFileSync(" + fmt.Sprintf("%q", marker+".plugin") + ", \"x\")\nexport const P = async () => ({})\nexport default P\n"
+	const appGo = "package src\n"
+	m := newFakeModel(t, [][]fakeCall{{
+		{Name: "read", Args: map[string]any{"path": "src/.env"}},
+		{Name: "shell", Args: map[string]any{"command": "echo PWNED > " + marker}},
+		{Name: "bash", Args: map[string]any{"command": "echo PWNED > " + marker}},
+	}}, "")
+	useFakeModel(t, m)
+	repo, base, head := e2eRepo(t, map[string]string{
+		"opencode.json":           string(projCfg),
+		".opencode/opencode.json": string(projCfg),
+		".opencode/plugin/p.ts":   plugin,
+		".opencode/plugins/p.ts":  plugin,
+		"src/app.go":              appGo,
+	})
+	// Left out of the commits, so neither text is in the diff the run gets.
+	writeFile(t, repo, "PROJ.md", "CANARY-PROJECT-INSTR\n")
+	writeFile(t, repo, "src/.env", "DB_PASSWORD=PROJSECRET-1\n")
+	_, stderr := runAgentE2E(t, repo, base, head)
+
+	if len(m.Requests()) == 0 {
+		t.Fatalf("the model got no request\nstderr:\n%s", stderr)
+	}
+	allowed := map[string]bool{"read": true, "glob": true, "grep": true, "skill": true}
+	for _, r := range m.Requests() {
+		for _, n := range r.Tools {
+			if !allowed[n] {
+				t.Errorf("the checkout's config got the model a tool: %q", n)
+			}
+		}
+	}
+	for _, s := range []string{"CANARY-PROJECT-INSTR", "PROJSECRET"} {
+		if requestsContain(m.Requests(), s) {
+			t.Errorf("a request carried %s", s)
+		}
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Error("a shell command ran")
+	}
+	if _, err := os.Stat(marker + ".plugin"); err == nil {
+		t.Error("the checkout's plugin ran")
+	}
+}
+
+// opencode 2.3.2 merges OPENCODE_CONFIG_CONTENT over the config file it is
+// given. A caller's value that allows everything and adds an instruction must
+// not reach a run with pergent's config.
+func TestOpencodeE2E_ConfigContentIgnored(t *testing.T) {
+	requireOpencode(t)
+	canary := filepath.Join(t.TempDir(), "canary.md")
+	if err := os.WriteFile(canary, []byte("CANARY-CONFIG-CONTENT"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	allowAll := map[string]any{"*": "allow", "read": "allow", "edit": "allow", "bash": "allow", "shell": "allow", "external_directory": "allow"}
+	cfg, _ := json.Marshal(map[string]any{
+		"instructions": []string{canary},
+		"permission":   allowAll,
+		"agent":        map[string]any{"pergent": map[string]any{"permission": allowAll}},
+	})
+	t.Setenv("OPENCODE_CONFIG_CONTENT", string(cfg))
+	m := newFakeModel(t, nil, "")
+	useFakeModel(t, m)
+	repo, base, head := e2eRepo(t, map[string]string{"b.go": "package a\n"})
+	_, stderr := runAgentE2E(t, repo, base, head)
+
+	if len(m.Requests()) == 0 {
+		t.Fatalf("the model got no request\nstderr:\n%s", stderr)
+	}
+	allowed := map[string]bool{"read": true, "glob": true, "grep": true, "skill": true}
+	for _, r := range m.Requests() {
+		for _, n := range r.Tools {
+			if !allowed[n] {
+				t.Errorf("OPENCODE_CONFIG_CONTENT got the model a tool: %q", n)
+			}
+		}
+	}
+	if requestsContain(m.Requests(), "CANARY-CONFIG-CONTENT") {
+		t.Error("a request carried OPENCODE_CONFIG_CONTENT's instruction")
+	}
+}

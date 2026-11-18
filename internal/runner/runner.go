@@ -146,12 +146,25 @@ func BuildCommand(ctx context.Context, configPath string, files []string, messag
 		// opencode signs in with OPENCODE_API_KEY here and has no use for a
 		// platform token, which a change under review could otherwise reach.
 		env = withoutEnv(env, []string{"GITHUB_TOKEN", "GITLAB_TOKEN"})
+		// opencode merges OPENCODE_CONFIG_CONTENT over the config file, which
+		// would let a caller's value loosen the permissions; the CLI's own
+		// config content is dropped with it. The values set below replace any
+		// inherited copy.
+		env = withoutEnv(env, []string{
+			"OPENCODE_CONFIG_CONTENT", "OPENCODE_CLI_CONFIG_CONTENT",
+			"OPENCODE_CONFIG", "OPENCODE_DISABLE_PROJECT_CONFIG", "OPENCODE_CONFIG_PROJECT_DISABLE",
+			"OPENCODE_DISABLE_CLAUDE_CODE",
+		})
 		// Ignore the reviewed repo's own opencode.json and .opencode/ (agents,
 		// plugins), which would otherwise override our permissions or run code
-		// with the LLM key in the environment.
+		// with the LLM key in the environment. opencode 2.3.2 reads the new
+		// name first and the legacy one only when it is unset, so a caller's
+		// "false" in the new name would win; both are set, in case a later
+		// version drops either.
 		env = append(env,
 			"OPENCODE_CONFIG="+configPath,
 			"OPENCODE_DISABLE_PROJECT_CONFIG=true",
+			"OPENCODE_CONFIG_PROJECT_DISABLE=true",
 			// opencode 2 also reads CLAUDE.md files (the checkout's and
 			// ~/.claude/CLAUDE.md), which agent mode never loads.
 			"OPENCODE_DISABLE_CLAUDE_CODE=true",
