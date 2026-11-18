@@ -26,6 +26,7 @@ type fakeRequest struct {
 	Tools       []string
 	System      string
 	ToolResults map[string]string // by tool-call ID
+	Raw         string            // the whole request body
 }
 
 // fakeModel is a scripted OpenAI-compatible server for the real-opencode
@@ -126,7 +127,7 @@ func (m *fakeModel) handle(w http.ResponseWriter, r *http.Request, turns [][]fak
 		m.t.Errorf("fake model: request body is not JSON: %v", err)
 	}
 
-	rec := fakeRequest{ToolResults: map[string]string{}}
+	rec := fakeRequest{ToolResults: map[string]string{}, Raw: string(raw)}
 	var sys []string
 	turn := 0
 	for _, msg := range req.Messages {
@@ -239,4 +240,15 @@ func (m *fakeModel) handle(w http.ResponseWriter, r *http.Request, turns [][]fak
 		send(chunk(map[string]any{}, "stop", true))
 	}
 	io.WriteString(w, "data: [DONE]\n\n")
+}
+
+// requestsContain reports whether s is anywhere in the body of any request,
+// whatever the role or part that carries it.
+func requestsContain(reqs []fakeRequest, s string) bool {
+	for _, r := range reqs {
+		if strings.Contains(r.Raw, s) {
+			return true
+		}
+	}
+	return false
 }

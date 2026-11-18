@@ -559,8 +559,9 @@ func TestOpencodeE2E_DeniesWritesEscapesAndSecrets(t *testing.T) {
 	}}, "")
 	useFakeModel(t, m)
 	const appGo = "package src\n"
-	repo, base, head := e2eRepo(t, map[string]string{"src/app.go": appGo,
-		".claude/skills/planted/SKILL.md": "---\nname: planted\ndescription: planted\n---\nPLANTED-SKILL-BODY\n"})
+	repo, base, head := e2eRepo(t, map[string]string{"src/app.go": appGo})
+	// Uncommitted, or the diff would carry it to the model.
+	writeFile(t, repo, ".claude/skills/planted/SKILL.md", "---\nname: planted\ndescription: planted\n---\nPLANTED-SKILL-BODY\n")
 	writeFile(t, repo, "src/.env", "DB_PASSWORD=ENVSECRET-123\n")
 	res, stderr := runAgentE2E(t, repo, base, head)
 
@@ -593,16 +594,10 @@ func TestOpencodeE2E_DeniesWritesEscapesAndSecrets(t *testing.T) {
 	if hits.Load() != 0 {
 		t.Errorf("the exfil server got %d requests", hits.Load())
 	}
-	for _, r := range m.Requests() {
-		all := r.System
-		for _, text := range r.ToolResults {
-			all += "\n" + text
-		}
-		// /etc/hosts differs per machine; its refusal is asserted above.
-		for _, secret := range []string{outsideText, "ENVSECRET-123", "PLANTED-SKILL-BODY"} {
-			if strings.Contains(all, secret) {
-				t.Errorf("a request carried %q", secret)
-			}
+	// /etc/hosts differs per machine; its refusal is asserted above.
+	for _, secret := range []string{outsideText, "ENVSECRET-123", "PLANTED-SKILL-BODY"} {
+		if requestsContain(m.Requests(), secret) {
+			t.Errorf("a request carried %q", secret)
 		}
 	}
 	for _, s := range res.Skills {
@@ -640,13 +635,9 @@ func TestOpencodeE2E_GrepCantReadDeniedFiles(t *testing.T) {
 	if len(results) < 2 {
 		t.Fatalf("the model saw %d tool results, want 2: %v\nstderr:\n%s", len(results), results, stderr)
 	}
-	for _, r := range m.Requests() {
-		all := r.System
-		for _, text := range r.ToolResults {
-			all += "\n" + text
-		}
-		if strings.Contains(all, "PRODSECRET") {
-			t.Errorf("a request carried PRODSECRET:\n%s", all)
+	for _, secret := range []string{"PRODSECRET", "prod.env", "tls.KEY"} {
+		if requestsContain(m.Requests(), secret) {
+			t.Errorf("a request carried %q", secret)
 		}
 	}
 	for _, s := range res.Skills {
@@ -671,7 +662,8 @@ func TestOpencodeE2E_LongToolOutputIsReadable(t *testing.T) {
 	writeFile(t, xdg, "opencode/auth.json", `{"fake":{"type":"api","key":"AUTHSECRET-555"}}`)
 
 	m := newFakeModel(t, [][]fakeCall{{{Name: "glob", Args: map[string]any{"pattern": "*.go"}}}}, "")
-	var spill, authFile string
+	var mu sync.Mutex
+	var spill string
 	m.next = map[int]func(fakeRequest) []fakeCall{1: func(fakeRequest) []fakeCall {
 		dirs, _ := filepath.Glob(filepath.Join(os.TempDir(), config.DataDirPrefix+"*"))
 		if len(dirs) != 1 {
@@ -683,11 +675,13 @@ func TestOpencodeE2E_LongToolOutputIsReadable(t *testing.T) {
 			t.Error(err)
 			return nil
 		}
+		mu.Lock()
 		spill = filepath.Join(out, "tool_0123456789ab")
+		mu.Unlock()
 		if err := os.WriteFile(spill, []byte("SPILLED-LINE-1\nSPILLED-LINE-2\n"), 0o644); err != nil {
 			t.Error(err)
 		}
-		authFile = filepath.Join(dirs[0], "opencode", "auth.json")
+		authFile := filepath.Join(dirs[0], "opencode", "auth.json")
 		return []fakeCall{
 			{Name: "read", Args: map[string]any{"path": spill}},
 			{Name: "read", Args: map[string]any{"path": authFile}},
@@ -698,7 +692,10 @@ func TestOpencodeE2E_LongToolOutputIsReadable(t *testing.T) {
 	res, stderr := runAgentE2E(t, repo, base, head)
 
 	results := allResults(m)
-	if spill == "" {
+	mu.Lock()
+	gotSpill := spill
+	mu.Unlock()
+	if gotSpill == "" {
 		t.Fatalf("turn 2 never ran\nstderr:\n%s", stderr)
 	}
 	if got := results["call_1_0"]; !strings.Contains(got, "SPILLED-LINE-2") || isRefusal(got) {
@@ -707,14 +704,8 @@ func TestOpencodeE2E_LongToolOutputIsReadable(t *testing.T) {
 	if got := results["call_1_1"]; !isRefusal(got) {
 		t.Errorf("reading auth.json was not refused: %.300q", got)
 	}
-	for _, r := range m.Requests() {
-		all := r.System
-		for _, text := range r.ToolResults {
-			all += "\n" + text
-		}
-		if strings.Contains(all, "AUTHSECRET") {
-			t.Errorf("a request carried auth.json's content")
-		}
+	if requestsContain(m.Requests(), "AUTHSECRET") {
+		t.Errorf("a request carried auth.json's content")
 	}
 	for _, s := range res.Skills {
 		if s.Verdict == "failed" {
