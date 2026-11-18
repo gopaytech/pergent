@@ -25,12 +25,12 @@ import (
 
 // These tests run `pergent agent` against the real opencode binary and a
 // fake model server. They are opt-in: set PERGENT_TEST_OPENCODE to the
-// binary's path, or they skip.
+// binary's path, or they skip. A path that is not an executable fails them.
 
-// requireOpencode skips unless PERGENT_TEST_OPENCODE names an executable. It
-// returns the path of a private copy (so pgrep -f finds only this test's
-// processes), puts its directory first on PATH and gives the test its own
-// HOME, XDG_CONFIG_HOME and TMPDIR. The provider variables are set by
+// requireOpencode skips when PERGENT_TEST_OPENCODE is unset and fails when it
+// names no executable. It returns the path of a private copy (so pgrep -f
+// finds only this test's processes), puts its directory first on PATH and
+// gives the test its own HOME, XDG_CONFIG_HOME and TMPDIR. The provider variables are set by
 // runAgentE2E's caller through useFakeModel, once the fake model's URL is
 // known.
 func requireOpencode(t *testing.T) string {
@@ -44,7 +44,7 @@ func requireOpencode(t *testing.T) string {
 		t.Skip("PERGENT_TEST_OPENCODE is not set")
 	}
 	if fi, err := os.Stat(src); err != nil || fi.IsDir() || fi.Mode()&0o111 == 0 {
-		t.Skipf("PERGENT_TEST_OPENCODE %q is not an executable", src)
+		t.Fatalf("PERGENT_TEST_OPENCODE %q is not an executable", src)
 	}
 	data, err := os.ReadFile(src)
 	if err != nil {
@@ -63,6 +63,45 @@ func requireOpencode(t *testing.T) string {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("TMPDIR", t.TempDir())
 	return dst
+}
+
+// An unset PERGENT_TEST_OPENCODE skips the e2e tests; a set one that names no
+// executable is a mistake in the run and fails them, or a CI job that meant to
+// run them would pass having run none.
+func TestRequireOpencode_BadPathFails(t *testing.T) {
+	if os.Getenv("PERGENT_TEST_REQUIRE_PROBE") != "" {
+		requireOpencode(t)
+		return
+	}
+	dir := t.TempDir()
+	plain := filepath.Join(dir, "plain")
+	if err := os.WriteFile(plain, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, path string
+		fail       bool
+	}{
+		{"unset", "", false},
+		{"missing", filepath.Join(dir, "missing"), true},
+		{"not executable", plain, true},
+		{"directory", dir, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := exec.Command(os.Args[0], "-test.run=^TestRequireOpencode_BadPathFails$", "-test.v")
+			cmd.Env = append(os.Environ(), "PERGENT_TEST_REQUIRE_PROBE=1", "PERGENT_TEST_OPENCODE="+tc.path)
+			out, err := cmd.CombinedOutput()
+			if tc.fail {
+				if err == nil || !strings.Contains(string(out), "--- FAIL") {
+					t.Errorf("PERGENT_TEST_OPENCODE=%q: err %v, want a failure\n%s", tc.path, err, out)
+				}
+				return
+			}
+			if err != nil || !strings.Contains(string(out), "--- SKIP") {
+				t.Errorf("PERGENT_TEST_OPENCODE unset: err %v, want a skip\n%s", err, out)
+			}
+		})
+	}
 }
 
 // useFakeModel points the runner's environment at the fake model.
