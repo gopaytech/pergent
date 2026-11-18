@@ -4,13 +4,21 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
+	"io/fs"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/gopaytech/pergent/internal/config"
 	"github.com/gopaytech/pergent/internal/result"
 	"github.com/gopaytech/pergent/internal/runner"
 )
@@ -267,14 +275,9 @@ func TestOpencodeE2E_IgnoresASharedService(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		_, _ = ocCmd("service", "stop").CombinedOutput()
-		deadline := time.Now().Add(5 * time.Second)
-		for time.Now().Before(deadline) {
-			if out, _ := exec.Command("pgrep", "-f", bin).Output(); len(bytes.TrimSpace(out)) == 0 {
-				return
-			}
-			time.Sleep(100 * time.Millisecond)
+		if pids := waitNoProcess(bin, 5*time.Second); pids != "" {
+			t.Errorf("the shared service is still running after service stop: %s", pids)
 		}
-		t.Errorf("the shared service is still running after service stop")
 	})
 
 	repo, base, head := e2eRepo(t, map[string]string{"src/.env": "DB_PASSWORD=SVCSECRET\n"})
@@ -307,19 +310,32 @@ func TestOpencodeE2E_NoProcessOutlivesATimedOutRun(t *testing.T) {
 	m := newFakeModel(t, nil, "hang")
 	useFakeModel(t, m)
 	repo, base, head := e2eRepo(t, map[string]string{"b.go": "package a\n"})
-	_, _ = runAgentE2E(t, repo, base, head, "--timeout", "20s")
+	res, stderr := runAgentE2E(t, repo, base, head, "--timeout", "20s")
 
-	var out []byte
-	deadline := time.Now().Add(5 * time.Second)
+	// Without these the test could pass because opencode never started.
+	if len(m.Requests()) == 0 {
+		t.Fatalf("the fake model got no request, so the test proves nothing\nstderr:\n%s", stderr)
+	}
+	if len(res.Skills) != 1 || res.Skills[0].Verdict != "failed" {
+		t.Errorf("result = %+v, want one failed skill (the run timed out)\nstderr:\n%s", res.Skills, stderr)
+	}
+	if pids := waitNoProcess(bin, 5*time.Second); pids != "" {
+		t.Errorf("processes of %s still running 5s after the run ended: %s", bin, pids)
+	}
+}
+
+// waitNoProcess polls pgrep -f for bin until nothing matches or d passes, and
+// returns the PIDs still running. bin is a private copy, so only this test's
+// processes match.
+func waitNoProcess(bin string, d time.Duration) string {
+	deadline := time.Now().Add(d)
 	for {
-		out, _ = exec.Command("pgrep", "-f", bin).Output()
-		if len(bytes.TrimSpace(out)) == 0 || time.Now().After(deadline) {
-			break
+		out, _ := exec.Command("pgrep", "-f", bin).Output()
+		pids := strings.TrimSpace(string(out))
+		if pids == "" || time.Now().After(deadline) {
+			return pids
 		}
 		time.Sleep(100 * time.Millisecond)
-	}
-	if pids := strings.TrimSpace(string(out)); pids != "" {
-		t.Errorf("processes of %s still running 5s after the run ended: %s", bin, pids)
 	}
 }
 
@@ -476,5 +492,307 @@ func TestOpencodeE2E_ImpactRunRecordsOpenedClone(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("no tool result held the clone file's content\nstderr:\n%s", stderr)
+	}
+}
+
+// isRefusal is true for a tool result that is a permission denial or opencode's
+// "no such tool" error for a tool left out of the allow-list.
+func isRefusal(text string) bool {
+	l := strings.ToLower(text)
+	for _, w := range []string{"denied", "rejected", "no tool named", "not available", "not allowed", "disabled", "unknown tool", "invalid tool"} {
+		if strings.Contains(l, w) {
+			return true
+		}
+	}
+	return false
+}
+
+// allResults gathers every tool result the fake model was sent, by call ID.
+func allResults(m *fakeModel) map[string]string {
+	out := map[string]string{}
+	for _, r := range m.Requests() {
+		for id, text := range r.ToolResults {
+			out[id] = text
+		}
+	}
+	return out
+}
+
+// Every tool that writes, runs a command, reaches outside the checkout or the
+// network, or spawns another agent must be refused on the real binary, and a
+// denied file or an outside file must never reach the model.
+func TestOpencodeE2E_DeniesWritesEscapesAndSecrets(t *testing.T) {
+	requireOpencode(t)
+	var hits atomic.Int64
+	var exfilBodies sync.Map
+	exfil := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		exfilBodies.Store(r.URL.String(), true)
+		io.WriteString(w, "exfil ok")
+	}))
+	t.Cleanup(exfil.Close)
+
+	outside := filepath.Join(os.Getenv("HOME"), "outside.txt")
+	const outsideText = "OUTSIDE-FILE-TEXT-4711"
+	if err := os.WriteFile(outside, []byte(outsideText), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	markers := t.TempDir()
+	marker, marker2 := filepath.Join(markers, "m1"), filepath.Join(markers, "m2")
+
+	m := newFakeModel(t, [][]fakeCall{{
+		{Name: "read", Args: map[string]any{"path": "src/.env"}},
+		{Name: "read", Args: map[string]any{"path": outside}},
+		{Name: "read", Args: map[string]any{"path": "/etc/hosts"}},
+		{Name: "shell", Args: map[string]any{"command": "echo PWNED > " + marker}},
+		{Name: "write", Args: map[string]any{"path": marker2, "content": "PWNED"}},
+		{Name: "edit", Args: map[string]any{"path": "src/app.go", "oldString": "package src", "newString": "package pwned"}},
+		{Name: "execute", Args: map[string]any{"code": `return await tools.opencode.worktree_create({name:"x"})`}},
+		{Name: "opencode_worktree_create", Args: map[string]any{"name": "y"}},
+		{Name: "webfetch", Args: map[string]any{"url": exfil.URL + "/a"}},
+		{Name: "subagent", Args: map[string]any{"agent": "general", "description": "x", "prompt": "say hi"}},
+		{Name: "skill", Args: map[string]any{"id": "anything"}},
+		{Name: "skill", Args: map[string]any{"id": "planted"}},
+		{Name: "question", Args: map[string]any{"questions": []any{map[string]any{
+			"question": "ok?", "header": "q", "options": []any{map[string]any{"label": "a", "description": "b"}}}}}},
+		{Name: "experimental_image_generate", Args: map[string]any{"prompt": "a cat", "path": "cat.png"}},
+	}}, "")
+	useFakeModel(t, m)
+	const appGo = "package src\n"
+	repo, base, head := e2eRepo(t, map[string]string{"src/app.go": appGo,
+		".claude/skills/planted/SKILL.md": "---\nname: planted\ndescription: planted\n---\nPLANTED-SKILL-BODY\n"})
+	writeFile(t, repo, "src/.env", "DB_PASSWORD=ENVSECRET-123\n")
+	res, stderr := runAgentE2E(t, repo, base, head)
+
+	results := allResults(m)
+	for i := 0; i < 14; i++ {
+		id := fmt.Sprintf("call_0_%d", i)
+		text, ok := results[id]
+		if !ok {
+			t.Errorf("no result for %s", id)
+			continue
+		}
+		// /etc/hosts is outside the checkout, so it is a refusal as well.
+		// opencode 2 answers any skill id, a planted one included, with a load
+		// failure that carries no content: no skill is available to the run.
+		if !isRefusal(text) && !((i == 10 || i == 11) && strings.Contains(text, "Unable to load skill")) {
+			t.Errorf("%s was not refused: %q", id, text)
+		}
+	}
+	for _, mk := range []string{marker, marker2, filepath.Join(repo, "cat.png")} {
+		if _, err := os.Stat(mk); err == nil {
+			t.Errorf("%s exists: a tool wrote or ran", mk)
+		}
+	}
+	if got, err := os.ReadFile(filepath.Join(repo, "src/app.go")); err != nil || string(got) != appGo {
+		t.Errorf("src/app.go = %q, %v, want it unchanged", got, err)
+	}
+	if wt := gitIn(t, repo, "worktree", "list"); len(strings.Split(wt, "\n")) != 1 {
+		t.Errorf("git worktree list:\n%s", wt)
+	}
+	if hits.Load() != 0 {
+		t.Errorf("the exfil server got %d requests", hits.Load())
+	}
+	for _, r := range m.Requests() {
+		all := r.System
+		for _, text := range r.ToolResults {
+			all += "\n" + text
+		}
+		// /etc/hosts differs per machine; its refusal is asserted above.
+		for _, secret := range []string{outsideText, "ENVSECRET-123", "PLANTED-SKILL-BODY"} {
+			if strings.Contains(all, secret) {
+				t.Errorf("a request carried %q", secret)
+			}
+		}
+	}
+	for _, s := range res.Skills {
+		if s.Verdict == "failed" {
+			t.Errorf("skill %s failed: %+v\nstderr:\n%s", s.Name, s.Failures, stderr)
+		}
+	}
+	if len(m.Requests()) < 2 {
+		t.Errorf("the model got %d requests, want the tool turn and a final turn", len(m.Requests()))
+	}
+}
+
+// grep and glob apply no read rules in opencode, so pergent deletes denied
+// files from the checkout before any run: their content and names must not
+// reach the model.
+func TestOpencodeE2E_GrepCantReadDeniedFiles(t *testing.T) {
+	requireOpencode(t)
+	m := newFakeModel(t, [][]fakeCall{{
+		{Name: "grep", Args: map[string]any{"pattern": "SECRET"}},
+		{Name: "glob", Args: map[string]any{"pattern": "**/*", "hidden": true}},
+	}}, "")
+	useFakeModel(t, m)
+	// The base commit holds the denied files; head adds src/app.go.
+	repo2 := t.TempDir()
+	gitIn(t, repo2, "init", "-q")
+	writeFile(t, repo2, "config/prod.env", "DB_PASSWORD=PRODSECRET-789\n")
+	writeFile(t, repo2, "certs/tls.KEY", "PRODSECRET-KEY\n")
+	writeFile(t, repo2, "a.go", "package a\n")
+	base2 := commitAll(t, repo2, "base")
+	writeFile(t, repo2, "src/app.go", "package src\n")
+	head2 := commitAll(t, repo2, "head")
+	res, stderr := runAgentE2E(t, repo2, base2, head2)
+
+	results := allResults(m)
+	if len(results) < 2 {
+		t.Fatalf("the model saw %d tool results, want 2: %v\nstderr:\n%s", len(results), results, stderr)
+	}
+	for _, r := range m.Requests() {
+		all := r.System
+		for _, text := range r.ToolResults {
+			all += "\n" + text
+		}
+		if strings.Contains(all, "PRODSECRET") {
+			t.Errorf("a request carried PRODSECRET:\n%s", all)
+		}
+	}
+	for _, s := range res.Skills {
+		if s.Verdict == "failed" {
+			t.Errorf("skill %s failed: %+v\nstderr:\n%s", s.Name, s.Failures, stderr)
+		}
+	}
+}
+
+// opencode saves a tool result it cuts short under <data dir>/opencode/tool-output
+// and names the file in the result, and the model reads it with `read`. The
+// sandbox allows exactly that folder in the run's own data directory: the
+// folder must be readable and auth.json beside it must not be. In 2.3.2 the
+// read-only tools page their own output (grep and glob stop at 100 results,
+// read at 2000 lines) and never spill, so the test writes the file where
+// opencode would and reads it back, with the data dir found while the run is
+// going (it is removed when the run ends).
+func TestOpencodeE2E_LongToolOutputIsReadable(t *testing.T) {
+	requireOpencode(t)
+	xdg := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", xdg)
+	writeFile(t, xdg, "opencode/auth.json", `{"fake":{"type":"api","key":"AUTHSECRET-555"}}`)
+
+	m := newFakeModel(t, [][]fakeCall{{{Name: "glob", Args: map[string]any{"pattern": "*.go"}}}}, "")
+	var spill, authFile string
+	m.next = map[int]func(fakeRequest) []fakeCall{1: func(fakeRequest) []fakeCall {
+		dirs, _ := filepath.Glob(filepath.Join(os.TempDir(), config.DataDirPrefix+"*"))
+		if len(dirs) != 1 {
+			t.Errorf("found %d data directories, want 1: %v", len(dirs), dirs)
+			return nil
+		}
+		out := filepath.Join(dirs[0], "opencode", "tool-output")
+		if err := os.MkdirAll(out, 0o755); err != nil {
+			t.Error(err)
+			return nil
+		}
+		spill = filepath.Join(out, "tool_0123456789ab")
+		if err := os.WriteFile(spill, []byte("SPILLED-LINE-1\nSPILLED-LINE-2\n"), 0o644); err != nil {
+			t.Error(err)
+		}
+		authFile = filepath.Join(dirs[0], "opencode", "auth.json")
+		return []fakeCall{
+			{Name: "read", Args: map[string]any{"path": spill}},
+			{Name: "read", Args: map[string]any{"path": authFile}},
+		}
+	}}
+	useFakeModel(t, m)
+	repo, base, head := e2eRepo(t, map[string]string{"b.go": "package b\n"})
+	res, stderr := runAgentE2E(t, repo, base, head)
+
+	results := allResults(m)
+	if spill == "" {
+		t.Fatalf("turn 2 never ran\nstderr:\n%s", stderr)
+	}
+	if got := results["call_1_0"]; !strings.Contains(got, "SPILLED-LINE-2") || isRefusal(got) {
+		t.Errorf("reading the tool-output file was not file content: %.300q\nstderr:\n%s", got, stderr)
+	}
+	if got := results["call_1_1"]; !isRefusal(got) {
+		t.Errorf("reading auth.json was not refused: %.300q", got)
+	}
+	for _, r := range m.Requests() {
+		all := r.System
+		for _, text := range r.ToolResults {
+			all += "\n" + text
+		}
+		if strings.Contains(all, "AUTHSECRET") {
+			t.Errorf("a request carried auth.json's content")
+		}
+	}
+	for _, s := range res.Skills {
+		if s.Verdict == "failed" {
+			t.Errorf("skill %s failed: %+v", s.Name, s.Failures)
+		}
+	}
+}
+
+// opencode 1.x wrote snapshot trees into its data directory and objects into
+// the checkout's .git; pergent turns that off. Its native 2.x key is
+// "snapshots", so this checks the effect: no snapshot store, nothing new in
+// .git, no snapshot hash in the step events.
+func TestOpencodeE2E_SnapshotsOff(t *testing.T) {
+	requireOpencode(t)
+	rawBase := filepath.Join(t.TempDir(), "raw.json")
+	t.Setenv("PERGENT_DEBUG_OUTPUT", rawBase)
+	m := newFakeModel(t, [][]fakeCall{{{Name: "read", Args: map[string]any{"path": "src/app.go"}}}}, "")
+	useFakeModel(t, m)
+	repo, base, head := e2eRepo(t, map[string]string{"src/app.go": "package src\n"})
+	before := gitIn(t, repo, "count-objects", "-v")
+
+	// The data directory is removed when its run ends, so watch for a snapshot
+	// store while the runs are going.
+	stop := make(chan struct{})
+	seen := make(chan string, 1)
+	go func() {
+		defer close(seen)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			dirs, _ := filepath.Glob(filepath.Join(os.TempDir(), config.DataDirPrefix+"*"))
+			for _, d := range dirs {
+				_ = filepath.WalkDir(d, func(p string, de fs.DirEntry, err error) error {
+					if err == nil && strings.Contains(strings.ToLower(de.Name()), "snapshot") {
+						select {
+						case seen <- p:
+						default:
+						}
+					}
+					return nil
+				})
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}()
+	_, stderr := runAgentE2E(t, repo, base, head)
+	close(stop)
+	if p, ok := <-seen; ok && p != "" {
+		t.Errorf("opencode created a snapshot store: %s", p)
+	}
+	if after := gitIn(t, repo, "count-objects", "-v"); after != before {
+		t.Errorf("the checkout's .git changed during the review:\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+	files, _ := filepath.Glob(strings.TrimSuffix(rawBase, ".json") + ".*.json")
+	if len(files) == 0 {
+		t.Fatalf("no debug output was written\nstderr:\n%s", stderr)
+	}
+	steps := 0
+	for _, f := range files {
+		data, _ := os.ReadFile(f)
+		for _, line := range strings.Split(string(data), "\n") {
+			var ev struct {
+				Type string         `json:"type"`
+				Part map[string]any `json:"part"`
+			}
+			if json.Unmarshal([]byte(line), &ev) != nil || (ev.Type != "step_start" && ev.Type != "step_finish") {
+				continue
+			}
+			steps++
+			if _, has := ev.Part["snapshot"]; has {
+				t.Errorf("%s event carries a snapshot hash: %s", ev.Type, line)
+			}
+		}
+	}
+	if steps == 0 {
+		t.Errorf("no step events in the debug output, so the snapshot check proves nothing")
 	}
 }

@@ -157,6 +157,15 @@ func BuildCommand(ctx context.Context, configPath string, files []string, messag
 			"OPENCODE_DISABLE_CLAUDE_CODE=true",
 		)
 	}
+	// opencode 2 takes its project directory from $PWD, not the process's
+	// working directory. The inherited PWD is the caller's, so without this a
+	// review run from another directory would read that one instead of the
+	// checkout.
+	if repoPath != "" {
+		if abs, err := filepath.Abs(repoPath); err == nil {
+			env = append(withoutEnv(env, []string{"PWD"}), "PWD="+abs)
+		}
+	}
 	cmd.Env = env
 
 	return cmd

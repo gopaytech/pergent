@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -37,6 +40,9 @@ type fakeModel struct {
 	// only, when set, limits the scripted turns to requests whose system
 	// prompt contains it: any other run just answers.
 	only string
+	// next, when it has an entry for turn N, builds that turn's calls from the
+	// request that asks for it (so from the results of the earlier turns).
+	next map[int]func(fakeRequest) []fakeCall
 	mu   sync.Mutex
 	reqs []fakeRequest
 }
@@ -99,8 +105,14 @@ func (m *fakeModel) handle(w http.ResponseWriter, r *http.Request, turns [][]fak
 		return
 	}
 	raw, err := io.ReadAll(r.Body)
-	if err != nil {
+	// A request opencode kills mid-flight (a timeout, a stop) arrives cut off:
+	// that is not a fault of the fake.
+	cutOff := errors.Is(err, context.Canceled) || errors.Is(err, io.ErrUnexpectedEOF) || r.Context().Err() != nil
+	if err != nil && !cutOff {
 		m.t.Errorf("fake model: reading a request body: %v", err)
+	}
+	if err != nil && cutOff {
+		return
 	}
 	var req struct {
 		Stream   bool             `json:"stream"`
@@ -108,6 +120,9 @@ func (m *fakeModel) handle(w http.ResponseWriter, r *http.Request, turns [][]fak
 		Messages []map[string]any `json:"messages"`
 	}
 	if err := json.Unmarshal(raw, &req); err != nil {
+		if len(bytes.TrimSpace(raw)) == 0 && r.Context().Err() != nil {
+			return
+		}
 		m.t.Errorf("fake model: request body is not JSON: %v", err)
 	}
 
@@ -158,6 +173,9 @@ func (m *fakeModel) handle(w http.ResponseWriter, r *http.Request, turns [][]fak
 	var calls []fakeCall
 	if len(req.Tools) > 0 && turn < len(turns) && (m.only == "" || strings.Contains(rec.System, m.only)) {
 		calls = turns[turn]
+	}
+	if fn := m.next[turn]; fn != nil && len(req.Tools) > 0 && (m.only == "" || strings.Contains(rec.System, m.only)) {
+		calls = fn(rec)
 	}
 	base := map[string]any{"id": "c1", "object": "chat.completion.chunk", "created": time.Now().Unix(), "model": "fake-model"}
 	usage := map[string]any{"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120}

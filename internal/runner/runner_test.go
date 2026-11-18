@@ -827,3 +827,20 @@ func TestRunAttempt_OwnStateDir(t *testing.T) {
 		t.Errorf("state directory still exists after the run (err %v)", err)
 	}
 }
+
+// opencode 2 takes its project directory from $PWD, which the caller's
+// environment sets to the caller's own directory.
+func TestBuildCommandSetsPWDToTheRepo(t *testing.T) {
+	t.Setenv("PWD", "/somewhere/else")
+	repo := t.TempDir()
+	cmd := BuildCommand(context.Background(), "/tmp/config.json", nil, "m", repo)
+	var pwds []string
+	for _, kv := range cmd.Env {
+		if strings.HasPrefix(kv, "PWD=") {
+			pwds = append(pwds, kv)
+		}
+	}
+	if len(pwds) != 1 || pwds[0] != "PWD="+repo {
+		t.Errorf("PWD entries = %v, want exactly PWD=%s", pwds, repo)
+	}
+}
