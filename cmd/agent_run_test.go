@@ -533,7 +533,9 @@ func TestRunAgent_DismissalsLogged(t *testing.T) {
 		t.Errorf("stderr = %q, want a dismissals line with skills sorted by name", stderr.String())
 	}
 	// The result has no field for them: not even those of the skill that ran.
-	for _, s := range []string{"dismiss", "rejected", "Three", `"r"`} {
+	// The run's attachment list names pergent's own file, rejected-findings.json,
+	// so the word "rejected" alone is not a leak: only its content would be.
+	for _, s := range []string{"dismiss", "Three", `"r"`} {
 		if strings.Contains(stdout.String(), s) {
 			t.Errorf("result contains %q, want no dismissals in it:\n%s", s, stdout.String())
 		}

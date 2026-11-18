@@ -68,6 +68,7 @@ type Skill struct {
 	BatchesFinished  int           `json:"batches_finished"`
 	DurationSeconds  float64       `json:"duration_seconds"`
 	Tokens           Tokens        `json:"tokens"`
+	Runs             []Run         `json:"runs,omitempty"`
 }
 
 // Finding is a finding with its short ID.
@@ -242,8 +243,8 @@ func buildSkill(s review.SkillResult, ids map[string]string, deleted map[string]
 		Batches:          s.Batches,
 		BatchesFinished:  s.BatchesFinished,
 		DurationSeconds:  math.Round(s.Duration.Seconds()*10) / 10,
-		Tokens: Tokens{Input: s.Usage.Input, Output: s.Usage.Output, Reasoning: s.Usage.Reasoning,
-			CacheRead: s.Usage.CacheRead, CacheWrite: s.Usage.CacheWrite},
+		Tokens:           tokensOf(s.Usage),
+		Runs:             buildRuns(s.Runs),
 	}
 	for _, f := range s.Findings {
 		out.Findings = append(out.Findings, buildFinding(f, ids))
@@ -400,6 +401,8 @@ func redactResult(r Result) Result {
 
 func redactSkill(s Skill) Skill {
 	s.Name = redact.String(s.Name)
+	// Runs hold counts, pergent's own labels and file names, and tool classes:
+	// no free text, so there is nothing to redact.
 	s.ConfidenceReason = redact.String(s.ConfidenceReason)
 	findings := make([]Finding, len(s.Findings))
 	for i, f := range s.Findings {

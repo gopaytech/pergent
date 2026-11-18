@@ -193,6 +193,43 @@ Each entry of `skills`:
 | `batches`, `batches_finished` | number | Batches the skill needed, and how many finished. |
 | `duration_seconds` | number | Wall-clock time for the skill, to a tenth of a second. |
 | `tokens` | object | Token counts summed over every run of the skill: batch, repair, verification and cross-batch runs, retries included. `input` and `output` are what the provider reports as input and output. `reasoning`, `cache_read` and `cache_write` are counted apart: pergent does not add them to `input` or `output` (whether a provider's own output already contains reasoning is up to the provider); they are new in pergent v0.9.0, and an older pergent leaves them out. An additive field: `schema_version` stays `1`, and a reader that doesn't know them can ignore them. A provider that reports no usage gives zeros. |
+| `runs` | array | One entry per opencode run of the skill, in the order of `run`. Omitted when the skill started no run. Raw counts only: pergent adds no prices. See below. |
+
+Each entry of `runs`:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `run` | string | pergent's label of the run. |
+| `prompt_bytes` | number | The agent prompt pergent wrote. Without `OPENCODE_PROVIDER` the prompt is also the first attachment, `review-instructions.md`. |
+| `attachments` | array | `{name, bytes}` for each attached file. |
+| `tokens` | object | The same five counts as the skill's `tokens`. |
+| `tool_totals` | object | `{calls, bytes}` for `read`, `grep`, `glob`, `list` and `other`. |
+| `steps` | array | One entry per model step started, retries included. Each has `attempt`, `tokens` (zeros for a step that never finished) and `tools`. Each tool has `tool`, `target`, `bytes` (what the tool returned to the model) and `failed`. `target` is `repository`, `pergent` (pergent's own temp files, such as attachments, the on-demand diffs and their index), `tool_output` (a long result opencode saved) or `outside` (anything else). It is omitted for `other`. A target is never a path. |
+
+For example:
+
+```json
+{
+  "run": "1/1",
+  "prompt_bytes": 5200,
+  "attachments": [{"name": "diff.patch", "bytes": 40100}],
+  "tokens": {"input": 9100, "output": 640, "reasoning": 0, "cache_read": 0, "cache_write": 0},
+  "tool_totals": {
+    "read": {"calls": 1, "bytes": 1200},
+    "grep": {"calls": 0, "bytes": 0},
+    "glob": {"calls": 0, "bytes": 0},
+    "list": {"calls": 0, "bytes": 0},
+    "other": {"calls": 0, "bytes": 0}
+  },
+  "steps": [
+    {
+      "attempt": 1,
+      "tokens": {"input": 9100, "output": 640, "reasoning": 0, "cache_read": 0, "cache_write": 0},
+      "tools": [{"tool": "read", "target": "repository", "bytes": 1200}]
+    }
+  ]
+}
+```
 
 `confidence` is the model's own score. A caller showing it applies the caps first: a blocking finding caps it at 3, a failed skill is not scored, and a `deleted`, `binary`, `vendored`, `lockfile` or `generated` skip caps it at 4 (`render.SkillScore` does this). A skill with `verdict: failed` may still carry `confidence`; the caller applies the "not scored" cap. It is information only and says nothing about approval.
 
@@ -302,5 +339,7 @@ After a `SIGTERM` the whole HTTP delivery gets 20 seconds, with a single retry a
 ## Compatibility
 
 Version 1 changes only by adding fields. A reader must ignore fields it does not know. Renaming a field, removing one, or changing the meaning of one requires `schema_version: 2`.
+
+The skill's `runs` field is additive and new in this version of pergent.
 
 `--previous` reads a result with this schema. A file with another `schema_version`, or one that cannot be read, is ignored with a warning and the review runs as a first review.
