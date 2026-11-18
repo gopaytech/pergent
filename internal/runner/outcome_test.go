@@ -407,3 +407,37 @@ func TestCauseMessage_TimeoutBetweenSteps(t *testing.T) {
 		}
 	}
 }
+
+// An error event that can't be read still fails the run, even after a normal
+// answer and a clean exit.
+func TestClassify_MalformedErrorEventIsFailure(t *testing.T) {
+	answer := `{"type":"step_start","part":{"type":"step-start"}}` + "\n" +
+		`{"type":"text","part":{"type":"text","text":"looks fine"}}` + "\n" +
+		`{"type":"step_finish","part":{"type":"step-finish","reason":"stop"}}` + "\n"
+	for name, line := range map[string]string{
+		"error is a string":       `{"type":"error","error":"boom SECRETTEXT"}`,
+		"error is null":           `{"type":"error","error":null}`,
+		"no error key":            `{"type":"error"}`,
+		"status is a string":      `{"type":"error","error":{"type":"provider.internal","message":"m","status":"500"}}`,
+		"response is a string":    `{"type":"error","error":{"type":"provider.internal","message":"m","response":"oops"}}`,
+		"line fails to unmarshal": `{"type":"error","part":"x","error":{"type":"unknown","message":"m"}}`,
+		"event part mistyped":     `{"type":"error","part":5,"error":"boom"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			status, cause := classify(attempt{transcript: ParseOutput([]byte(answer + line + "\n"))}, Options{Timeout: time.Minute}, 0)
+			if status != StatusFailed || cause == nil || cause.Kind != CauseOpencodeError {
+				t.Fatalf("classify() = %v, %+v, want a failed opencode_error", status, cause)
+			}
+			if strings.Contains(cause.Message(), "SECRETTEXT") {
+				t.Errorf("message = %q, holds text of the line", cause.Message())
+			}
+		})
+	}
+}
+
+func TestParseOutput_NonErrorBadLineIsSkipped(t *testing.T) {
+	got := ParseOutput([]byte(`{"type":"text","part":"x"` + "\n" + `not json` + "\n"))
+	if len(got.Errors) != 0 {
+		t.Errorf("Errors = %+v, want none: only an unreadable error event fails a run", got.Errors)
+	}
+}

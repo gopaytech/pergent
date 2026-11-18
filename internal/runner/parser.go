@@ -18,9 +18,11 @@ const maxOutputLine = 16 * 1024 * 1024
 // step_start, step_finish, text, reasoning, tool_use (completed or failed tool
 // calls only) and error.
 type openCodeEvent struct {
-	Type  string         `json:"type"`
-	Part  *openCodePart  `json:"part,omitempty"`
-	Error *openCodeError `json:"error,omitempty"`
+	Type string        `json:"type"`
+	Part *openCodePart `json:"part,omitempty"`
+	// Error is decoded apart (readError), so a badly typed error value can't
+	// hide that the line is an error event.
+	Error json.RawMessage `json:"error,omitempty"`
 }
 
 type openCodePart struct {
@@ -63,15 +65,33 @@ func (t openCodeTokens) used() int {
 	return t.Input + t.Output + t.Cache.Read + t.Cache.Write
 }
 
-// openCodeError is opencode 2's session error: {type, message, status,
-// retryAfterMs, response: {body}}. The 1.x shape ({name, data}) is not read.
-type openCodeError struct {
-	Type     string `json:"type"`
-	Message  string `json:"message"`
-	Status   int    `json:"status,omitempty"`
-	Response *struct {
-		Body json.RawMessage `json:"body,omitempty"`
-	} `json:"response,omitempty"`
+// unreadableError names an error event pergent could not read. Its name is
+// fixed text: nothing of the line, which may hold provider text, is kept.
+const unreadableError = "unreadable"
+
+// readError decodes the "error" value of an error event: opencode 2's
+// {type, message, status, retryAfterMs, response: {body}}. The 1.x shape
+// ({name, data}) is not read. A field of the wrong type is left out; an
+// error that is not an object at all is "unreadable", never dropped.
+func readError(raw json.RawMessage) EventError {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil || fields == nil {
+		return EventError{Name: unreadableError}
+	}
+	var e EventError
+	json.Unmarshal(fields["type"], &e.Name)
+	json.Unmarshal(fields["message"], &e.Message)
+	json.Unmarshal(fields["status"], &e.StatusCode)
+	var resp struct {
+		Body json.RawMessage `json:"body"`
+	}
+	if json.Unmarshal(fields["response"], &resp) == nil {
+		e.Body = bodyText(resp.Body)
+	}
+	if e.Name == "" && e.Message == "" && e.StatusCode == 0 && e.Body == "" {
+		e.Name = unreadableError
+	}
+	return e
 }
 
 // EventError is an error event reported by opencode (a session.error).
@@ -193,6 +213,14 @@ func ParseOutput(stdout []byte) Transcript {
 		}
 		var event openCodeEvent
 		if err := json.Unmarshal(line, &event); err != nil {
+			// A line that is not an event is skipped, but an error event
+			// that can't be read still fails the run.
+			var probe struct {
+				Type string `json:"type"`
+			}
+			if json.Unmarshal(line, &probe) == nil && probe.Type == "error" {
+				t.Errors = append(t.Errors, EventError{Name: unreadableError})
+			}
 			continue
 		}
 
@@ -258,14 +286,7 @@ func ParseOutput(stdout []byte) Transcript {
 			}
 
 		case "error":
-			if event.Error == nil {
-				continue
-			}
-			e := EventError{Name: event.Error.Type, Message: event.Error.Message, StatusCode: event.Error.Status}
-			if r := event.Error.Response; r != nil {
-				e.Body = bodyText(r.Body)
-			}
-			t.Errors = append(t.Errors, e)
+			t.Errors = append(t.Errors, readError(event.Error))
 		}
 	}
 	if err := scanner.Err(); err != nil {
