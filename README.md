@@ -68,6 +68,8 @@ make build
 
 Requires [opencode](https://github.com/anomalyco/opencode) 2.3.2 or later installed on the system.
 
+**Breaking:** pergent now needs opencode 2.3.2 or later and refuses an older one before any review. The image ships it. If you run pergent outside the image, with `--local` or on opencode's own config, put opencode 2.3.2 or later on your `PATH`. A login stored by opencode 2 does not reach a review: give the key through `OPENCODE_API_KEY` or the provider's own variable (see [option B](#local-mode)).
+
 A build from source reports its version as `dev`; only a release image carries a real one. pergent.sh treats `dev` as older than any release, so such an image gets full reviews.
 
 ## 🚀 Usage

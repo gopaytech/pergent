@@ -55,6 +55,8 @@
 |---|---|
 | `PERGENT_USE_OPENCODE_CONFIG` | `true`/`false` — in GitHub/GitLab CI, allow a review with an empty `OPENCODE_PROVIDER` on opencode's own config. **No sandbox**: do not use on untrusted changes (see [option B](#own-config-mode)). Not needed with `--local`; agent mode always needs a provider |
 
+**Breaking:** every mode needs opencode 2.3.2 or later on the `PATH`, and an older or unreadable version is refused before any review. The image ships it. Own-config mode, `--local` and any run outside the image need it installed. A login stored by opencode 2 (`opencode auth login`) does not reach a run, because each run gets its own data directory with only the 1.x `auth.json` copied in. Give the key through `OPENCODE_API_KEY`, or in own-config mode through the provider's own variable or your opencode config.
+
 Config resolution priority: CLI flags > `PERGENT_*` env vars > auto-detect from CI > defaults.
 
 An unset or empty variable means the default. A value that can't be used is a config error that names the variable and the value (`PERGENT_TIMEOUT="600" is not a duration such as 90s or 10m`), not a silent fall back to the default. Numbers must be whole (`PERGENT_MAX_TURNS` and `PERGENT_CONCURRENCY` at least 1, `PERGENT_CONTEXT_LIMIT` not negative), `PERGENT_TIMEOUT` needs a unit, and `PERGENT_PREVIOUS_REVIEW`, `PERGENT_CHECK_DELETED` and `PERGENT_USE_OPENCODE_CONFIG` are `true` or `false`. `--max-turns` below 1 is rejected as well. A flag that is passed wins, and its variable is not read.
