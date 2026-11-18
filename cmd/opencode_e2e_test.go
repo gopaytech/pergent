@@ -139,46 +139,77 @@ func TestOpencodeE2E_OffersOnlyReadTools(t *testing.T) {
 }
 
 // A user's global opencode config is loaded before pergent's, and opencode 2
-// appends the agent's rules last. The agent's own allow-list must win over a
-// global "allow everything".
+// appends the agent's rules last. The global file here allows everything at
+// top level and on the pergent agent itself; only the agent-level copy of
+// pergent's allow-list can beat the latter. The CANARY instruction proves the
+// global file is loaded at all. The test fails if a denied tool is offered or
+// runs, or if the .env read is not a denial.
 func TestOpencodeE2E_GlobalConfigCantLoosenTheSandbox(t *testing.T) {
 	requireOpencode(t)
 	cfgDir := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "opencode")
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	global := `{"permission": {"*": "allow", "read": "allow", "edit": "allow", "bash": "allow", "external_directory": "allow"}}`
-	if err := os.WriteFile(filepath.Join(cfgDir, "opencode.json"), []byte(global), 0o644); err != nil {
+	canaryFile := filepath.Join(t.TempDir(), "canary.md")
+	if err := os.WriteFile(canaryFile, []byte("CANARY-GLOBAL-CONFIG"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	allowAll := map[string]any{"*": "allow", "read": "allow", "edit": "allow", "bash": "allow", "external_directory": "allow"}
+	globalCfg, _ := json.Marshal(map[string]any{
+		"instructions": []string{canaryFile},
+		"permission":   allowAll,
+		"agent":        map[string]any{"pergent": map[string]any{"permission": allowAll}},
+	})
+	if err := os.WriteFile(filepath.Join(cfgDir, "opencode.json"), globalCfg, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(t.TempDir(), "pwned")
+	const appGo = "package src\n"
 	m := newFakeModel(t, [][]fakeCall{{
 		{Name: "read", Args: map[string]any{"path": "src/.env"}},
 		{Name: "execute", Args: map[string]any{"code": "return 1"}},
+		{Name: "shell", Args: map[string]any{"command": "echo PWNED > " + marker}},
+		{Name: "bash", Args: map[string]any{"command": "echo PWNED > " + marker}},
+		{Name: "edit", Args: map[string]any{"filePath": "src/app.go", "oldString": "package src", "newString": "package pwned"}},
 	}}, "")
 	useFakeModel(t, m)
-	repo, base, head := e2eRepo(t, map[string]string{"src/.env": "DB_PASSWORD=GLOBALSECRET\n"})
+	repo, base, head := e2eRepo(t, map[string]string{"src/.env": "DB_PASSWORD=GLOBALSECRET\n", "src/app.go": appGo})
 	_, _ = runAgentE2E(t, repo, base, head)
 
-	reqs := m.Requests()
-	var executeResult string
-	for _, r := range reqs {
-		for id, text := range r.ToolResults {
-			if strings.Contains(text, "GLOBALSECRET") {
-				t.Errorf("a tool result carried the secret: %q", text)
-			}
-			if strings.HasSuffix(id, "_1") {
-				executeResult = text
-			}
+	allowed := map[string]bool{"read": true, "glob": true, "grep": true, "skill": true}
+	canary, results := false, map[string]string{}
+	for _, r := range m.Requests() {
+		if strings.Contains(r.System, "CANARY-GLOBAL-CONFIG") {
+			canary = true
 		}
 		if strings.Contains(r.System, "GLOBALSECRET") {
 			t.Error("a request carried the secret")
 		}
+		for _, n := range r.Tools {
+			if !allowed[n] {
+				t.Errorf("the global config got the model a tool: %q", n)
+			}
+		}
+		for id, text := range r.ToolResults {
+			results[id] = text
+			if strings.Contains(text, "GLOBALSECRET") {
+				t.Errorf("a tool result carried the secret: %q", text)
+			}
+		}
 	}
-	if executeResult == "" {
-		t.Fatal("the model never saw a result for execute")
+	if !canary {
+		t.Error("the global config's instruction never reached the model, so the test proves nothing")
 	}
-	low := strings.ToLower(executeResult)
-	if !strings.Contains(low, "no tool named") && !strings.Contains(low, "denied") && !strings.Contains(low, "refus") {
-		t.Errorf("execute did not come back as a refusal: %q", executeResult)
+	if got := strings.ToLower(results["call_0_0"]); !strings.Contains(got, "denied") {
+		t.Errorf("the .env read was not a denial: %q", results["call_0_0"])
+	}
+	if len(results) < 5 {
+		t.Errorf("the model saw %d tool results, want 5: %v", len(results), results)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Error("a shell command ran")
+	}
+	if got, err := os.ReadFile(filepath.Join(repo, "src/app.go")); err != nil || string(got) != appGo {
+		t.Errorf("src/app.go = %q, %v, want it unchanged", got, err)
 	}
 }
