@@ -273,17 +273,15 @@ func GenerateOpenCodeConfigWith(o OpenCodeOptions) (string, func(), error) {
 		"read": readRules,
 		"glob": "allow",
 		"grep": "allow",
-		// opencode's default for these two is "ask". `opencode run` rejects
-		// every ask, and a rejection ends the run with no answer; a deny
-		// only fails that one tool call. The model may re-read the files
-		// pergent attaches, and read the diffs and the index it writes for
-		// runs, which all live in pergent-* temp directories. opencode saves
-		// a long tool result in <data>/opencode/tool-output (so in 1.3.17 and
-		// 1.19.4) and points the model at it; only that folder of the data
-		// directory is allowed. If a version moves it, that read is denied.
-		// An impact run also reads its linked repositories' clones.
+		// "*": "deny" would also deny the files pergent attaches, the diffs and
+		// the index it writes for runs (all in pergent-* temp directories), and
+		// the <data>/opencode/tool-output folder where opencode saves a long tool
+		// result and points the model at it, so those are allowed here. Only that
+		// folder of the data directory is allowed. If a version moves it, that
+		// read is denied. A denied call only fails that one tool call. An impact
+		// run also reads its linked repositories' clones.
 		"external_directory": externalDirectory,
-		// A repeated tool call is bounded by the agent's step limit.
+		// Not a permission action in opencode 2; kept for compatibility.
 		"doom_loop": "allow",
 	}
 
@@ -317,11 +315,11 @@ func GenerateOpenCodeConfigWith(o OpenCodeOptions) (string, func(), error) {
 		// review. With it off, an overflow ends the run with a
 		// context overflow error, which pergent reports as the failure cause.
 		Compaction: openCodeCompaction{Auto: false},
-		// The read tool starts language servers whatever the permissions say,
-		// and a server can be a program from the reviewed repo (opencode prefers
-		// its node_modules/.bin/biome), running with the LLM key in its
-		// environment. opencode 1.19 leaves them off when this is unset, but
-		// older versions turn them on, and so can a global config.
+		// opencode 2 never starts language servers. Before it, the read tool
+		// started them whatever the permissions said, and a server can be a
+		// program from the reviewed repo (opencode prefers its
+		// node_modules/.bin/biome), running with the LLM key in its
+		// environment. The setting is kept in case a version turns them on.
 		LSP: false,
 		// Snapshots run git in the checkout after each step and write to its
 		// object store; a review writes nothing there.

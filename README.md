@@ -30,7 +30,7 @@ Agentic PR/MR review tool for CI/CD pipelines. Unlike single-shot review tools, 
 - **Any size of change**: changed files are split into batches that fit the model's context, and every skill and batch runs in parallel under one time budget.
 - **Structured findings and verdicts**: each skill ends `no_blocking_issues`, `has_blocking_issues` or `failed`; blocking findings are re-checked by a separate run before they count.
 - **Honest failures**: a timeout, context overflow or provider error is reported with its cause, never as a pass, and the CI job stays green.
-- **Read-only sandbox**: the agent can only read, grep and glob; edits, shell, web access and `.env` reads are denied (and in CI such files are deleted from the checkout first, since `grep` doesn't apply the read rules), and secrets are redacted from everything pergent prints.
+- **Read-only sandbox**: an allow-list lets the agent read, grep and glob and nothing else; edits, shell, web access and `.env` reads are denied (and in CI such files are deleted from the checkout first, since `grep` doesn't apply the read rules), and secrets are redacted from everything pergent prints.
 - **One comment, updated**: GitHub and GitLab get a single review comment that is edited on every push instead of piling up; `--previous-review` gives the model the last review's findings as context.
 - **Agent mode**: `pergent agent` reviews a prepared checkout with trusted inputs only and delivers a versioned JSON result, for running pergent as a service.
 
@@ -66,7 +66,7 @@ make build
 # Binary at ./bin/pergent
 ```
 
-Requires [opencode](https://github.com/anomalyco/opencode) installed on the system.
+Requires [opencode](https://github.com/anomalyco/opencode) 2.3.2 or later installed on the system.
 
 A build from source reports its version as `dev`; only a release image carries a real one. pergent.sh treats `dev` as older than any release, so such an image gets full reviews.
 
@@ -77,7 +77,7 @@ A build from source reports its version as `dev`; only a release image carries a
 Run reviews locally and print output to stdout. No platform token or PR required.
 
 **Prerequisites:**
-- [opencode](https://github.com/anomalyco/opencode) installed
+- [opencode](https://github.com/anomalyco/opencode) 2.3.2 or later installed
 - A git repo with commits ahead of the base branch
 
 **Setup LLM (option A -- configure via env vars):**

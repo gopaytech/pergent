@@ -714,10 +714,10 @@ func TestOpencodeE2E_LongToolOutputIsReadable(t *testing.T) {
 	}
 }
 
-// opencode 1.x wrote snapshot trees into its data directory and objects into
-// the checkout's .git; pergent turns that off. Its native 2.x key is
-// "snapshots", so this checks the effect: no snapshot store, nothing new in
-// .git, no snapshot hash in the step events.
+// opencode wrote snapshot trees into its data directory and objects into the
+// checkout's .git; pergent turns that off with the "snapshot": false key,
+// which 2.3.2 still honours. This checks the effect: no snapshot store,
+// nothing new in .git, no snapshot hash in the step events.
 func TestOpencodeE2E_SnapshotsOff(t *testing.T) {
 	requireOpencode(t)
 	rawBase := filepath.Join(t.TempDir(), "raw.json")
