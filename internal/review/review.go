@@ -151,6 +151,8 @@ type SkillResult struct {
 	// Usage is the tokens used by every run of the skill: batch, repair,
 	// cross-batch and verification runs.
 	Usage runner.Usage
+	// Runs is every opencode run the skill started, sorted by runOrder.
+	Runs []RunUsage
 	// Duration is how long the skill's review took.
 	Duration time.Duration
 }
@@ -366,7 +368,8 @@ type batchOutcome struct {
 
 func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillResult) {
 	start := time.Now()
-	defer func() { res.Duration = time.Since(start) }()
+	ctx, runs := withRunLog(ctx)
+	defer func() { res.Duration = time.Since(start); res.Runs = runs.sorted() }()
 	res.Skill = s.Name
 	in, skipped := Select(s, r.files, r.classifier)
 	res.Skipped = skipped
@@ -971,7 +974,7 @@ func (r *reviewer) runWith(ctx context.Context, s skill.Skill, label, prompt str
 	if configPath != "" {
 		stepLimit, ctxLimit = r.req.MaxTurns, r.req.ContextLimit
 	}
-	return r.req.Run(ctx, runner.Options{
+	run := r.req.Run(ctx, runner.Options{
 		SkillName:    s.Name,
 		ConfigPath:   configPath,
 		Files:        files,
@@ -984,7 +987,9 @@ func (r *reviewer) runWith(ctx context.Context, s skill.Skill, label, prompt str
 		ContextLimit: ctxLimit,
 		ExcludeEnv:   excludeEnv,
 		LogPrefix:    logPrefix,
-	}), nil
+	})
+	recordRun(ctx, label, len(opts.Prompt), files, run)
+	return run, nil
 }
 
 // assignFingerprints computes each finding's fingerprint, unless the model
