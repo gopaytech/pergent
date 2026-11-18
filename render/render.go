@@ -177,6 +177,12 @@ type Options struct {
 	// included, is collapsed to single spaces. Empty adds nothing. Caller-owned
 	// text, not escaped: it must not carry model text.
 	MetaNote string
+	// HeaderNote is one line of caller text, such as the state of the CI jobs,
+	// written in italics after the header block (after the failures). Its
+	// whitespace, line breaks included, is collapsed to single spaces and the
+	// text is made inert like model text. Short, a layout and every size-limit
+	// step keep it. Empty writes nothing. Never model text.
+	HeaderNote string
 	// Short leaves out the Files list and the passed and n/a checks, with no
 	// note, since nothing was cut for size. Everything else is as without it:
 	// the meta line keeps its file count and "N of M checks passed", and the

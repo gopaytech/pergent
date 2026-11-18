@@ -41,6 +41,9 @@ func writeHeader(b *strings.Builder, skills []Skill, o Options) {
 		writeSkillsTable(b, skills)
 	}
 	writeFailures(b, skills)
+	if note := wrappedText(o.HeaderNote); note != "" {
+		b.WriteString("_" + note + "_\n\n")
+	}
 }
 
 // writeHeadline writes "### <icon> <verdict>[ · Confidence n/5]".
