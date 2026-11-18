@@ -327,7 +327,12 @@ func stopReason(ctx context.Context) string {
 // XDG_DATA_HOME. opencode keeps its SQLite database there and creates it on
 // first start; runs started at once in a shared, fresh directory (a new CI
 // container) race on that and the losers exit 1 before the first step. The
-// user's auth.json is copied in, so `opencode auth login` keeps working.
+// user's auth.json is copied in, and opencode 2 imports it into the new
+// database on start, so a login made with opencode 1.x still works. A login
+// made with opencode 2 lives only in the user's own opencode.db and does not
+// reach a run: keys must come from OPENCODE_API_KEY (generated config) or the
+// provider's env or config (opencode's own config). `opencode auth export`
+// prints a list that the import does not read.
 func newDataDir() (string, error) {
 	dir, err := os.MkdirTemp("", config.DataDirPrefix)
 	if err != nil {

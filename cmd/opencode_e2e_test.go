@@ -682,9 +682,13 @@ func TestOpencodeE2E_LongToolOutputIsReadable(t *testing.T) {
 			t.Error(err)
 		}
 		authFile := filepath.Join(dirs[0], "opencode", "auth.json")
+		// opencode 2 imports auth.json into opencode.db on start, so the
+		// database holds the key too.
 		return []fakeCall{
 			{Name: "read", Args: map[string]any{"path": spill}},
 			{Name: "read", Args: map[string]any{"path": authFile}},
+			{Name: "read", Args: map[string]any{"path": filepath.Join(dirs[0], "opencode", "opencode.db")}},
+			{Name: "grep", Args: map[string]any{"pattern": "SECRET-5", "path": dirs[0]}},
 		}
 	}}
 	useFakeModel(t, m)
@@ -701,8 +705,10 @@ func TestOpencodeE2E_LongToolOutputIsReadable(t *testing.T) {
 	if got := results["call_1_0"]; !strings.Contains(got, "SPILLED-LINE-2") || isRefusal(got) {
 		t.Errorf("reading the tool-output file was not file content: %.300q\nstderr:\n%s", got, stderr)
 	}
-	if got := results["call_1_1"]; !isRefusal(got) {
-		t.Errorf("reading auth.json was not refused: %.300q", got)
+	for id, what := range map[string]string{"call_1_1": "reading auth.json", "call_1_2": "reading opencode.db", "call_1_3": "grepping the data directory"} {
+		if got := results[id]; !isRefusal(got) {
+			t.Errorf("%s was not refused: %.300q", what, got)
+		}
 	}
 	if requestsContain(m.Requests(), "AUTHSECRET") {
 		t.Errorf("a request carried auth.json's content")
