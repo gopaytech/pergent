@@ -204,7 +204,7 @@ Each entry of `runs`:
 | `attachments` | array | `{name, bytes}` for each attached file. |
 | `tokens` | object | The same five counts as the skill's `tokens`. |
 | `tool_totals` | object | `{calls, bytes}` for `read`, `grep`, `glob`, `list` and `other`. |
-| `steps` | array | One entry per model step started, retries included. Each has `attempt`, `tokens` (zeros for a step that never finished) and `tools`. Each tool has `tool`, `target`, `bytes` (what the tool returned to the model) and `failed`. `target` is `repository`, `pergent` (pergent's own temp files, such as attachments, the on-demand diffs and their index), `tool_output` (a long result opencode saved) or `outside` (anything else). It is omitted for `other`. A target is never a path. |
+| `steps` | array | One entry per model step started, retries included. Each has `attempt`, `tokens` (zeros for a step that never finished) and `tools`. Each tool has `tool`, `target`, `bytes` (what the tool returned to the model) and `failed`. `target` is `repository`, `pergent` (pergent's own temp files, such as attachments, the on-demand diffs and their index), `tool_output` (a long result opencode saved) or `outside` (anything else). It is omitted for `other`. A target is never a path. `tools` keeps at most 500 calls per attempt, while `tool_totals` counts every call, so a cut shows when the two counts differ. |
 
 For example:
 
@@ -282,7 +282,7 @@ IDs are only unique within one result and can change between pushes. Store a dis
 
 ### Size limit
 
-A result is at most 10 MB. If the encoded JSON is larger, pergent drops every skill's per-batch `checks` first, and if that is not enough every skill's `summaries`, adding a note to each skill that lost something. Verdicts, findings, failures, files and the rendered comment are always kept. If the result is still too large, pergent delivers an `internal` error result instead.
+A result is at most 10 MB. If the encoded JSON is larger, pergent drops every skill's `runs` (usage data) first, then, if that is not enough, every skill's per-batch `checks`, and then every skill's `summaries`, adding a note to each skill that lost something. Verdicts, findings, failures, files and the rendered comment are always kept. If the result is still too large, pergent delivers an `internal` error result instead.
 
 Credentials are redacted from every string of the result before it leaves pergent. That includes the value of `PERGENT_RESULT_TOKEN`, if it is at least 8 characters long.
 
@@ -297,7 +297,7 @@ Credentials are redacted from every string of the result before it leaves pergen
 | `diff_failed` | 3 | `git diff` between the two commits failed. |
 | `skills_invalid` | 3 | A skill file or `--skills-dir` could not be loaded, including a folder in `--skills-dir` without a `SKILL.md` and a `paths` or `exclude` pattern with bad glob syntax or that can never match a file. |
 | `untrusted_instructions` | 3 | The checkout has instruction files below its root, a symlink to its root, a symlink to outside it, or a symlink whose real target a read rule denies (such as `prod.env`), and `--scrub-instructions` was not passed. |
-| `internal` | 3 | Anything else: git older than 2.40, a failure while scrubbing, or a result over 10 MB that checks and summaries could not shrink enough. |
+| `internal` | 3 | Anything else: git older than 2.40, a failure while scrubbing, or a result over 10 MB that runs, checks and summaries could not shrink enough. |
 
 The list is fixed in version 1.
 

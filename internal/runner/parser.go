@@ -143,7 +143,7 @@ type Transcript struct {
 	Usage Usage
 	// PerStep has one entry per step_start, in order: the step's tokens and
 	// the tool calls reported while it was the last step started. At most
-	// maxToolCalls calls are kept in all.
+	// maxToolCalls calls are kept per attempt.
 	PerStep []StepUsage
 	// ToolTotals counts every tool call, kept in PerStep or not.
 	ToolTotals ToolTotals

@@ -9,13 +9,15 @@ import (
 const MaxSize = 10 * 1024 * 1024
 
 const (
+	runsOmittedNote      = "Runs omitted to fit the 10 MB result limit."
 	checksOmittedNote    = "Checks omitted to fit the 10 MB result limit."
 	summariesOmittedNote = "Summaries omitted to fit the 10 MB result limit."
 )
 
 // Encode redacts every string of the result and encodes it as JSON. When
-// the JSON would exceed MaxSize it drops every skill's per-batch checks,
-// then, if still too large, every skill's summaries, adding a note to each
+// the JSON would exceed MaxSize it drops every skill's runs (usage data),
+// then, if still too large, its per-batch checks, then its summaries,
+// adding a note to each
 // skill that lost something. It does not change r.
 func Encode(r Result) ([]byte, error) {
 	r = redactResult(r)
@@ -28,18 +30,33 @@ func Encode(r Result) ([]byte, error) {
 	}
 
 	r.Skills = append([]Skill(nil), r.Skills...)
-	drop(&r, checksOmittedNote, func(s *Skill) bool {
-		if len(s.Checks) == 0 {
-			return false
-		}
-		s.Checks = nil
-		return true
-	})
-	if b, err = json.Marshal(r); err != nil {
-		return nil, err
+	steps := []struct {
+		note  string
+		clear func(*Skill) bool
+	}{
+		{runsOmittedNote, func(s *Skill) bool {
+			if len(s.Runs) == 0 {
+				return false
+			}
+			s.Runs = nil
+			return true
+		}},
+		{checksOmittedNote, func(s *Skill) bool {
+			if len(s.Checks) == 0 {
+				return false
+			}
+			s.Checks = nil
+			return true
+		}},
 	}
-	if len(b) <= MaxSize {
-		return b, nil
+	for _, st := range steps {
+		drop(&r, st.note, st.clear)
+		if b, err = json.Marshal(r); err != nil {
+			return nil, err
+		}
+		if len(b) <= MaxSize {
+			return b, nil
+		}
 	}
 
 	drop(&r, summariesOmittedNote, func(s *Skill) bool {
@@ -53,7 +70,7 @@ func Encode(r Result) ([]byte, error) {
 		return nil, err
 	}
 	if len(b) > MaxSize {
-		return nil, fmt.Errorf("result is %d bytes, over the %d byte limit even without checks and summaries", len(b), MaxSize)
+		return nil, fmt.Errorf("result is %d bytes, over the %d byte limit even without runs, checks and summaries", len(b), MaxSize)
 	}
 	return b, nil
 }
