@@ -22,7 +22,15 @@ const (
 
 const versionTimeout = 15 * time.Second
 
-var versionRE = regexp.MustCompile(`v?(\d+)\.(\d+)\.(\d+)`)
+// namedVersionRE finds "opencode vX.Y.Z", which opencode prints. versionRE
+// finds the first X.Y.Z anywhere and is used only when no line names opencode,
+// so a notice or an address printed first is not taken for the version. Both
+// capture a pre-release suffix (2.3.2-beta.1); build metadata (+abc) is left
+// out.
+var (
+	namedVersionRE = regexp.MustCompile(`(?i)\bopencode\s+v?(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?`)
+	versionRE      = regexp.MustCompile(`v?(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?`)
+)
 
 // CheckOpencodeVersion runs `opencode --version` and refuses a version older
 // than MinOpencodeVersion or one it cannot read. A newer version than the
@@ -71,20 +79,24 @@ func versionLess(a, b [3]int) bool {
 	return false
 }
 
-// checkVersionOutput judges what `opencode --version` printed. Any pre-release
-// suffix after the first x.y.z is ignored.
+// checkVersionOutput judges what `opencode --version` printed. A pre-release
+// comes before its release, so 2.3.2-beta.1 is older than 2.3.2.
 func checkVersionOutput(out string) (warning string, err error) {
-	m := versionRE.FindStringSubmatch(out)
+	m := namedVersionRE.FindStringSubmatch(out)
+	if m == nil {
+		m = versionRE.FindStringSubmatch(out)
+	}
 	if m == nil {
 		return "", fmt.Errorf("could not read the opencode version%s; pergent needs opencode %s or later", versionSample(out), MinOpencodeVersion)
 	}
-	found := m[1] + "." + m[2] + "." + m[3]
+	found := m[1] + "." + m[2] + "." + m[3] + m[4]
 	got := parseVersion([4]string(m[:4]))
-	min := parseVersion([4]string(versionRE.FindStringSubmatch(MinOpencodeVersion)))
-	if versionLess(got, min) {
+	pre := m[4] != ""
+	min := parseVersion([4]string(versionRE.FindStringSubmatch(MinOpencodeVersion)[:4]))
+	if versionLess(got, min) || (got == min && pre) {
 		return "", fmt.Errorf("opencode %s is too old: pergent needs opencode %s or later", found, MinOpencodeVersion)
 	}
-	tested := parseVersion([4]string(versionRE.FindStringSubmatch(TestedOpencodeVersion)))
+	tested := parseVersion([4]string(versionRE.FindStringSubmatch(TestedOpencodeVersion)[:4]))
 	if versionLess(tested, got) {
 		return fmt.Sprintf("tested with opencode %s, found %s", TestedOpencodeVersion, found), nil
 	}

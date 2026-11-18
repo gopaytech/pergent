@@ -19,6 +19,12 @@ func TestCheckVersionOutput(t *testing.T) {
 		{name: "minor below", out: "opencode v2.2.9", errHas: []string{"2.3.2 or later", "2.2.9"}},
 		{name: "empty", out: "", errHas: []string{"could not read the opencode version"}},
 		{name: "no number", out: "opencode", errHas: []string{"could not read the opencode version"}},
+		{name: "address first", out: "listening on 10.0.0.1\nopencode v2.3.2\n"},
+		{name: "update notice first", out: "update available 2.5.0\nopencode 2.3.1\n", errHas: []string{"2.3.2 or later", "2.3.1"}},
+		{name: "bare after a notice", out: "update available: 2.5.0\n", warnHas: []string{"found 2.5.0"}},
+		{name: "prerelease of the floor", out: "opencode v2.3.2-beta.1", errHas: []string{"2.3.2 or later", "2.3.2-beta.1"}},
+		{name: "bare prerelease of the floor", out: "2.3.2-rc.1\n", errHas: []string{"2.3.2 or later"}},
+		{name: "build metadata", out: "opencode v2.3.2+abc\n"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
