@@ -1716,3 +1716,48 @@ func TestCIText(t *testing.T) {
 		t.Fatal("blank should be empty")
 	}
 }
+
+func TestCITextStripsControlBytes(t *testing.T) {
+	if got := ciText("a\x00b"); got != "ab" {
+		t.Errorf("NUL: %q", got)
+	}
+	if got := ciText("\x1b[31mred\x1b[0m"); got != "red" {
+		t.Errorf("ANSI: %q", got)
+	}
+	if got := ciText("ok\x01\x02\x07\x7f\x1f\ttab\nnl\r\n"); got != "ok\ttab\nnl" {
+		t.Errorf("C0: %q", got)
+	}
+	got := ciText(strings.Repeat("\x00\x01\x02\x03", 500) + "text\tx\ny")
+	if got != "text\tx\ny" {
+		t.Errorf("mostly control bytes: %q", got)
+	}
+}
+
+// A file between the reduced budget (a CI file in the way) and the full one is
+// still reviewed, in a batch of its own; only a file over the full budget is
+// oversize.
+func TestCIResultsNeverPushFileOutOfReview(t *testing.T) {
+	mid := patch("a/mid.go", strings.Repeat("m", 3200)) // ~800 tokens
+	small := patch("a/small.go", strings.Repeat("s", 400))
+	run := func(diffText, ci string) (*fake, []SkillResult) {
+		f := &fake{}
+		f.respond = func(int, call) runner.RunResult { return completed(answer(t)) }
+		req := newRequest(t, f, diffText)
+		req.ContextLimit = 4000 // full budget 1000
+		req.CIResults = ci
+		return f, Run(context.Background(), req)
+	}
+	ci := strings.Repeat("c", 2000) // reduced budget 500
+	f, res := run(mid+small, ci)
+	if res[0].Verdict == Failed || len(res[0].Failures) != 0 {
+		t.Fatalf("verdict %q failures %+v, want both files reviewed", res[0].Verdict, res[0].Failures)
+	}
+	if len(f.calls) != 2 {
+		t.Errorf("%d runs, want 2 batches", len(f.calls))
+	}
+	huge := patch("a/huge.go", strings.Repeat("h", 6000)) // ~1500 tokens
+	_, res = run(huge, ci)
+	if len(res[0].Failures) != 1 || !strings.Contains(res[0].Failures[0].Message, "larger than the per-batch limit of 1,000") {
+		t.Errorf("failures %+v, want huge.go oversize against the full budget", res[0].Failures)
+	}
+}

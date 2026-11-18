@@ -428,12 +428,27 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillRes
 	}
 
 	budget := diff.BatchBudget(r.req.ContextLimit)
+	packBudget := budget
 	// The CI results ride along with every batch, so they take room from it,
-	// but never more than half.
+	// but never more than half. Only packing uses the reduced budget: a file
+	// is oversize against the full one, since the author controls the CI size.
 	if t := diff.EstimateTokens(r.req.CIResults); t > 0 {
-		budget = max(budget-t, budget/2)
+		packBudget = max(budget-t, budget/2)
 	}
-	batches, oversize := diff.Batch(reviewable, budget)
+	batches, oversize := diff.Batch(reviewable, packBudget)
+	if packBudget < budget {
+		// A file over the reduced budget that fits the full one gets a batch
+		// of its own.
+		var over []diff.FileDiff
+		for _, f := range oversize {
+			if diff.EstimateTokens(f.Patch) <= budget {
+				batches = append(batches, []diff.FileDiff{f})
+			} else {
+				over = append(over, f)
+			}
+		}
+		oversize = over
+	}
 	res.Batches = len(batches)
 	for _, f := range oversize {
 		res.Failures = append(res.Failures, BatchFailure{
@@ -646,10 +661,22 @@ const ciFile = "ci-results.md"
 // maxCIResults is the most of the CI results a run gets.
 const maxCIResults = 64 << 10
 
-// ciText prepares the CI results for attaching: valid UTF-8, redacted,
-// trimmed and at most maxCIResults bytes before the note that says it was cut.
+// ansiEscape matches an ANSI CSI escape sequence (colours, cursor moves).
+var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
+
+// ciText prepares the CI results for attaching: valid UTF-8, no escape
+// sequences or control bytes (opencode's read tool takes a file with a NUL as
+// binary and fails the run), redacted, trimmed and at most maxCIResults bytes
+// before the note that says it was cut.
 func ciText(s string) string {
-	s = strings.TrimSpace(redact.String(strings.ToValidUTF8(s, "\uFFFD")))
+	s = ansiEscape.ReplaceAllString(strings.ToValidUTF8(s, "\uFFFD"), "")
+	s = strings.Map(func(r rune) rune {
+		if r == 0x7f || (r < 0x20 && r != '\t' && r != '\n' && r != '\r') {
+			return -1
+		}
+		return r
+	}, s)
+	s = strings.TrimSpace(redact.String(s))
 	if len(s) <= maxCIResults {
 		return s
 	}

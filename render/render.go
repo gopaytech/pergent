@@ -262,8 +262,8 @@ type layout struct {
 // files, the notes and the footer. A hidden last line carries the findings for
 // the next run. That is the default order; o.Layout can change the order of the
 // summary, findings, dismissed, checks and files blocks, fold or open them, or
-// leave one out (see Options.Layout). The headline, meta line, reason, table
-// and failures are kept by every shrink step below.
+// leave one out (see Options.Layout). The headline, meta line, header note,
+// reason, table and failures are kept by every shrink step below.
 //
 // A comment over o.MaxLen is shrunk in steps until it fits: the hidden
 // findings block goes first, then the suggestions' explanations and fixes

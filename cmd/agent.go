@@ -322,7 +322,7 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 	flags.StringVar(&in.previousPath, "previous", "", "A previous agent result whose findings are attached per skill")
 	flags.StringVar(&in.carriedPath, "carried", "", "A JSON file {\"<skill>\": [\"path\", ...]} of files a previous review covers, left out of this review")
 	flags.StringVar(&in.dismissalsPath, "dismissals", getenv("PERGENT_DISMISSALS"), "A JSON file {\"<skill>\": [{\"file\", \"title\", \"severity\", \"reason\"}, ...]} of findings people rejected earlier, attached to the runs")
-	flags.StringVar(&in.ciPath, "ci-results", getenv("PERGENT_CI_RESULTS"), "CI job results for the review, written by the caller (default $PERGENT_CI_RESULTS)")
+	flags.StringVar(&in.ciPath, "ci-results", getenv("PERGENT_CI_RESULTS"), "A file of the CI job results of the change, attached to the review runs as data")
 	flags.StringVar(&in.changePath, "change-description", getenv("PERGENT_CHANGE_DESCRIPTION"), "A file holding the change's title and description, attached to the review runs as data")
 	flags.StringVar(&in.linkedPath, "linked-repos", getenv("PERGENT_LINKED_REPOS"), "A JSON file [{\"name\", \"path\", \"watched\", \"can_block\", \"error\"}, ...] of linked repositories the caller cloned; they are scrubbed, and only an impact run reads them")
 	flags.BoolVar(&in.scrub, "scrub-instructions", false, "Delete every AGENTS.md, CLAUDE.md and CONTEXT.md in --repo-path before reviewing")
@@ -555,7 +555,7 @@ func gitVersionError(version string, major, minor int, err error) *result.Error 
 
 // trustedInputsOutside refuses a trusted input (--instructions, --skills-dir,
 // a path --skill, --previous, --carried, --dismissals, --change-description,
-// --linked-repos) that resolves to somewhere inside the checkout:
+// --ci-results, --linked-repos) that resolves to somewhere inside the checkout:
 // the change under review could have written it. A --skills-dir above the
 // checkout is refused too, since LoadDir would read the checkout's top-level
 // files as skills. So are a --result file in the checkout, where the change
