@@ -124,7 +124,7 @@ opencode 2 already retries a provider error several times inside one run: a 500 
 
 ### 8. Instruction files
 
-pergent's defences stay as they are: CI mode passes the root `AGENTS.md`/`CLAUDE.md` explicitly, agent mode refuses or scrubs nested instruction files, and the scrub deletes links and denied files. On top, every run gets `OPENCODE_DISABLE_CLAUDE_CODE=true`, which in 2.x stops every `CLAUDE.md` fallback (per directory and `~/.claude/CLAUDE.md`). A test checks that a nested `AGENTS.md` is still refused in agent mode and that `CLAUDE.md` files are not loaded.
+pergent's defences stay as they are: CI mode passes the root `AGENTS.md`/`CLAUDE.md` explicitly, agent mode refuses or scrubs nested instruction files, and the scrub deletes links and denied files. On top, every run with a generated config gets `OPENCODE_DISABLE_CLAUDE_CODE=true`, which in 2.x stops every `CLAUDE.md` fallback (per directory and `~/.claude/CLAUDE.md`). Own-config runs don't: there the user's opencode finds its instruction files itself, as on 1.x. A test checks that a nested `AGENTS.md` is still refused in agent mode and that `CLAUDE.md` files are not loaded.
 
 The global `$XDG_CONFIG_HOME/opencode/AGENTS.md` keeps loading, as on 1.x. It belongs to whoever runs pergent: agent mode already refuses an `XDG_CONFIG_HOME` inside the checkout.
 
