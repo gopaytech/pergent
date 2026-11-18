@@ -204,3 +204,61 @@ func TestIsInstructionName(t *testing.T) {
 		}
 	}
 }
+
+// opencode's grep and glob don't apply the read rules, so a file they deny is
+// found to be deleted. Names are judged in lower case: on a case-insensitive
+// file system `.ENV` is the same file as `.env`, and the rules are lower case.
+// Only the root's own .git is skipped; symlinks are Scan's to judge.
+func TestDeniedFiles(t *testing.T) {
+	root := tree(t,
+		"a.go", "prod.env", "cfg/DB.ENV", "cfg/local.env.dev", "cfg/sample.env.example",
+		"deploy/prod.env.EXAMPLE", "cfg/Prod.ENV.EXAMPLE",
+		"keys/tls.key", ".git/secret.env", "vendor/x/.git/inner.env", "empty/")
+	link(t, root, "link.env", "a.go")
+	link(t, root, "viadir", "cfg")
+	denied := func(rel string) bool {
+		if strings.HasSuffix(rel, ".env.example") {
+			return false
+		}
+		return strings.HasSuffix(rel, ".env") || strings.Contains(rel, ".env.") || strings.HasSuffix(rel, ".key")
+	}
+
+	files, unreadable, err := DeniedFiles(root, denied)
+	if err != nil {
+		t.Fatalf("DeniedFiles() error: %v", err)
+	}
+	// deploy/prod.env.EXAMPLE is denied as written (a case-sensitive allow for
+	// .env.example does not match it), though its lower case is allowed;
+	// cfg/Prod.ENV.EXAMPLE is denied in neither case. They sit in different
+	// directories: on a case-insensitive file system they would be one file.
+	want := []string{"cfg/DB.ENV", "cfg/local.env.dev", "deploy/prod.env.EXAMPLE", "keys/tls.key", "prod.env", "vendor/x/.git/inner.env"}
+	if !reflect.DeepEqual(files, want) {
+		t.Errorf("files = %v, want %v", files, want)
+	}
+	if len(unreadable) != 0 {
+		t.Errorf("unreadable = %v, want none", unreadable)
+	}
+}
+
+func TestDeniedFiles_UnreadableDirectory(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads every directory")
+	}
+	root := tree(t, "locked/x.env", "z/y.env")
+	locked := filepath.Join(root, "locked")
+	if err := os.Chmod(locked, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(locked, 0o755) })
+
+	files, unreadable, err := DeniedFiles(root, func(rel string) bool { return strings.HasSuffix(rel, ".env") })
+	if err != nil {
+		t.Fatalf("DeniedFiles() error: %v, want the unreadable directory reported instead", err)
+	}
+	if want := []string{"z/y.env"}; !reflect.DeepEqual(files, want) {
+		t.Errorf("files = %v, want %v", files, want)
+	}
+	if want := []string{"locked"}; !reflect.DeepEqual(unreadable, want) {
+		t.Errorf("unreadable = %v, want %v", unreadable, want)
+	}
+}

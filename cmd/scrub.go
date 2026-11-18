@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"os"
 	"path/filepath"
 
 	"github.com/gopaytech/pergent/internal/checkout"
@@ -19,7 +20,12 @@ import (
 // the same way. CI mode's rules deny *.env files only, so the extra secret
 // files agent mode denies (*.pem, *.key, *.tfvars) are not checked here.
 //
-// A review must not stop for this. A link that cannot be removed, or a
+// opencode's grep and glob don't apply the read rules at all (grep searches
+// hidden files too), so a file the rules deny is deleted as well, judged in
+// lower case (checkout.DeniedFiles). The diff compares commits, so the change
+// to such a file is still reviewed.
+//
+// A review must not stop for this. A link or file that cannot be removed, or a
 // directory that cannot be read, is a warning and the rest is still scrubbed.
 //
 // --local never deletes anything: it is the user's own working tree, and it
@@ -43,7 +49,7 @@ func scrubCheckout(cfg config.Config, logger *log.Logger) {
 		logger.Printf("warning: looking for symlinks that leave the checkout: %v", err)
 	}
 	for _, rel := range found.Unreadable {
-		logger.Printf("warning: could not look into the directory %q for symlinks that leave the checkout", rel)
+		logger.Printf("warning: could not look into the directory %q for symlinks that leave the checkout or files the read rules deny", rel)
 	}
 	remove := func(l checkout.Link, why string) {
 		if err := checkout.Remove(root, l); err != nil {
@@ -57,5 +63,28 @@ func scrubCheckout(cfg config.Config, logger *log.Logger) {
 	}
 	for _, l := range found.Denied {
 		remove(l, "its target is a file the read rules deny")
+	}
+
+	files, unreadable, err := checkout.DeniedFiles(root, func(rel string) bool { return config.ReadDenied(rel, false) })
+	if err != nil {
+		logger.Printf("warning: looking for files the read rules deny: %v", err)
+	}
+	// Scan has warned about the directories it could not read; this walk also
+	// goes into nested .git directories, and goes on where Scan stopped early.
+	warned := make(map[string]bool, len(found.Unreadable))
+	for _, rel := range found.Unreadable {
+		warned[rel] = true
+	}
+	for _, rel := range unreadable {
+		if !warned[rel] {
+			logger.Printf("warning: could not look into the directory %q for files the read rules deny", rel)
+		}
+	}
+	for _, rel := range files {
+		if err := os.Remove(filepath.Join(root, filepath.FromSlash(rel))); err != nil && !os.IsNotExist(err) {
+			logger.Printf("warning: could not delete %q, a file the read rules deny: %v", rel, err)
+			continue
+		}
+		logger.Printf("deleted %q: the read rules deny it", rel)
 	}
 }

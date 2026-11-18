@@ -436,7 +436,7 @@ func impactSkill(t *testing.T) string {
 // written once, so the test does not depend on the file system's case rules.
 func TestScrubLinkedRemovesCaseVariantsOfDeniedFiles(t *testing.T) {
 	clone := t.TempDir()
-	for _, rel := range []string{".ENV", "KEY.PEM", "infra/prod.TFVARS", "cfg/App.Env.Local", "Agents.md", "main.go", "Prod.ENV.EXAMPLE"} {
+	for _, rel := range []string{".ENV", "KEY.PEM", "infra/prod.TFVARS", "cfg/App.Env.Local", "Agents.md", "main.go", "Prod.ENV.EXAMPLE", "deploy/prod.env.EXAMPLE"} {
 		mustWrite(t, clone, rel, "x\n")
 	}
 	// A link to a denied file in another case.
@@ -448,12 +448,17 @@ func TestScrubLinkedRemovesCaseVariantsOfDeniedFiles(t *testing.T) {
 	if got[0].Error != "" {
 		t.Fatalf("Error = %q", got[0].Error)
 	}
-	for _, rel := range []string{".ENV", "KEY.PEM", "infra/prod.TFVARS", "cfg/App.Env.Local", "Agents.md", "secret.PEM", "safe.txt"} {
+	// deploy/prod.env.EXAMPLE: opencode's *.env.* deny matches as written, but
+	// its *.env.example allow is case-sensitive and does not, so read refuses
+	// it. (Another directory than Prod.ENV.EXAMPLE: on a case-insensitive file
+	// system the two names would be one file.)
+	for _, rel := range []string{".ENV", "KEY.PEM", "infra/prod.TFVARS", "cfg/App.Env.Local", "Agents.md", "secret.PEM", "safe.txt", "deploy/prod.env.EXAMPLE"} {
 		if exists(clone, rel) {
 			t.Errorf("%s is still in the clone", rel)
 		}
 	}
-	// *.env.example is allowed in any case, as it is in lower case.
+	// *.env.example is allowed in any case, as it is in lower case
+	// (Prod.ENV.EXAMPLE matches no deny rule as written either).
 	for _, rel := range []string{"main.go", "Prod.ENV.EXAMPLE"} {
 		if !exists(clone, rel) {
 			t.Errorf("%s was deleted", rel)

@@ -481,6 +481,9 @@ func prepareAgent(in *agentInputs, logger *log.Logger) *result.Error {
 	if e := handleInstructionFiles(root, in.scrub, logger); e != nil {
 		return e
 	}
+	if e := deleteDeniedFiles(root, logger); e != nil {
+		return e
+	}
 
 	d, files, err := platform.CommitDiff(root, in.Base, in.Head)
 	if err != nil {
@@ -727,6 +730,32 @@ func checkoutRoot(repoPath string) (string, *result.Error) {
 		return "", &result.Error{Code: result.CodeCheckoutMissing, Message: fmt.Sprintf("--repo-path %s is not the top of its git work tree", repoPath)}
 	}
 	return root, nil
+}
+
+// deleteDeniedFiles deletes every file in the checkout that the read rules
+// deny (checkout.DeniedFiles: judged in lower case, tracked or not, only the
+// root's .git skipped). The read rules stop opencode's read tool, but its grep
+// and glob don't apply them, and grep searches hidden files: a committed
+// config/prod.env would be searchable. The diff compares commits, so the
+// change to such a file is still reviewed. A file that can't be deleted, or a
+// directory that can't be read, stops the review: what is in it would stay
+// searchable.
+func deleteDeniedFiles(root string, logger *log.Logger) *result.Error {
+	files, unreadable, err := checkout.DeniedFiles(root, func(rel string) bool { return config.ReadDenied(rel, true) })
+	if err != nil {
+		return &result.Error{Code: result.CodeInternal, Message: fmt.Sprintf("looking for files the read rules deny: %v", err)}
+	}
+	if len(unreadable) > 0 {
+		return &result.Error{Code: result.CodeInternal, Message: fmt.Sprintf(
+			"looking for files the read rules deny: cannot read the directories %s", quoteAll(unreadable))}
+	}
+	for _, rel := range files {
+		if err := os.Remove(filepath.Join(root, filepath.FromSlash(rel))); err != nil && !os.IsNotExist(err) {
+			return &result.Error{Code: result.CodeInternal, Message: fmt.Sprintf("deleting %q, a file the read rules deny: %v", rel, err)}
+		}
+		logger.Printf("deleted %q: the read rules deny it", rel)
+	}
+	return nil
 }
 
 // handleInstructionFiles keeps opencode from loading instructions from the

@@ -89,13 +89,14 @@ func TestScrubCheckout_LocalModeDeletesNothing(t *testing.T) {
 	root, outsideFile := ciCheckout(t)
 	symlinkAt(t, root, "abs", outsideFile)
 	symlinkAt(t, root, "up", "..")
+	writeFile(t, root, "prod.env", "DB_PASSWORD=secret\n")
 
 	logger, logs := bufferLog()
 	scrubCheckout(config.Config{Local: true, RepoPath: root}, logger)
 
-	for _, name := range []string{"abs", "up"} {
+	for _, name := range []string{"abs", "up", "prod.env"} {
 		if !exists(root, name) {
-			t.Errorf("symlink %s was removed in --local mode", name)
+			t.Errorf("%s was removed in --local mode", name)
 		}
 	}
 	if logs.Len() != 0 {
@@ -203,10 +204,103 @@ func TestScrubCheckout_PlatformModeRemovesLinksToDeniedFiles(t *testing.T) {
 			t.Errorf("symlink %s was removed, want it kept", name)
 		}
 	}
-	for _, name := range []string{"prod.env", "cfg/.env.local", "keys/id.pem"} {
-		if !exists(root, name) {
-			t.Errorf("the target %s was removed", name)
+	// A removed link never takes its target with it. prod.env and
+	// cfg/.env.local are gone too, but as denied files in their own right, so
+	// the denied-file walk still found them after their links went.
+	if !exists(root, "keys/id.pem") {
+		t.Error("the target keys/id.pem was removed")
+	}
+	for _, name := range []string{"prod.env", "cfg/.env.local"} {
+		if want := "deleted " + strconv.Quote(name) + ": the read rules deny it"; !strings.Contains(logs.String(), want) {
+			t.Errorf("log lacks %q:\n%s", want, logs)
 		}
+	}
+}
+
+// opencode's grep and glob don't apply the read rules, so a file they deny
+// would still be searched: platform mode deletes it. CI mode's rules deny
+// *.env files only, judged in lower case; .git and links are left alone.
+func TestScrubCheckout_PlatformModeDeletesDeniedFiles(t *testing.T) {
+	for _, platform := range []string{"github", "gitlab"} {
+		t.Run(platform, func(t *testing.T) {
+			root, _ := ciCheckout(t)
+			deleted := []string{"prod.env", "config/.env", "config/db.env.local", "deep/a/STAGE.ENV"}
+			for _, name := range deleted {
+				writeFile(t, root, name, "DB_PASSWORD=secret\n")
+			}
+			kept := []string{".env.example", "keys/id.pem", ".git/x.env", "a.go"}
+			for _, name := range kept[:3] {
+				writeFile(t, root, name, "x\n")
+			}
+			symlinkAt(t, root, "alias.env", "a.go")
+
+			logger, logs := bufferLog()
+			scrubCheckout(config.Config{Platform: platform, RepoPath: root}, logger)
+
+			for _, name := range deleted {
+				if exists(root, name) {
+					t.Errorf("%s still exists, want it deleted", name)
+				}
+				if want := "deleted " + strconv.Quote(name) + ": the read rules deny it"; !strings.Contains(logs.String(), want) {
+					t.Errorf("log lacks %q:\n%s", want, logs)
+				}
+			}
+			for _, name := range append(kept, "alias.env") {
+				if !exists(root, name) {
+					t.Errorf("%s was removed, want it kept", name)
+				}
+			}
+		})
+	}
+}
+
+// A denied file that can't be deleted is a warning: the review goes on, and
+// the other denied files are still deleted.
+func TestScrubCheckout_UndeletableDeniedFileIsAWarning(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root removes anything")
+	}
+	root, _ := ciCheckout(t)
+	writeFile(t, root, "ro/prod.env", "x\n")
+	writeFile(t, root, "z.env", "x\n")
+	if err := os.Chmod(filepath.Join(root, "ro"), 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(filepath.Join(root, "ro"), 0o755) })
+
+	logger, logs := bufferLog()
+	scrubCheckout(config.Config{Platform: "gitlab", RepoPath: root}, logger)
+
+	if exists(root, "z.env") {
+		t.Error("z.env still exists, want it deleted")
+	}
+	if !exists(root, "ro/prod.env") {
+		t.Fatal("ro/prod.env was deleted from a read-only directory")
+	}
+	if !strings.Contains(logs.String(), "warning") || !strings.Contains(logs.String(), `"ro/prod.env"`) {
+		t.Errorf("log lacks a warning naming \"ro/prod.env\":\n%s", logs)
+	}
+}
+
+// Scan skips every .git, but the denied-file walk goes into a nested one, so
+// a directory only that walk could not read gets a warning of its own.
+func TestScrubCheckout_WarnsAboutDirectoriesOnlyTheDeniedFileWalkCouldNotRead(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads every directory")
+	}
+	root, _ := ciCheckout(t)
+	writeFile(t, root, "vendor/x/.git/inner.env", "x\n")
+	locked := filepath.Join(root, "vendor", "x", ".git")
+	if err := os.Chmod(locked, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(locked, 0o755) })
+
+	logger, logs := bufferLog()
+	scrubCheckout(config.Config{Platform: "gitlab", RepoPath: root}, logger)
+
+	if !strings.Contains(logs.String(), "warning") || !strings.Contains(logs.String(), `"vendor/x/.git"`) {
+		t.Errorf("log lacks a warning naming \"vendor/x/.git\":\n%s", logs)
 	}
 }
 
