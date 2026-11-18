@@ -212,6 +212,7 @@ func TestIsInstructionName(t *testing.T) {
 func TestDeniedFiles(t *testing.T) {
 	root := tree(t,
 		"a.go", "prod.env", "cfg/DB.ENV", "cfg/local.env.dev", "cfg/sample.env.example",
+		"deploy/prod.env.EXAMPLE", "cfg/Prod.ENV.EXAMPLE",
 		"keys/tls.key", ".git/secret.env", "vendor/x/.git/inner.env", "empty/")
 	link(t, root, "link.env", "a.go")
 	link(t, root, "viadir", "cfg")
@@ -226,7 +227,11 @@ func TestDeniedFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DeniedFiles() error: %v", err)
 	}
-	want := []string{"cfg/DB.ENV", "cfg/local.env.dev", "keys/tls.key", "prod.env", "vendor/x/.git/inner.env"}
+	// deploy/prod.env.EXAMPLE is denied as written (a case-sensitive allow for
+	// .env.example does not match it), though its lower case is allowed;
+	// cfg/Prod.ENV.EXAMPLE is denied in neither case. They sit in different
+	// directories: on a case-insensitive file system they would be one file.
+	want := []string{"cfg/DB.ENV", "cfg/local.env.dev", "deploy/prod.env.EXAMPLE", "keys/tls.key", "prod.env", "vendor/x/.git/inner.env"}
 	if !reflect.DeepEqual(files, want) {
 		t.Errorf("files = %v, want %v", files, want)
 	}

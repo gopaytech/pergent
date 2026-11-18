@@ -65,10 +65,20 @@ func scrubCheckout(cfg config.Config, logger *log.Logger) {
 		remove(l, "its target is a file the read rules deny")
 	}
 
-	// Scan has already warned about the directories it could not read.
-	files, _, err := checkout.DeniedFiles(root, func(rel string) bool { return config.ReadDenied(rel, false) })
+	files, unreadable, err := checkout.DeniedFiles(root, func(rel string) bool { return config.ReadDenied(rel, false) })
 	if err != nil {
 		logger.Printf("warning: looking for files the read rules deny: %v", err)
+	}
+	// Scan has warned about the directories it could not read; this walk also
+	// goes into nested .git directories, and goes on where Scan stopped early.
+	warned := make(map[string]bool, len(found.Unreadable))
+	for _, rel := range found.Unreadable {
+		warned[rel] = true
+	}
+	for _, rel := range unreadable {
+		if !warned[rel] {
+			logger.Printf("warning: could not look into the directory %q for files the read rules deny", rel)
+		}
 	}
 	for _, rel := range files {
 		if err := os.Remove(filepath.Join(root, filepath.FromSlash(rel))); err != nil && !os.IsNotExist(err) {

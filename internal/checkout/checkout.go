@@ -154,9 +154,12 @@ func looseTarget(dir, text string) string {
 // the regular files whose slash-separated path relative to root denied
 // rejects, sorted. opencode's grep and glob don't apply the read rules (grep
 // searches hidden files too), so a file the rules deny has to be gone, not
-// only denied. Each path is judged in lower case: the rules are written in
-// lower case and opencode matches them case-sensitively, while on a
-// case-insensitive file system `.ENV` is the same file as `.env`.
+// only denied. Each path is judged as written and in lower case, and a file
+// either denies goes: the rules are written in lower case and opencode
+// matches them case-sensitively, so on a case-insensitive file system `.ENV`
+// is the same file as `.env`, while `prod.env.EXAMPLE` is denied as written
+// (the `*.env.example` allow does not match it) though its lower case is
+// allowed.
 //
 // Only root's own .git is skipped: a .git deeper down is a name like any
 // other. Symlinks are not followed or returned; Scan judges them. A directory
@@ -189,7 +192,7 @@ func DeniedFiles(root string, denied func(rel string) bool) (files, unreadable [
 			return err
 		}
 		rel = filepath.ToSlash(rel)
-		if denied(strings.ToLower(rel)) {
+		if denied(rel) || denied(strings.ToLower(rel)) {
 			files = append(files, rel)
 		}
 		return nil

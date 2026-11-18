@@ -215,9 +215,12 @@ func scrubLinked(repos []review.LinkedRepo, denied func(string) bool, logger *lo
 func scrubClone(path string, denied func(string) bool) error {
 	// The read rules are written in lower case and opencode matches them
 	// case-sensitively, so `.ENV` is not denied there; on a case-insensitive
-	// file system it is the same file as `.env`. Here every name is judged in
-	// lower case, so any case of a denied name goes.
-	deniedAnyCase := func(rel string) bool { return denied(strings.ToLower(rel)) }
+	// file system it is the same file as `.env`. Here every name is judged as
+	// written and in lower case, and a name either denies goes: any case of a
+	// denied name, and `prod.env.EXAMPLE`, which opencode denies as written
+	// (its `*.env.example` allow does not match) though its lower case is
+	// allowed.
+	deniedAnyCase := func(rel string) bool { return denied(rel) || denied(strings.ToLower(rel)) }
 
 	info, err := os.Lstat(path)
 	if err != nil {
