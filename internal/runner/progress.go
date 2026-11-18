@@ -87,10 +87,13 @@ func (pw *progressWriter) formatEvent(event openCodeEvent) {
 		}
 	case "error":
 		if event.Error != nil {
-			msg := event.Error.Name
-			if event.Error.Data != nil && event.Error.Data.Message != "" {
+			msg := event.Error.Type
+			if msg == "" {
+				msg = "error"
+			}
+			if event.Error.Message != "" {
 				// Redact before cutting, so a key across the cut can't print in part.
-				msg = truncate(redact.String(event.Error.Data.Message), 120)
+				msg = truncate(redact.String(event.Error.Message), 120)
 			}
 			pw.printf("  Error: %s\n", redact.String(msg))
 		}

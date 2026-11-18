@@ -20,7 +20,7 @@ func TestParseOutput_LineOverTheLimitIsNotAnAnswer(t *testing.T) {
 		`{"type":"step_finish","part":{"reason":"stop"}}` + "\n" +
 		hugeLine() + "\n" +
 		`{"type":"step_start"}` + "\n" +
-		`{"type":"error","error":{"name":"APIError","data":{"message":"later error"}}}` + "\n"
+		`{"type":"error","error":{"type":"provider.internal","message":"later error","status":500}}` + "\n"
 
 	got := ParseOutput([]byte(stream))
 	if got.Answer != "" {

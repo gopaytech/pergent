@@ -390,3 +390,39 @@ func TestOpencodeE2E_OwnConfigMode(t *testing.T) {
 		t.Error("the fake model got no request")
 	}
 }
+
+// opencode 2 reports a provider failure as {type, message, status, response}.
+// A 500 is retried by opencode itself (with backoff, so it takes a while) and
+// then once by pergent; a context overflow is a provider.invalid-request that
+// only its text marks as one.
+func TestOpencodeE2E_ProviderErrors(t *testing.T) {
+	requireOpencode(t)
+	tests := []struct {
+		mode     string
+		kind     string
+		contains string
+	}{
+		{"error500", "opencode_error", "Gave up after 2 attempts"},
+		{"overflow", "context_overflow", "context window overflowed"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.mode, func(t *testing.T) {
+			start := time.Now()
+			m := newFakeModel(t, nil, tt.mode)
+			useFakeModel(t, m)
+			repo, base, head := e2eRepo(t, map[string]string{"b.go": "package a\n"})
+			// opencode retries a 500 for about 85s per start and pergent starts it
+			// twice (2m57s measured), so the default 3m budget would be a coin flip.
+			res, stderr := runAgentE2E(t, repo, base, head, "--timeout", "5m")
+			t.Logf("took %s", time.Since(start).Round(time.Second))
+
+			if len(res.Skills) != 1 || res.Skills[0].Verdict != "failed" || len(res.Skills[0].Failures) == 0 {
+				t.Fatalf("result = %+v, want one failed skill\nstderr:\n%s", res.Skills, stderr)
+			}
+			c := res.Skills[0].Failures[0].Cause
+			if c == nil || c.Kind != tt.kind || !strings.Contains(c.Message, tt.contains) {
+				t.Errorf("cause = %+v, want kind %s and %q in the message\nstderr:\n%s", c, tt.kind, tt.contains, stderr)
+			}
+		})
+	}
+}

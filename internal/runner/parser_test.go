@@ -39,8 +39,8 @@ func TestParseOutput_Fixtures(t *testing.T) {
 		{fixture: "completed.ndjson", answer: fixtureReview, steps: 4, lastTokens: 45000, finishReason: "stop", lastTool: "read", lastToolTarget: "/builds/repo/service/handler.go"},
 		{fixture: "compacted_no_answer.ndjson", steps: 5, lastTokens: 98000, finishReason: "stop", compacted: true, lastTool: "grep", lastToolTarget: "/builds/repo/service"},
 		{fixture: "compacted_then_answer.ndjson", answer: fixtureReview, steps: 4, lastTokens: 8000, finishReason: "stop", compacted: true, lastTool: "grep", lastToolTarget: "/builds/repo/service"},
-		{fixture: "context_overflow.ndjson", steps: 6, lastTokens: 156000, finishReason: "tool-calls", inStep: true, errorName: "ContextOverflowError", lastTool: "read", lastToolTarget: "/builds/repo/service/handler.go"},
-		{fixture: "rate_limited.ndjson", steps: 2, lastTokens: 14000, finishReason: "tool-calls", inStep: true, errorName: "APIError", lastTool: "read", lastToolTarget: "/builds/repo/service/handler.go"},
+		{fixture: "context_overflow.ndjson", steps: 6, lastTokens: 156000, finishReason: "tool-calls", inStep: true, errorName: "provider.invalid-request", lastTool: "read", lastToolTarget: "/builds/repo/service/handler.go"},
+		{fixture: "rate_limited.ndjson", steps: 2, lastTokens: 14000, finishReason: "tool-calls", inStep: true, errorName: "provider.rate-limit", lastTool: "read", lastToolTarget: "/builds/repo/service/handler.go"},
 		{fixture: "step_limit.ndjson", answer: "Maximum steps for this agent have been reached. So far I read service/handler.go. Remaining: check callers of Save.", steps: 3, lastTokens: 40000, finishReason: "stop", lastTool: "grep", lastToolTarget: "/builds/repo/service"},
 		{fixture: "timeout.ndjson", steps: 3, lastTokens: 23000, finishReason: "tool-calls", inStep: true, lastTool: "read", lastToolTarget: "/builds/repo/service/store.go"},
 		{fixture: "no_answer.ndjson", steps: 2, lastTokens: 23000, finishReason: "tool-calls", lastTool: "grep", lastToolTarget: "/builds/repo/service"},
@@ -161,10 +161,34 @@ func TestParseOutput_ErrorEventFields(t *testing.T) {
 	got := ParseOutput(readFixture(t, "rate_limited.ndjson"))
 	e := got.LastError()
 	if e == nil {
-		t.Fatal("LastError() = nil, want the APIError")
+		t.Fatal("LastError() = nil, want the provider.rate-limit error")
 	}
-	if e.Message != "Rate limit exceeded: 429 Too Many Requests" || e.StatusCode != 429 || !e.IsRetryable {
-		t.Errorf("error = %+v, want message, statusCode 429 and isRetryable", *e)
+	if e.Message != "Rate limit exceeded: 429 Too Many Requests" || e.StatusCode != 429 {
+		t.Errorf("error = %+v, want message and status 429", *e)
+	}
+}
+
+// The line is a real opencode 2.3.2 error event.
+func TestParseOutput_V2Error(t *testing.T) {
+	line := `{"type":"error","timestamp":1,"sessionID":"s","error":{"type":"provider.internal","message":"mock internal error","status":500,"response":{"body":"{\"error\":{}}"}}}` + "\n"
+	e := ParseOutput([]byte(line)).LastError()
+	if e == nil {
+		t.Fatal("LastError() = nil, want the error")
+	}
+	if e.Name != "provider.internal" || e.StatusCode != 500 || e.Message != "mock internal error" || e.Body == "" {
+		t.Errorf("error = %+v, want provider.internal, 500, the message and a body", *e)
+	}
+}
+
+// An error event fails the run even when the model went on to write an answer.
+func TestParseOutput_ErrorThenTextStaysFailed(t *testing.T) {
+	stream := `{"type":"error","error":{"type":"provider.internal","message":"boom","status":500}}` + "\n" +
+		`{"type":"step_start","part":{"type":"step-start"}}` + "\n" +
+		`{"type":"text","part":{"type":"text","text":"looks fine"}}` + "\n" +
+		`{"type":"step_finish","part":{"type":"step-finish","reason":"stop"}}` + "\n"
+	status, cause := classify(attempt{transcript: ParseOutput([]byte(stream))}, Options{Timeout: time.Minute}, 0)
+	if status != StatusFailed || cause == nil || cause.Kind != CauseOpencodeError {
+		t.Errorf("classify() = %v, %+v, want a failed opencode_error", status, cause)
 	}
 }
 

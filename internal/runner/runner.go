@@ -85,9 +85,14 @@ func withoutEnv(env, exclude []string) []string {
 }
 
 // maxRetries is how many times a run that failed on a transient provider
-// error is started again. opencode already retries such errors itself
-// before reporting them, so these retries cover longer outages.
+// error that is not the provider's (a connection that failed, say) is started
+// again.
 const maxRetries = 3
+
+// maxProviderRetries is the same for a provider error. opencode already
+// retried it with backoff before reporting it (a 500 took 12 requests), so one
+// more start covers a short outage and no more.
+const maxProviderRetries = 1
 
 // retryBackoff is the wait before the first retry; it doubles each time.
 var retryBackoff = 5 * time.Second
@@ -158,8 +163,9 @@ func BuildCommand(ctx context.Context, configPath string, files []string, messag
 }
 
 // Run runs one skill and always returns a result: a completed review or a
-// failure with its cause. Transient provider errors are retried up to
-// maxRetries times with exponential backoff while the timeout allows.
+// failure with its cause. Transient errors are retried with exponential
+// backoff while the timeout allows: up to maxProviderRetries times for a
+// provider error, maxRetries times for any other.
 func Run(ctx context.Context, opts Options) RunResult {
 	start := time.Now()
 	if !opts.ReviewStart.IsZero() {
@@ -180,7 +186,11 @@ func Run(ctx context.Context, opts Options) RunResult {
 		}
 
 		e := a.transcript.RootError()
-		retry := cause.Kind == CauseOpencodeError && e != nil && e.Transient() && n <= maxRetries
+		limit := maxRetries
+		if e != nil && e.ProviderError() {
+			limit = maxProviderRetries
+		}
+		retry := cause.Kind == CauseOpencodeError && e != nil && e.Transient() && n <= limit
 		if retry {
 			if deadline, _ := ctx.Deadline(); time.Until(deadline) <= backoff {
 				fmt.Fprintf(os.Stderr, prefix+"  Transient error, but not enough time left to retry: %s\n", redact.String(cause.Message()))
@@ -193,7 +203,7 @@ func Run(ctx context.Context, opts Options) RunResult {
 		}
 
 		fmt.Fprintf(os.Stderr, prefix+"  Transient error: %s\n"+prefix+"  Retrying in %s (attempt %d of %d)\n",
-			redact.String(cause.Message()), backoff, n+1, maxRetries+1)
+			redact.String(cause.Message()), backoff, n+1, limit+1)
 		select {
 		case <-ctx.Done():
 			cause.Attempts = n

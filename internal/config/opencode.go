@@ -315,7 +315,7 @@ func GenerateOpenCodeConfigWith(o OpenCodeOptions) (string, func(), error) {
 		// Auto-compaction summarises the conversation when the context fills
 		// and then prompts the model to continue, which can end a run with no
 		// review. With it off, an overflow ends the run with a
-		// ContextOverflowError, which pergent reports as the failure cause.
+		// context overflow error, which pergent reports as the failure cause.
 		Compaction: openCodeCompaction{Auto: false},
 		// The read tool starts language servers whatever the permissions say,
 		// and a server can be a program from the reviewed repo (opencode prefers

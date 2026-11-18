@@ -196,23 +196,45 @@ func (c Cause) contextLimitText() string {
 // is deliberately not matched: it is not a provider failure.
 var transientPattern = regexp.MustCompile(`(?i)rate.?limit|too many requests|overloaded|service unavailable|bad gateway|gateway timeout|temporarily unavailable|fetch failed|network error|socket hang up|connection (reset|refused|closed|lost)|econnreset|econnrefused|etimedout|enotfound|eai_again|upstream connect|unable to connect`)
 
-// Transient reports whether an opencode error event is a transient provider
-// error (HTTP 429, 5xx, connection errors) that a new attempt may get past.
+// ProviderError reports whether the error came from the model provider
+// (a type such as provider.internal), as opposed to opencode itself.
+func (e EventError) ProviderError() bool {
+	return strings.HasPrefix(e.Name, "provider.")
+}
+
+// Transient reports whether an opencode error event is a transient failure
+// (HTTP 429, 5xx, connection errors) that a new attempt may get past.
 func (e EventError) Transient() bool {
 	switch e.Name {
-	case "ContextOverflowError", "ProviderAuthError", "MessageAbortedError", "ContentFilterError", "MessageOutputLengthError":
-		return false
+	case "provider.rate-limit", "provider.transport", "provider.internal", "provider.timeout":
+		return true
 	}
 	if e.StatusCode == 429 || e.StatusCode >= 500 {
 		return true
 	}
-	if e.Name == "APIError" && e.IsRetryable {
-		return true
+	// Only an error that is not the provider's, and has no status, is judged
+	// by its message (fetch failed, connection reset).
+	if e.StatusCode == 0 && !e.ProviderError() {
+		return transientPattern.MatchString(e.Message)
 	}
-	if e.StatusCode >= 400 {
-		return false
+	return false
+}
+
+// errorLabel is the error's type for display; an error with no type shows as
+// "error".
+func (e EventError) errorLabel() string {
+	if e.Name == "" {
+		return "error"
 	}
-	return transientPattern.MatchString(e.Message)
+	return e.Name
+}
+
+// errorText is the error's message, or its type when it has none.
+func (e EventError) errorText() string {
+	if strings.TrimSpace(e.Message) == "" {
+		return e.errorLabel()
+	}
+	return e.Message
 }
 
 // attempt is one opencode process run.
@@ -255,16 +277,16 @@ func classify(a attempt, opts Options, elapsed time.Duration) (Status, *Cause) {
 	// exits 1. They take precedence: the process exit adds nothing.
 	if e := t.RootError(); e != nil {
 		c := base
-		c.ErrorName = e.Name
-		c.ErrorMessage = e.Message
+		c.ErrorName = e.errorLabel()
+		c.ErrorMessage = e.errorText()
 		c.StatusCode = e.StatusCode
 		c.Kind = CauseOpencodeError
-		if e.Name == "ContextOverflowError" {
+		if e.ContextOverflow() {
 			c.Kind = CauseContextOverflow
 		}
 		for _, other := range t.Errors {
 			if other != *e {
-				c.OtherErrors = append(c.OtherErrors, other.Name+": "+other.Message)
+				c.OtherErrors = append(c.OtherErrors, other.errorLabel()+": "+other.errorText())
 			}
 		}
 		return StatusFailed, &c

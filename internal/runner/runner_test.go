@@ -302,8 +302,8 @@ func TestRun_ExitErrorReportsStderr(t *testing.T) {
 func TestRun_RetriesTransientErrors(t *testing.T) {
 	shortBackoff(t)
 	count := fakeOpencode(t,
-		fakeAttempt{fixture: "rate_limited.ndjson", code: 1},
-		fakeAttempt{fixture: "rate_limited.ndjson", code: 1},
+		fakeAttempt{fixture: "fetch_failed.ndjson", code: 1},
+		fakeAttempt{fixture: "fetch_failed.ndjson", code: 1},
 		fakeAttempt{fixture: "completed.ndjson"},
 	)
 
@@ -318,18 +318,63 @@ func TestRun_RetriesTransientErrors(t *testing.T) {
 
 func TestRun_RetriesExhausted(t *testing.T) {
 	shortBackoff(t)
-	count := fakeOpencode(t, fakeAttempt{fixture: "rate_limited.ndjson", code: 1})
+	count := fakeOpencode(t, fakeAttempt{fixture: "fetch_failed.ndjson", code: 1})
+
+	got := Run(context.Background(), testOptions(time.Minute))
+	if got.Status != StatusFailed || got.Cause.Kind != CauseOpencodeError {
+		t.Fatalf("Run() = %+v, want the transient error", got)
+	}
+	if n := runCount(t, count); n != maxRetries+1 {
+		t.Errorf("opencode ran %d times, want %d", n, maxRetries+1)
+	}
+	want := "opencode reported unknown: fetch failed: ECONNRESET. Gave up after 4 attempts."
+	if msg := got.Cause.Message(); msg != want {
+		t.Errorf("message = %q, want %q", msg, want)
+	}
+}
+
+// opencode already retried a provider error before reporting it, so pergent
+// starts the run once more and no further.
+func TestRun_ProviderErrorRetriedOnce(t *testing.T) {
+	shortBackoff(t)
+	count := fakeOpencode(t, fakeAttempt{
+		stdout: `{"type":"error","error":{"type":"provider.internal","message":"mock internal error","status":500}}` + "\n", code: 1})
 
 	got := Run(context.Background(), testOptions(time.Minute))
 	if got.Status != StatusFailed || got.Cause.Kind != CauseOpencodeError {
 		t.Fatalf("Run() = %+v, want the provider error", got)
 	}
-	if n := runCount(t, count); n != maxRetries+1 {
-		t.Errorf("opencode ran %d times, want %d", n, maxRetries+1)
+	if got.Cause.Attempts != 2 || runCount(t, count) != 2 || maxProviderRetries != 1 {
+		t.Errorf("attempts = %d, runs = %d, want 2 and 2", got.Cause.Attempts, runCount(t, count))
 	}
-	want := "opencode reported APIError (HTTP 429): Rate limit exceeded: 429 Too Many Requests. Gave up after 4 attempts."
+	want := "opencode reported provider.internal (HTTP 500): mock internal error. Gave up after 2 attempts."
 	if msg := got.Cause.Message(); msg != want {
 		t.Errorf("message = %q, want %q", msg, want)
+	}
+}
+
+func TestRun_ProviderErrorRetrySucceeds(t *testing.T) {
+	shortBackoff(t)
+	fakeOpencode(t,
+		fakeAttempt{fixture: "rate_limited.ndjson", code: 1},
+		fakeAttempt{fixture: "completed.ndjson"},
+	)
+	if got := Run(context.Background(), testOptions(time.Minute)); got.Status != StatusCompleted {
+		t.Errorf("Run() = %+v, want the review from the second attempt", got)
+	}
+}
+
+func TestRun_NonProviderTransientRetriedThreeTimes(t *testing.T) {
+	shortBackoff(t)
+	count := fakeOpencode(t, fakeAttempt{
+		stdout: `{"type":"error","error":{"type":"unknown","message":"connection reset"}}` + "\n", code: 1})
+
+	got := Run(context.Background(), testOptions(time.Minute))
+	if got.Status != StatusFailed || got.Cause.Kind != CauseOpencodeError {
+		t.Fatalf("Run() = %+v, want the error", got)
+	}
+	if got.Cause.Attempts != 4 || runCount(t, count) != 4 {
+		t.Errorf("attempts = %d, runs = %d, want 4 and 4", got.Cause.Attempts, runCount(t, count))
 	}
 }
 

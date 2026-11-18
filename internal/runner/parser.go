@@ -13,7 +13,7 @@ const maxOpened = 500
 // maxOutputLine is the longest line of opencode's output pergent parses.
 const maxOutputLine = 16 * 1024 * 1024
 
-// NDJSON event types from `opencode run --format json` (opencode 1.19.x).
+// NDJSON event types from `opencode run --format json` (opencode 2.x).
 // Each line is {"type", "timestamp", "sessionID", ...}; the event types are
 // step_start, step_finish, text, reasoning, tool_use (completed or failed tool
 // calls only) and error.
@@ -63,23 +63,27 @@ func (t openCodeTokens) used() int {
 	return t.Input + t.Output + t.Cache.Read + t.Cache.Write
 }
 
+// openCodeError is opencode 2's session error: {type, message, status,
+// retryAfterMs, response: {body}}. The 1.x shape ({name, data}) is not read.
 type openCodeError struct {
-	Name string           `json:"name"`
-	Data *openCodeErrData `json:"data,omitempty"`
-}
-
-type openCodeErrData struct {
-	Message     string `json:"message"`
-	StatusCode  int    `json:"statusCode,omitempty"`
-	IsRetryable bool   `json:"isRetryable,omitempty"`
+	Type     string `json:"type"`
+	Message  string `json:"message"`
+	Status   int    `json:"status,omitempty"`
+	Response *struct {
+		Body json.RawMessage `json:"body,omitempty"`
+	} `json:"response,omitempty"`
 }
 
 // EventError is an error event reported by opencode (a session.error).
 type EventError struct {
-	Name        string
-	Message     string
-	StatusCode  int
-	IsRetryable bool
+	// Name is the error's type, e.g. "provider.internal" or "unknown".
+	Name       string
+	Message    string
+	StatusCode int
+	// Body is the provider's response body. It is read only to classify the
+	// error (a context overflow can say so only there) and is never printed
+	// or logged: it is provider text.
+	Body string
 }
 
 // Usage is the tokens a run consumed, summed over every finished step.
@@ -153,7 +157,7 @@ func (t Transcript) LastError() *EventError {
 // the real error with a generic one ("Unexpected server error").
 func (t Transcript) RootError() *EventError {
 	for i := range t.Errors {
-		if t.Errors[i].Name == "ContextOverflowError" {
+		if t.Errors[i].ContextOverflow() {
 			return &t.Errors[i]
 		}
 	}
@@ -257,11 +261,9 @@ func ParseOutput(stdout []byte) Transcript {
 			if event.Error == nil {
 				continue
 			}
-			e := EventError{Name: event.Error.Name}
-			if event.Error.Data != nil {
-				e.Message = event.Error.Data.Message
-				e.StatusCode = event.Error.Data.StatusCode
-				e.IsRetryable = event.Error.Data.IsRetryable
+			e := EventError{Name: event.Error.Type, Message: event.Error.Message, StatusCode: event.Error.Status}
+			if r := event.Error.Response; r != nil {
+				e.Body = bodyText(r.Body)
 			}
 			t.Errors = append(t.Errors, e)
 		}
@@ -327,4 +329,14 @@ func stripThinkTags(s string) string {
 		}
 		s = after
 	}
+}
+
+// bodyText is a response body as text: a JSON string is unquoted, anything
+// else is kept as it is.
+func bodyText(raw json.RawMessage) string {
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	return string(raw)
 }
