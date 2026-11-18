@@ -1525,3 +1525,23 @@ func TestChangeMessageKeepsItsRules(t *testing.T) {
 		}
 	}
 }
+
+func TestCIText(t *testing.T) {
+	if got := ciText("ok\xffend"); !strings.Contains(got, "ok") || !utf8.ValidString(got) {
+		t.Fatal(got)
+	}
+	if got := ciText("Authorization: Bearer abc123.def456.ghi789"); strings.Contains(got, "abc123.def456.ghi789") {
+		t.Fatal(got)
+	}
+	const note = "\n\n[The rest of the CI results was cut.]"
+	got := ciText(strings.Repeat("\u00e9", 40<<10))
+	if !utf8.ValidString(got) || !strings.HasSuffix(got, note) {
+		t.Fatal("bad cut")
+	}
+	if len(got) > maxCIResults+len(note) {
+		t.Fatal(len(got))
+	}
+	if ciText(" \n\t ") != "" {
+		t.Fatal("blank should be empty")
+	}
+}

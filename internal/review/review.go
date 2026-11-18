@@ -72,6 +72,10 @@ type Request struct {
 	// runs, never to a verification run: the author's text must not help talk
 	// a blocking finding away.
 	Description string
+	// CIResults is the output of CI jobs that ran the change, "" when there is
+	// none. It is data, not instructions, and is attached to the batch and
+	// cross-batch runs only, never to a verification or repair run.
+	CIResults string
 	// Linked are the repositories the caller cloned and scrubbed, to check the
 	// change against. With any, one more run (ImpactSkill) looks in them for
 	// callers the change breaks, once the skills are done. An entry with an
@@ -275,6 +279,7 @@ func Run(ctx context.Context, req Request) []SkillResult {
 	deny := req.Sandbox.Hardened
 	classifier.DeniedDeleted = func(p string) bool { return config.ReadDenied(p, deny) }
 	req.Description = changeText(req.Description)
+	req.CIResults = ciText(req.CIResults)
 	r := &reviewer{
 		req:         req,
 		files:       files,
@@ -627,6 +632,26 @@ func changeText(s string) string {
 		end--
 	}
 	return s[:end] + "\n\n[The rest of the description was cut.]"
+}
+
+// ciFile is the attachment that holds the CI results of the change.
+const ciFile = "ci-results.md"
+
+// maxCIResults is the most of the CI results a run gets.
+const maxCIResults = 64 << 10
+
+// ciText prepares the CI results for attaching: valid UTF-8, redacted,
+// trimmed and at most maxCIResults bytes before the note that says it was cut.
+func ciText(s string) string {
+	s = strings.TrimSpace(redact.String(strings.ToValidUTF8(s, "\uFFFD")))
+	if len(s) <= maxCIResults {
+		return s
+	}
+	end := maxCIResults
+	for !utf8.RuneStart(s[end]) {
+		end--
+	}
+	return s[:end] + "\n\n[The rest of the CI results was cut.]"
 }
 
 // rejectedFile is the attachment that holds a skill's rejected findings.
