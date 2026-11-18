@@ -268,12 +268,21 @@ func runAttempt(ctx context.Context, opts Options) attempt {
 		a.exitCode = exitErr.ExitCode()
 	}
 	a.transcript.LastToolTarget = relativeTo(opts.RepoPath, a.transcript.LastToolTarget)
+	// opencode resolves its working directory, so the model may read a
+	// path by its real form. Classify by both forms; opts.RepoPath itself
+	// stays as given.
+	repoReal, tmpReal := realPath(opts.RepoPath), realPath(os.TempDir())
 	for i := range a.transcript.PerStep {
 		calls := a.transcript.PerStep[i].Tools
 		for j := range calls {
-			if calls[j].Tool != "other" {
-				calls[j].Target = pathTarget(opts.RepoPath, os.TempDir(), calls[j].path)
+			if calls[j].Tool == "other" {
+				continue
 			}
+			t := pathTarget(opts.RepoPath, os.TempDir(), calls[j].path)
+			if t == TargetOutside && (repoReal != opts.RepoPath || tmpReal != os.TempDir()) {
+				t = pathTarget(repoReal, tmpReal, calls[j].path)
+			}
+			calls[j].Target = t
 		}
 	}
 	return a

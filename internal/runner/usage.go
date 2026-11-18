@@ -117,6 +117,19 @@ func pathTarget(repoPath, tempDir, path string) string {
 	return TargetOutside
 }
 
+// realPath is the absolute path of p with symlinks resolved, or p when that
+// fails.
+func realPath(p string) string {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return p
+	}
+	if real, err := filepath.EvalSymlinks(abs); err == nil {
+		return real
+	}
+	return abs
+}
+
 // within reports whether path is root or inside it. Both are clean.
 func within(root, path string) bool {
 	return path == root || strings.HasPrefix(path, strings.TrimSuffix(root, string(filepath.Separator))+string(filepath.Separator))

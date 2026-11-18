@@ -778,6 +778,44 @@ func TestRun_StepsAcrossAttempts(t *testing.T) {
 	}
 }
 
+// opencode resolves its working directory, so the model reads the real path
+// of a repository that is reached through a symlink. Those reads are still
+// the repository.
+func TestRun_RepositoryBehindASymlink(t *testing.T) {
+	shortBackoff(t)
+	real, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join("testdata", "completed.ndjson"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fakeOpencode(t, fakeAttempt{stdout: strings.ReplaceAll(string(b), "/builds/repo", real)})
+	opts := testOptions(time.Minute)
+	opts.RepoPath = link
+
+	got := Run(context.Background(), opts)
+	reads := 0
+	for _, s := range got.Steps {
+		for _, c := range s.Tools {
+			if c.Tool == "read" {
+				reads++
+				if c.Target != TargetRepository {
+					t.Errorf("read %+v, want target %q", c, TargetRepository)
+				}
+			}
+		}
+	}
+	if reads == 0 {
+		t.Fatalf("no read calls in %+v", got.Steps)
+	}
+}
+
 func TestRun_FailedRunKeepsSteps(t *testing.T) {
 	shortBackoff(t)
 	fakeOpencode(t, fakeAttempt{fixture: "rate_limited.ndjson", code: 1})

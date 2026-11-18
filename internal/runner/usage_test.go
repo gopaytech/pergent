@@ -18,6 +18,7 @@ func TestPathTarget(t *testing.T) {
 		{"other temp", "/work/repo", "/tmp/other/x", TargetOutside},
 		{"linked clone", "/work/repo", "/work/linked-1/a.go", TargetOutside},
 		{"repo inside a pergent directory", "/tmp/pergent-repo", "/tmp/pergent-repo/a.go", TargetRepository},
+		{"repo nested deeper than a pergent directory", "/tmp/pergent-x/checkout", "/tmp/pergent-x/checkout/a.go", TargetRepository},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

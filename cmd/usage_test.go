@@ -58,6 +58,11 @@ func TestMain_UsageFileInLocalMode(t *testing.T) {
 	}
 
 	repo := t.TempDir()
+	// opencode reads files by their real path: on macOS t.TempDir is behind a symlink.
+	realRepo, err := filepath.EvalSymlinks(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
 	gitIn(t, repo, "init", "-q")
 	writeFile(t, repo, "a.go", "package a\n")
 	base := commitAll(t, repo, "base")
@@ -66,7 +71,7 @@ func TestMain_UsageFileInLocalMode(t *testing.T) {
 	commitAll(t, repo, "head")
 
 	ndjson := `{"type":"step_start","part":{"type":"step-start"}}
-{"type":"tool_use","part":{"tool":"read","state":{"status":"completed","input":{"filePath":"` + filepath.Join(repo, "a.go") + `"},"output":"x"}}}
+{"type":"tool_use","part":{"tool":"read","state":{"status":"completed","input":{"filePath":"` + filepath.Join(realRepo, "a.go") + `"},"output":"x"}}}
 {"type":"step_finish","part":{"type":"step-finish","reason":"tool-calls","tokens":{"total":15,"input":10,"output":5}}}
 {"type":"step_start","part":{"type":"step-start"}}
 {"type":"text","part":{"type":"text","text":"` + "```json\\n{\\\"findings\\\": []}\\n```" + `"}}
