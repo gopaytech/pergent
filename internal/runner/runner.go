@@ -104,6 +104,9 @@ const waitDelay = 10 * time.Second
 func BuildCommand(ctx context.Context, configPath string, files []string, message, repoPath string) *exec.Cmd {
 	args := []string{
 		"run",
+		// A private server: a plain run attaches to a shared one registered
+		// by `opencode service start`, which ignores OPENCODE_CONFIG.
+		"--standalone",
 		"--format", "json",
 	}
 	if configPath != "" {
@@ -144,6 +147,9 @@ func BuildCommand(ctx context.Context, configPath string, files []string, messag
 		env = append(env,
 			"OPENCODE_CONFIG="+configPath,
 			"OPENCODE_DISABLE_PROJECT_CONFIG=true",
+			// opencode 2 also reads CLAUDE.md files (the checkout's and
+			// ~/.claude/CLAUDE.md), which agent mode never loads.
+			"OPENCODE_DISABLE_CLAUDE_CODE=true",
 		)
 	}
 	cmd.Env = env
@@ -212,7 +218,15 @@ func runAttempt(ctx context.Context, opts Options) attempt {
 		return attempt{runErr: err}
 	}
 	defer os.RemoveAll(dataDir)
-	cmd.Env = append(withoutEnv(cmd.Env, append([]string{"XDG_DATA_HOME"}, opts.ExcludeEnv...)), "XDG_DATA_HOME="+dataDir)
+	// A state directory of its own keeps the run from finding a shared
+	// server's service.json, besides --standalone.
+	stateDir, err := newStateDir()
+	if err != nil {
+		return attempt{runErr: err}
+	}
+	defer os.RemoveAll(stateDir)
+	cmd.Env = append(withoutEnv(cmd.Env, append([]string{"XDG_DATA_HOME", "XDG_STATE_HOME"}, opts.ExcludeEnv...)),
+		"XDG_DATA_HOME="+dataDir, "XDG_STATE_HOME="+stateDir)
 
 	pw := &progressWriter{buf: &bytes.Buffer{}, w: os.Stderr, prefix: opts.logPrefix()}
 	if opts.StepLimit > 0 {
@@ -303,6 +317,17 @@ func newDataDir() (string, error) {
 	if err != nil {
 		os.RemoveAll(dir)
 		return "", fmt.Errorf("copying opencode's auth.json: %w", err)
+	}
+	return dir, nil
+}
+
+// newStateDir returns a new, empty directory for one opencode run's
+// XDG_STATE_HOME, where opencode registers a shared server. Nothing is copied
+// in: the run must not find the user's.
+func newStateDir() (string, error) {
+	dir, err := os.MkdirTemp("", config.StateDirPrefix)
+	if err != nil {
+		return "", fmt.Errorf("creating opencode's state directory: %w", err)
 	}
 	return dir, nil
 }

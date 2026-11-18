@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gopaytech/pergent/internal/result"
 )
@@ -20,7 +22,7 @@ import (
 // returns the path of a private copy (so pgrep -f finds only this test's
 // processes), puts its directory first on PATH and gives the test its own
 // HOME, XDG_CONFIG_HOME and TMPDIR. The provider variables are set by
-// runAgentE2E's caller through setFakeProvider, once the fake model's URL is
+// runAgentE2E's caller through useFakeModel, once the fake model's URL is
 // known.
 func requireOpencode(t *testing.T) string {
 	t.Helper()
@@ -211,5 +213,180 @@ func TestOpencodeE2E_GlobalConfigCantLoosenTheSandbox(t *testing.T) {
 	}
 	if got, err := os.ReadFile(filepath.Join(repo, "src/app.go")); err != nil || string(got) != appGo {
 		t.Errorf("src/app.go = %q, %v, want it unchanged", got, err)
+	}
+}
+
+// writeGlobalOpencodeConfig writes $XDG_CONFIG_HOME/opencode/opencode.json
+// pointing at the fake model, with extra top-level keys merged in.
+func writeGlobalOpencodeConfig(t *testing.T, m *fakeModel, extra map[string]any) {
+	t.Helper()
+	dir := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "opencode")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := map[string]any{
+		"model": "fake/fake-model",
+		"provider": map[string]any{"fake": map[string]any{
+			"npm":     "@ai-sdk/openai-compatible",
+			"options": map[string]any{"baseURL": m.URL + "/v1", "apiKey": "x"},
+			"models":  map[string]any{"fake-model": map[string]any{"limit": map[string]any{"context": 100000, "output": 4000}}},
+		}},
+	}
+	for k, v := range extra {
+		cfg[k] = v
+	}
+	data, _ := json.Marshal(cfg)
+	if err := os.WriteFile(filepath.Join(dir, "opencode.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A plain `opencode run` attaches to a shared server registered under its
+// state directory, and that server ignores OPENCODE_CONFIG (the run then fails
+// with: Agent not found "pergent"). Every pergent run is standalone and has a
+// state directory of its own, so the service here must be invisible to it.
+func TestOpencodeE2E_IgnoresASharedService(t *testing.T) {
+	bin := requireOpencode(t)
+	m := newFakeModel(t, [][]fakeCall{{{Name: "read", Args: map[string]any{"path": "src/.env"}}}}, "")
+	useFakeModel(t, m)
+	allow := map[string]any{"*": "allow", "read": "allow", "edit": "allow", "bash": "allow", "external_directory": "allow"}
+	writeGlobalOpencodeConfig(t, m, map[string]any{"permission": allow})
+
+	ocCmd := func(args ...string) *exec.Cmd {
+		c := exec.Command(bin, args...)
+		c.Env = os.Environ()
+		return c
+	}
+	if out, err := ocCmd("service", "start").CombinedOutput(); err != nil {
+		t.Fatalf("opencode service start: %v\n%s", err, out)
+	}
+	t.Cleanup(func() {
+		_, _ = ocCmd("service", "stop").CombinedOutput()
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			if out, _ := exec.Command("pgrep", "-f", bin).Output(); len(bytes.TrimSpace(out)) == 0 {
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		t.Errorf("the shared service is still running after service stop")
+	})
+
+	repo, base, head := e2eRepo(t, map[string]string{"src/.env": "DB_PASSWORD=SVCSECRET\n"})
+	res, stderr := runAgentE2E(t, repo, base, head)
+
+	for _, s := range res.Skills {
+		if s.Verdict == "failed" {
+			t.Errorf("skill %s failed: %+v\nstderr:\n%s", s.Name, s.Failures, stderr)
+		}
+	}
+	var got string
+	for _, r := range m.Requests() {
+		for id, text := range r.ToolResults {
+			if id == "call_0_0" {
+				got = text
+			}
+			if strings.Contains(text, "SVCSECRET") {
+				t.Errorf("a tool result carried the secret: %q", text)
+			}
+		}
+	}
+	if !strings.Contains(strings.ToLower(got), "denied") {
+		t.Errorf("the .env read was not a permission refusal: %q\nstderr:\n%s", got, stderr)
+	}
+}
+
+// A timed-out run must not leave opencode or anything it started behind.
+func TestOpencodeE2E_NoProcessOutlivesATimedOutRun(t *testing.T) {
+	bin := requireOpencode(t)
+	m := newFakeModel(t, nil, "hang")
+	useFakeModel(t, m)
+	repo, base, head := e2eRepo(t, map[string]string{"b.go": "package a\n"})
+	_, _ = runAgentE2E(t, repo, base, head, "--timeout", "20s")
+
+	var out []byte
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		out, _ = exec.Command("pgrep", "-f", bin).Output()
+		if len(bytes.TrimSpace(out)) == 0 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if pids := strings.TrimSpace(string(out)); pids != "" {
+		t.Errorf("processes of %s still running 5s after the run ended: %s", bin, pids)
+	}
+}
+
+// opencode 2 reads CLAUDE.md files (the checkout's, the user's ~/.claude)
+// unless told not to; agent mode never loads the checkout's own files, so a
+// run must not either. opencode's own global AGENTS.md stays, as the spec accepts.
+func TestOpencodeE2E_LoadsNoClaudeMD(t *testing.T) {
+	requireOpencode(t)
+	cfgDir := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "opencode")
+	claudeDir := filepath.Join(os.Getenv("HOME"), ".claude")
+	for _, d := range []string{cfgDir, claudeDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(claudeDir, "CLAUDE.md"), []byte("CANARY-HOME-CLAUDE\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "AGENTS.md"), []byte("CANARY-GLOBAL\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := newFakeModel(t, nil, "")
+	useFakeModel(t, m)
+	repo, base, head := e2eRepo(t, map[string]string{"CLAUDE.md": "CANARY-ROOT-CLAUDE\n", "b.go": "package a\n"})
+	_, _ = runAgentE2E(t, repo, base, head)
+
+	var global bool
+	for _, r := range m.Requests() {
+		for _, c := range []string{"CANARY-ROOT-CLAUDE", "CANARY-HOME-CLAUDE"} {
+			if strings.Contains(r.System, c) {
+				t.Errorf("a request's system prompt carried %s", c)
+			}
+		}
+		global = global || strings.Contains(r.System, "CANARY-GLOBAL")
+	}
+	if len(m.Requests()) == 0 {
+		t.Fatal("the model got no request")
+	}
+	if !global {
+		t.Error("opencode's global AGENTS.md was not loaded, so the test proves nothing")
+	}
+}
+
+// With OPENCODE_PROVIDER unset pergent writes no config and passes no --agent:
+// the run uses the user's own opencode setup. Agent mode requires a provider,
+// so this drives CI mode with --local in a subprocess.
+func TestOpencodeE2E_OwnConfigMode(t *testing.T) {
+	if repo := os.Getenv("PERGENT_TEST_OWNCONFIG_REPO"); repo != "" {
+		os.Args = []string{"pergent", "--local", "--skill", os.Getenv("PERGENT_TEST_OWNCONFIG_SKILL"),
+			"--repo-path", repo, "--concurrency", "1", "--timeout", "3m"}
+		main()
+		return
+	}
+	requireOpencode(t)
+	m := newFakeModel(t, nil, "")
+	writeGlobalOpencodeConfig(t, m, nil)
+	repo, base, _ := e2eRepo(t, map[string]string{"b.go": "package a\n"})
+	gitIn(t, repo, "update-ref", "refs/remotes/origin/main", base)
+	skillPath := filepath.Join(oneSkill(t), "review.md")
+
+	cmd := exec.Command(os.Args[0], "-test.run=^TestOpencodeE2E_OwnConfigMode$")
+	cmd.Env = append(os.Environ(), "PERGENT_TEST_OWNCONFIG_REPO="+repo, "PERGENT_TEST_OWNCONFIG_SKILL="+skillPath,
+		"OPENCODE_PROVIDER=", "OPENCODE_MODEL=", "OPENCODE_BASE_URL=", "OPENCODE_NPM=", "OPENCODE_API_KEY=")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("pergent --local failed: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "No blocking issues") || strings.Contains(stdout.String(), "failed") {
+		t.Errorf("the review did not complete:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	}
+	if len(m.Requests()) == 0 {
+		t.Error("the fake model got no request")
 	}
 }

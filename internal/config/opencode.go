@@ -23,6 +23,11 @@ const AgentName = "pergent"
 // inside it.
 const DataDirPrefix = "opencode-data-pergent-"
 
+// StateDirPrefix starts the name of each run's opencode state directory
+// (XDG_STATE_HOME), which holds the shared server's service.json. The same
+// rule as DataDirPrefix applies: it must not start with "pergent-".
+const StateDirPrefix = "opencode-state-pergent-"
+
 // PromptFileName is the file, next to opencode.json, that holds the agent's
 // prompt. The config names it with a {file:} token.
 const PromptFileName = "agent-prompt.md"

@@ -724,3 +724,61 @@ func TestStderrWriter(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildCommand_Standalone(t *testing.T) {
+	for _, cfg := range []string{"/tmp/config.json", ""} {
+		cmd := BuildCommand(context.Background(), cfg, []string{"/tmp/d.patch"}, "m", ".")
+		want := []string{"run", "--standalone", "--format", "json"}
+		if len(cmd.Args) < 5 || !slices.Equal(cmd.Args[1:5], want) {
+			t.Errorf("config %q: args = %v, want them to start with %v", cfg, cmd.Args, want)
+		}
+	}
+}
+
+func TestBuildCommand_DisablesClaudeCodeWithGeneratedConfigOnly(t *testing.T) {
+	const v = "OPENCODE_DISABLE_CLAUDE_CODE=true"
+	if cmd := BuildCommand(context.Background(), "/tmp/config.json", nil, "m", "."); !slices.Contains(cmd.Env, v) {
+		t.Errorf("generated config: %s not set", v)
+	}
+	if cmd := BuildCommand(context.Background(), "", nil, "m", "."); slices.Contains(cmd.Env, v) {
+		t.Errorf("own config: %s is set, want the user's setup untouched", v)
+	}
+}
+
+func TestRunAttempt_OwnStateDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake opencode is a shell script")
+	}
+	dir := t.TempDir()
+	seen := filepath.Join(dir, "seen")
+	script := fmt.Sprintf("#!/bin/sh\necho \"$XDG_STATE_HOME\" >> %q\ncat <<'EOF'\n%sEOF\n", seen,
+		`{"type":"step_start","part":{"type":"step-start"}}`+"\n"+
+			`{"type":"text","part":{"type":"text","text":"ok"}}`+"\n"+
+			`{"type":"step_finish","part":{"type":"step-finish","reason":"stop"}}`+"\n")
+	bin := filepath.Join(dir, "bin")
+	os.Mkdir(bin, 0755)
+	if err := os.WriteFile(filepath.Join(bin, "opencode"), []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	shared := filepath.Join(dir, "state")
+	t.Setenv("XDG_STATE_HOME", shared)
+
+	if got := Run(context.Background(), testOptions(time.Minute)); got.Status != StatusCompleted {
+		t.Fatalf("Run() = %+v, want completed", got)
+	}
+	data, err := os.ReadFile(seen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := strings.TrimSpace(string(data))
+	if d == "" || d == shared {
+		t.Fatalf("XDG_STATE_HOME = %q, want a directory of the run's own", d)
+	}
+	if filepath.Dir(d) != filepath.Clean(os.TempDir()) || !strings.HasPrefix(filepath.Base(d), config.StateDirPrefix) {
+		t.Errorf("state dir = %q, want %s%s*", d, os.TempDir(), config.StateDirPrefix)
+	}
+	if _, err := os.Stat(d); !os.IsNotExist(err) {
+		t.Errorf("state directory still exists after the run (err %v)", err)
+	}
+}

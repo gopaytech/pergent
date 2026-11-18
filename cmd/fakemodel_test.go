@@ -33,6 +33,7 @@ type fakeRequest struct {
 type fakeModel struct {
 	URL string
 
+	t    *testing.T
 	mu   sync.Mutex
 	reqs []fakeRequest
 }
@@ -43,11 +44,13 @@ const fakeFinal = "Reviewed.\n\n```json\n{\"summary\":\"ok\",\"confidence\":5,\"
 // "hang" (never answers until the request's context ends).
 func newFakeModel(t *testing.T, turns [][]fakeCall, mode string) *fakeModel {
 	t.Helper()
-	m := &fakeModel{}
+	m := &fakeModel{t: t}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		m.handle(w, r, turns, mode)
 	}))
 	t.Cleanup(srv.Close)
+	// Runs first: a "hang" request would otherwise block srv.Close.
+	t.Cleanup(srv.CloseClientConnections)
 	m.URL = srv.URL
 	return m
 }
@@ -83,13 +86,18 @@ func (m *fakeModel) handle(w http.ResponseWriter, r *http.Request, turns [][]fak
 		io.WriteString(w, `{"object":"list","data":[{"id":"fake-model","object":"model"}]}`)
 		return
 	}
-	raw, _ := io.ReadAll(r.Body)
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		m.t.Errorf("fake model: reading a request body: %v", err)
+	}
 	var req struct {
 		Stream   bool             `json:"stream"`
 		Tools    []map[string]any `json:"tools"`
 		Messages []map[string]any `json:"messages"`
 	}
-	_ = json.Unmarshal(raw, &req)
+	if err := json.Unmarshal(raw, &req); err != nil {
+		m.t.Errorf("fake model: request body is not JSON: %v", err)
+	}
 
 	rec := fakeRequest{ToolResults: map[string]string{}}
 	var sys []string
@@ -155,7 +163,11 @@ func (m *fakeModel) handle(w http.ResponseWriter, r *http.Request, turns [][]fak
 	toolCalls := func() []any {
 		var out []any
 		for i, c := range calls {
-			args, _ := json.Marshal(c.Args)
+			a := c.Args
+			if a == nil {
+				a = map[string]any{}
+			}
+			args, _ := json.Marshal(a)
 			out = append(out, map[string]any{"id": fmt.Sprintf("call_%d_%d", turn, i), "type": "function",
 				"function": map[string]any{"name": c.Name, "arguments": string(args)}})
 		}
