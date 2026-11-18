@@ -1534,12 +1534,15 @@ func TestCIText(t *testing.T) {
 		t.Fatal(got)
 	}
 	const note = "\n\n[The rest of the CI results was cut.]"
-	got := ciText(strings.Repeat("\u00e9", 40<<10))
-	if !utf8.ValidString(got) || !strings.HasSuffix(got, note) {
-		t.Fatal("bad cut")
+	// One byte then two-byte runes: the limit (even) falls inside a rune, so
+	// the cut backs off one byte.
+	got := ciText("a" + strings.Repeat("\u00e9", 40<<10))
+	if !strings.HasSuffix(got, note) {
+		t.Fatal("no cut note")
 	}
-	if len(got) > maxCIResults+len(note) {
-		t.Fatal(len(got))
+	body := strings.TrimSuffix(got, note)
+	if !utf8.ValidString(body) || len(body) != maxCIResults-1 {
+		t.Fatalf("body is %d bytes (valid %v), want %d", len(body), utf8.ValidString(body), maxCIResults-1)
 	}
 	if ciText(" \n\t ") != "" {
 		t.Fatal("blank should be empty")
