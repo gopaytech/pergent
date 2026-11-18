@@ -1,5 +1,20 @@
 package runner
 
+import (
+	"path/filepath"
+	"strings"
+
+	"github.com/gopaytech/pergent/internal/config"
+)
+
+// Where a read, grep, glob or list call worked.
+const (
+	TargetRepository = "repository"  // inside Options.RepoPath, or relative, or no path (the working directory)
+	TargetPergent    = "pergent"     // inside <temp>/pergent-*: attachments, the on-demand diffs and their index, the prompt
+	TargetToolOutput = "tool_output" // inside <temp>/opencode-data-pergent-*/opencode/tool-output: a long tool result opencode saved
+	TargetOutside    = "outside"     // anything else, linked clones included
+)
+
 // ToolUse counts the calls of one tool and the bytes of their results.
 type ToolUse struct{ Calls, Bytes int }
 
@@ -61,4 +76,48 @@ func (t *ToolTotals) add(c ToolCall) {
 	}
 	u.Calls++
 	u.Bytes += c.Bytes
+}
+
+// pathTarget sorts the path a read, grep, glob or list call worked on.
+// A relative path is joined to repoPath. The path is cleaned first, and so
+// is tempDir. When the repository and a pergent directory both hold the
+// path, the deeper one wins, and the repository wins a tie.
+func pathTarget(repoPath, tempDir, path string) string {
+	if abs, err := filepath.Abs(repoPath); err == nil {
+		repoPath = abs
+	}
+	repoPath = filepath.Clean(repoPath)
+	if path == "" {
+		return TargetRepository
+	}
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(repoPath, path)
+	}
+	path = filepath.Clean(path)
+	tempDir = filepath.Clean(tempDir)
+
+	repoDepth := -1
+	if within(repoPath, path) {
+		repoDepth = len(repoPath)
+	}
+	if rel, ok := strings.CutPrefix(path, tempDir+string(filepath.Separator)); ok {
+		first, _, _ := strings.Cut(rel, string(filepath.Separator))
+		if strings.HasPrefix(first, config.TempPrefix) && len(tempDir)+1+len(first) > repoDepth {
+			return TargetPergent
+		}
+		if strings.HasPrefix(first, config.DataDirPrefix) &&
+			within(filepath.Join(tempDir, first, "opencode", "tool-output"), path) &&
+			len(tempDir)+1+len(first) > repoDepth {
+			return TargetToolOutput
+		}
+	}
+	if repoDepth >= 0 {
+		return TargetRepository
+	}
+	return TargetOutside
+}
+
+// within reports whether path is root or inside it. Both are clean.
+func within(root, path string) bool {
+	return path == root || strings.HasPrefix(path, strings.TrimSuffix(root, string(filepath.Separator))+string(filepath.Separator))
 }
