@@ -41,7 +41,9 @@ type openCodeState struct {
 	Status string         `json:"status"`
 	Input  map[string]any `json:"input,omitempty"`
 	Error  string         `json:"error,omitempty"`
-	Output string         `json:"output,omitempty"`
+	// Output is kept raw: a tool that sent a non-string value must not make
+	// the whole event fail to decode.
+	Output json.RawMessage `json:"output,omitempty"`
 }
 
 type openCodeTokens struct {
@@ -262,7 +264,7 @@ func ParseOutput(stdout []byte) Transcript {
 			if st := event.Part.State; st != nil {
 				switch st.Status {
 				case "completed":
-					call.Bytes = len(st.Output)
+					call.Bytes = outputBytes(st.Output)
 				case "error":
 					call.Bytes = len(st.Error)
 					call.Failed = true
@@ -362,4 +364,14 @@ func stripThinkTags(s string) string {
 		}
 		s = after
 	}
+}
+
+// outputBytes is the length of a tool result: the decoded string when it is a
+// JSON string, else the length of the raw value.
+func outputBytes(raw json.RawMessage) int {
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return len(s)
+	}
+	return len(raw)
 }

@@ -316,8 +316,10 @@ func TestParseOutput_PerStep(t *testing.T) {
 		t.Errorf("PerStep[1].Usage = %+v, want %+v", got.PerStep[1].Usage, want)
 	}
 	tools := got.PerStep[0].Tools
-	if len(tools) != 2 ||
-		tools[0].Tool != "read" || tools[0].Bytes != 3 || tools[0].Failed ||
+	if len(tools) != 2 {
+		t.Fatalf("PerStep[0].Tools = %+v, want 2 calls", tools)
+	}
+	if tools[0].Tool != "read" || tools[0].Bytes != 3 || tools[0].Failed ||
 		tools[1].Tool != "grep" || tools[1].Bytes != 2 || !tools[1].Failed {
 		t.Errorf("PerStep[0].Tools = %+v, want read (3 bytes) and failed grep (2 bytes)", tools)
 	}
@@ -409,5 +411,20 @@ func TestParseOutput_ToolCallsCapped(t *testing.T) {
 	}
 	if got.ToolTotals.Read.Calls != maxToolCalls+50 {
 		t.Errorf("Read.Calls = %d, want %d", got.ToolTotals.Read.Calls, maxToolCalls+50)
+	}
+}
+
+func TestParseOutput_NonStringOutputKeepsEvent(t *testing.T) {
+	for _, out := range []string{`{"a":1}`, `42`} {
+		stdout := usageStart +
+			`{"type":"tool_use","part":{"type":"tool","tool":"read","state":{"status":"completed","input":{"filePath":"/x"},"output":` + out + `}}}` + "\n" +
+			usageStop
+		got := ParseOutput([]byte(stdout))
+		if got.LastTool != "read" || !slices.Equal(got.Opened, []string{"/x"}) {
+			t.Errorf("output %s: LastTool %q, Opened %q, want the event kept", out, got.LastTool, got.Opened)
+		}
+		if got.ToolTotals.Read.Calls != 1 || got.ToolTotals.Read.Bytes != len(out) {
+			t.Errorf("output %s: Read = %+v, want 1 call of %d bytes", out, got.ToolTotals.Read, len(out))
+		}
 	}
 }
