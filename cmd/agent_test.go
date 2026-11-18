@@ -687,6 +687,70 @@ func TestPrepareAgent_ScrubInstructions(t *testing.T) {
 	}
 }
 
+// opencode's grep and glob don't apply the read rules, so a file they deny is
+// deleted from the checkout before any run, with or without
+// --scrub-instructions, tracked or not, judged in lower case. Agent mode's
+// rules also deny *.pem, *.key and *.tfvars. The diff compares commits, so the
+// change to a denied file is still reviewed.
+func TestPrepareAgent_DeletesDeniedFiles(t *testing.T) {
+	for _, extra := range [][]string{nil, {"--scrub-instructions"}} {
+		t.Run(strings.Join(append([]string{"args"}, extra...), " "), func(t *testing.T) {
+			repo, base, head := agentRepo(t, func(dir string) {
+				writeFile(t, dir, "config/prod.env", "DB_PASSWORD=secret\n")
+				writeFile(t, dir, "certs/tls.KEY", "KEY\n")
+				writeFile(t, dir, "certs/ca.pem", "PEM\n")
+				writeFile(t, dir, "infra/prod.tfvars", "x = 1\n")
+				writeFile(t, dir, ".env.example", "DB_PASSWORD=\n")
+			})
+			writeFile(t, repo, "untracked/.env", "DB_PASSWORD=secret\n")
+			logger, logs := bufferLog()
+
+			in := mustParse(t, agentArgs(repo, base, head, oneSkill(t), extra...))
+			if e := prepareAgent(&in, logger); e != nil {
+				t.Fatalf("prepareAgent() error: %+v, want the review to proceed", e)
+			}
+
+			for _, p := range []string{"config/prod.env", "certs/tls.KEY", "certs/ca.pem", "infra/prod.tfvars", "untracked/.env"} {
+				if _, err := os.Lstat(filepath.Join(repo, p)); !os.IsNotExist(err) {
+					t.Errorf("%s still exists (err %v), want it deleted", p, err)
+				}
+				if want := "deleted " + strconv.Quote(p) + ": the read rules deny it"; !strings.Contains(logs.String(), want) {
+					t.Errorf("log lacks %q:\n%s", want, logs)
+				}
+			}
+			for _, p := range []string{".env.example", "a.go"} {
+				if _, err := os.Stat(filepath.Join(repo, p)); err != nil {
+					t.Errorf("%s was removed: %v", p, err)
+				}
+			}
+			if !strings.Contains(in.Diff, "diff --git a/config/prod.env b/config/prod.env") {
+				t.Error("the diff lost the change to config/prod.env, which must stay reviewable")
+			}
+		})
+	}
+}
+
+// A denied file that can't be deleted stops the review: it would stay
+// searchable.
+func TestPrepareAgent_UndeletableDeniedFileRefuses(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root removes anything")
+	}
+	repo, base, head := agentRepo(t, func(dir string) {
+		writeFile(t, dir, "ro/prod.env", "DB_PASSWORD=secret\n")
+	})
+	if err := os.Chmod(filepath.Join(repo, "ro"), 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(filepath.Join(repo, "ro"), 0o755) })
+
+	in := mustParse(t, agentArgs(repo, base, head, oneSkill(t)))
+	e := prepareAgent(&in, quietLog)
+	if e == nil || e.Code != result.CodeInternal || !strings.Contains(e.Message, `"ro/prod.env"`) {
+		t.Fatalf("prepareAgent() error = %+v, want %s naming \"ro/prod.env\"", e, result.CodeInternal)
+	}
+}
+
 func TestPrepareAgent_Previous(t *testing.T) {
 	repo, base, head := agentRepo(t, nil)
 	prev := result.Result{SchemaVersion: result.SchemaVersion, Status: result.StatusCompleted, Skills: []result.Skill{
@@ -930,9 +994,16 @@ func TestPrepareAgent_LinksToDeniedFiles(t *testing.T) {
 				t.Errorf("log lacks %q:\n%s", want, logs)
 			}
 		}
-		for _, name := range []string{"inlink", "example", "prod.env", "keys/id.pem", "infra/prod.tfvars"} {
+		for _, name := range []string{"inlink", "example", "a.go", ".env.example"} {
 			if _, err := os.Lstat(filepath.Join(repo, name)); err != nil {
 				t.Errorf("%s was removed: %v", name, err)
+			}
+		}
+		// The links' targets are gone too, but as denied files in their own
+		// right (TestPrepareAgent_DeletesDeniedFiles), not through their links.
+		for _, name := range []string{"prod.env", "keys/id.pem", "infra/prod.tfvars"} {
+			if want := "deleted " + strconv.Quote(name) + ": the read rules deny it"; !strings.Contains(logs.String(), want) {
+				t.Errorf("log lacks %q:\n%s", want, logs)
 			}
 		}
 	})

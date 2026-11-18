@@ -150,6 +150,55 @@ func looseTarget(dir, text string) string {
 	return filepath.Clean(raw)
 }
 
+// DeniedFiles walks root, which must have its symlinks resolved, and returns
+// the regular files whose slash-separated path relative to root denied
+// rejects, sorted. opencode's grep and glob don't apply the read rules (grep
+// searches hidden files too), so a file the rules deny has to be gone, not
+// only denied. Each path is judged in lower case: the rules are written in
+// lower case and opencode matches them case-sensitively, while on a
+// case-insensitive file system `.ENV` is the same file as `.env`.
+//
+// Only root's own .git is skipped: a .git deeper down is a name like any
+// other. Symlinks are not followed or returned; Scan judges them. A directory
+// that cannot be read is returned in unreadable and the walk goes on.
+func DeniedFiles(root string, denied func(rel string) bool) (files, unreadable []string, err error) {
+	gitDir := filepath.Join(root, ".git")
+	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if d != nil && d.IsDir() && path != root {
+				rel, relErr := filepath.Rel(root, path)
+				if relErr != nil {
+					return err
+				}
+				unreadable = append(unreadable, filepath.ToSlash(rel))
+				return nil
+			}
+			return err
+		}
+		if d.IsDir() {
+			if path == gitDir {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !d.Type().IsRegular() {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		if denied(strings.ToLower(rel)) {
+			files = append(files, rel)
+		}
+		return nil
+	})
+	sort.Strings(files)
+	sort.Strings(unreadable)
+	return files, unreadable, err
+}
+
 // Remove deletes the symlink l, found under root. It unlinks the link itself,
 // never its target.
 func Remove(root string, l Link) error {
