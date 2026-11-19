@@ -335,7 +335,7 @@ func TestPrepareAgent_Codes(t *testing.T) {
 			t.Errorf("prepareAgent() error = %+v, want %s", e, result.CodeSkillsInvalid)
 		}
 	})
-	for _, flag := range []string{"--skills-dir", "--skill", "--instructions", "--previous", "--carried", "--dismissals", "--change-description", "--linked-repos"} {
+	for _, flag := range []string{"--skills-dir", "--skill", "--instructions", "--previous", "--carried", "--dismissals", "--change-description", "--ci-results", "--linked-repos"} {
 		t.Run("usage for "+flag+" inside the checkout", func(t *testing.T) {
 			writeFile(t, repo, "inside/s.md", "---\nname: inside\n---\nBody.\n")
 			defer os.RemoveAll(filepath.Join(repo, "inside"))
@@ -1209,5 +1209,59 @@ func TestParseAgent_ChangeDescriptionFromEnv(t *testing.T) {
 	}
 	if in.changePath != "/flag/change.md" {
 		t.Errorf("changePath = %q, want the flag to win", in.changePath)
+	}
+}
+
+func TestPrepareAgent_CIResults(t *testing.T) {
+	repo, base, head := agentRepo(t, nil)
+	dir := t.TempDir()
+	writeFile(t, dir, "ci-results.md", "tests: ok\n\n")
+
+	in := mustParse(t, agentArgs(repo, base, head, oneSkill(t), "--ci-results", filepath.Join(dir, "ci-results.md")))
+	logger, logs := bufferLog()
+	if e := prepareAgent(&in, logger); e != nil {
+		t.Fatalf("prepareAgent() error: %+v", e)
+	}
+	if want := "tests: ok\n\n"; in.CIResults != want {
+		t.Errorf("CIResults = %q, want %q", in.CIResults, want)
+	}
+	if !strings.Contains(logs.String(), "ci results: 11 bytes") {
+		t.Errorf("logged %q, want the size", logs.String())
+	}
+}
+
+func TestPrepareAgent_CIResultsMissing(t *testing.T) {
+	repo, base, head := agentRepo(t, nil)
+	logger, logs := bufferLog()
+	in := mustParse(t, agentArgs(repo, base, head, oneSkill(t), "--ci-results", filepath.Join(t.TempDir(), "missing.md")))
+	if e := prepareAgent(&in, logger); e != nil {
+		t.Fatalf("prepareAgent() error: %+v, want the review to go on without it", e)
+	}
+	if in.CIResults != "" {
+		t.Errorf("CIResults = %q, want none", in.CIResults)
+	}
+	if !strings.Contains(logs.String(), "warning: ignoring --ci-results:") {
+		t.Errorf("no warning logged: %q", logs.String())
+	}
+}
+
+func TestParseAgent_CIResultsFromEnv(t *testing.T) {
+	sha := strings.Repeat("a", 40)
+	args := []string{"--repo-path", "/r", "--base", sha, "--head", sha, "--skills-dir", "/s", "--result", "-"}
+	env := agentEnv(map[string]string{"PERGENT_CI_RESULTS": "/env/ci.md"})
+
+	in, e := parseAgent(args, env)
+	if e != nil {
+		t.Fatalf("parseAgent() error: %+v", e)
+	}
+	if in.ciPath != "/env/ci.md" {
+		t.Errorf("ciPath = %q, want the PERGENT_CI_RESULTS path", in.ciPath)
+	}
+	in, e = parseAgent(append(args, "--ci-results", "/flag/ci.md"), env)
+	if e != nil {
+		t.Fatalf("parseAgent() error: %+v", e)
+	}
+	if in.ciPath != "/flag/ci.md" {
+		t.Errorf("ciPath = %q, want the flag to win", in.ciPath)
 	}
 }

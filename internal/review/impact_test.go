@@ -485,6 +485,7 @@ func TestImpactPromptIsFixed(t *testing.T) {
 		skill.Skill{Name: "s", Body: "SKILL-BODY-TEXT quiet"})
 	req.Sandbox.Instructions = []string{instr}
 	req.Description = "DESCRIPTION-TEXT"
+	req.CIResults = "CI-RESULT-TEXT"
 
 	Run(context.Background(), req)
 
@@ -502,7 +503,15 @@ func TestImpactPromptIsFixed(t *testing.T) {
 	if check.cfg.prompt != want {
 		t.Errorf("impact prompt =\n%s\nwant the fixed prompt", check.cfg.prompt)
 	}
-	for _, not := range []string{"SKILL-BODY-TEXT", "INSTRUCTION-TEXT", "DESCRIPTION-TEXT", "quiet", "Quiet"} {
+	if strings.Contains(check.call.opts.Message, "ci-results") {
+		t.Errorf("impact Message = %q, want no CI results", check.call.opts.Message)
+	}
+	for _, p := range check.call.opts.Files {
+		if filepath.Base(p) == ciFile {
+			t.Errorf("impact Files = %q, want no CI results", check.call.opts.Files)
+		}
+	}
+	for _, not := range []string{"SKILL-BODY-TEXT", "INSTRUCTION-TEXT", "DESCRIPTION-TEXT", "CI-RESULT-TEXT", "quiet", "Quiet"} {
 		everything := check.cfg.raw + check.cfg.prompt + check.call.opts.Message + strings.Join(check.call.contents, "\n")
 		if strings.Contains(everything, not) {
 			t.Errorf("the impact run holds %q", not)
