@@ -939,6 +939,7 @@ func envValues(env []string, name string) []string {
 }
 
 func TestBuildCommand_AllowListWithGeneratedConfig(t *testing.T) {
+	t.Setenv("PERGENT_OPENCODE_ENV", "")
 	set := map[string]string{
 		"CI_DEPLOY_SECRET":               "s",
 		"OTEL_EXPORTER_OTLP_ENDPOINT":    "http://collector",
@@ -980,6 +981,9 @@ func TestBuildCommand_AllowListWithGeneratedConfig(t *testing.T) {
 	env = BuildCommand(context.Background(), "/tmp/config.json", nil, "m", ".").Env
 	if got := envValues(env, "OPENCODE_CONFIG_DIR"); len(got) != 0 {
 		t.Errorf("OPENCODE_CONFIG_DIR = %q, want it absent", got)
+	}
+	if got := envValues(env, "OTEL_EXPORTER_OTLP_ENDPOINT"); len(got) != 0 {
+		t.Errorf("OTEL_EXPORTER_OTLP_ENDPOINT = %q, want a bad list to pass nothing at all", got)
 	}
 
 	own := BuildCommand(context.Background(), "", nil, "m", ".").Env

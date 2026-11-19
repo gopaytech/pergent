@@ -30,12 +30,13 @@ func ExtraEnvNames(value string) ([]string, error) {
 		if name == "" {
 			continue
 		}
+		upper := strings.ToUpper(name) // refused in any letter case
 		switch {
 		case !envName.MatchString(name):
 			return nil, fmt.Errorf("%s: %q is not a variable name", ExtraEnvVar, name)
-		case strings.HasPrefix(name, "OPENCODE_") || strings.HasPrefix(name, "PERGENT_"):
+		case strings.HasPrefix(upper, "OPENCODE_") || strings.HasPrefix(upper, "PERGENT_"):
 			return nil, fmt.Errorf("%s: %q is pergent's or opencode's own and cannot be passed through", ExtraEnvVar, name)
-		case neverExtraEnv[name]:
+		case neverExtraEnv[upper]:
 			return nil, fmt.Errorf("%s: %q is removed or set by pergent and cannot be passed through", ExtraEnvVar, name)
 		}
 		names = append(names, name)

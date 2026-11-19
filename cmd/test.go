@@ -24,6 +24,12 @@ func runTest(ctx context.Context) {
 	if warning != "" {
 		fmt.Fprintf(os.Stderr, "warning: %s\n", warning)
 	}
+	if config.GeneratesConfig() {
+		if _, err := config.ExtraEnvNames(os.Getenv(config.ExtraEnvVar)); err != nil {
+			fmt.Fprintf(os.Stderr, "FAIL: config error: %v\n", redact.String(err.Error()))
+			os.Exit(1)
+		}
+	}
 	if !checkOpencode(ctx, os.Stderr) {
 		os.Exit(1)
 	}
