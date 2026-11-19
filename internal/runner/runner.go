@@ -30,6 +30,10 @@ type RunResult struct {
 	// Opened are the paths the completing attempt's successful read, grep,
 	// glob and list calls worked on (see Transcript.Opened).
 	Opened []string
+	// Steps are every attempt's steps in order, Attempt counted from 1.
+	Steps []StepUsage
+	// ToolTotals counts the tool calls of every attempt.
+	ToolTotals ToolTotals
 }
 
 // Options configures a skill run.
@@ -164,13 +168,20 @@ func Run(ctx context.Context, opts Options) RunResult {
 
 	prefix := opts.logPrefix()
 	var usage Usage
+	var steps []StepUsage
+	var totals ToolTotals
 	backoff := retryBackoff
 	for n := 1; ; n++ {
 		a := runAttempt(ctx, opts)
 		usage = usage.Add(a.transcript.Usage)
+		for _, s := range a.transcript.PerStep {
+			s.Attempt = n
+			steps = append(steps, s)
+		}
+		totals = totals.Add(a.transcript.ToolTotals)
 		status, cause := classify(a, opts, time.Since(start))
 		if status == StatusCompleted {
-			return RunResult{SkillName: opts.SkillName, Status: status, Output: a.transcript.Answer, Usage: usage, Opened: a.transcript.Opened}
+			return RunResult{SkillName: opts.SkillName, Status: status, Output: a.transcript.Answer, Usage: usage, Opened: a.transcript.Opened, Steps: steps, ToolTotals: totals}
 		}
 
 		e := a.transcript.RootError()
@@ -183,7 +194,7 @@ func Run(ctx context.Context, opts Options) RunResult {
 		}
 		if !retry {
 			cause.Attempts = n
-			return RunResult{SkillName: opts.SkillName, Status: status, Cause: cause, Usage: usage}
+			return RunResult{SkillName: opts.SkillName, Status: status, Cause: cause, Usage: usage, Steps: steps, ToolTotals: totals}
 		}
 
 		fmt.Fprintf(os.Stderr, prefix+"  Transient error: %s\n"+prefix+"  Retrying in %s (attempt %d of %d)\n",
@@ -191,7 +202,7 @@ func Run(ctx context.Context, opts Options) RunResult {
 		select {
 		case <-ctx.Done():
 			cause.Attempts = n
-			return RunResult{SkillName: opts.SkillName, Status: status, Cause: cause, Usage: usage}
+			return RunResult{SkillName: opts.SkillName, Status: status, Cause: cause, Usage: usage, Steps: steps, ToolTotals: totals}
 		case <-time.After(backoff):
 		}
 		backoff *= 2
@@ -257,6 +268,23 @@ func runAttempt(ctx context.Context, opts Options) attempt {
 		a.exitCode = exitErr.ExitCode()
 	}
 	a.transcript.LastToolTarget = relativeTo(opts.RepoPath, a.transcript.LastToolTarget)
+	// opencode resolves its working directory, so the model may read a
+	// path by its real form. Classify by both forms; opts.RepoPath itself
+	// stays as given.
+	repoReal, tmpReal := realPath(opts.RepoPath), realPath(os.TempDir())
+	for i := range a.transcript.PerStep {
+		calls := a.transcript.PerStep[i].Tools
+		for j := range calls {
+			if calls[j].Tool == "other" {
+				continue
+			}
+			t := pathTarget(opts.RepoPath, os.TempDir(), calls[j].path)
+			if t == TargetOutside && (repoReal != opts.RepoPath || tmpReal != os.TempDir()) {
+				t = pathTarget(repoReal, tmpReal, calls[j].path)
+			}
+			calls[j].Target = t
+		}
+	}
 	return a
 }
 

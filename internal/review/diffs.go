@@ -30,7 +30,7 @@ const (
 	// diffDirPrefix starts with "pergent-" so the generated config's
 	// external_directory rule (os.TempDir()/pergent-*) allows reading the
 	// files, at the same depth as the batch attachments.
-	diffDirPrefix = "pergent-diffs-"
+	diffDirPrefix = config.TempPrefix + "diffs-"
 )
 
 // Seams a test replaces to make the diff files fail or to see the warnings.
