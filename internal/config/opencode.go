@@ -17,6 +17,11 @@ import (
 // run its built-in "build" agent and ignore our agent definition.
 const AgentName = "pergent"
 
+// TempPrefix starts the name of each of pergent's own temp directories (the
+// batch attachments, the on-demand diffs). The external_directory rule allows
+// reading them.
+const TempPrefix = "pergent-"
+
 // DataDirPrefix starts the name of each run's opencode data directory. It must
 // not start with "pergent-": the external_directory rule for pergent's temp
 // directories would then let a run read the auth.json and the session database
@@ -248,8 +253,8 @@ func GenerateOpenCodeConfigWith(o OpenCodeOptions) (string, func(), error) {
 	readRules := ReadRules(o.DenySecretFiles)
 
 	externalDirectory := map[string]string{
-		"*":                                      "deny",
-		filepath.Join(os.TempDir(), "pergent-*"): "allow",
+		"*": "deny",
+		filepath.Join(os.TempDir(), TempPrefix+"*"):                                    "allow",
 		filepath.Join(os.TempDir(), DataDirPrefix+"*", "opencode", "tool-output", "*"): "allow",
 	}
 	for _, dir := range o.Linked {

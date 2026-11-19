@@ -193,6 +193,43 @@ Each entry of `skills`:
 | `batches`, `batches_finished` | number | Batches the skill needed, and how many finished. |
 | `duration_seconds` | number | Wall-clock time for the skill, to a tenth of a second. |
 | `tokens` | object | Token counts summed over every run of the skill: batch, repair, verification and cross-batch runs, retries included. `input` and `output` are what the provider reports as input and output. `reasoning`, `cache_read` and `cache_write` are counted apart: pergent does not add them to `input` or `output` (whether a provider's own output already contains reasoning is up to the provider); they are new in pergent v0.9.0, and an older pergent leaves them out. An additive field: `schema_version` stays `1`, and a reader that doesn't know them can ignore them. A provider that reports no usage gives zeros. |
+| `runs` | array | One entry per opencode run of the skill, in the order of `run`. Omitted when the skill started no run. Raw counts only: pergent adds no prices. See below. |
+
+Each entry of `runs`:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `run` | string | pergent's label of the run. |
+| `prompt_bytes` | number | The agent prompt pergent wrote. Without `OPENCODE_PROVIDER` the prompt is also the first attachment, `review-instructions.md`. |
+| `attachments` | array | `{name, bytes}` for each attached file. |
+| `tokens` | object | The same five counts as the skill's `tokens`. |
+| `tool_totals` | object | `{calls, bytes}` for `read`, `grep`, `glob`, `list` and `other`. |
+| `steps` | array | One entry per model step started, retries included. Each has `attempt`, `tokens` (zeros for a step that never finished) and `tools`. Each tool has `tool`, `target`, `bytes` (what the tool returned to the model) and `failed`. `target` is `repository`, `pergent` (pergent's own temp files, such as attachments, the on-demand diffs and their index), `tool_output` (a long result opencode saved) or `outside` (anything else). It is omitted for `other`. A target is never a path. `tools` keeps at most 500 calls per attempt, while `tool_totals` counts every call, so a cut shows when the two counts differ. |
+
+For example:
+
+```json
+{
+  "run": "1/1",
+  "prompt_bytes": 5200,
+  "attachments": [{"name": "diff.patch", "bytes": 40100}],
+  "tokens": {"input": 9100, "output": 640, "reasoning": 0, "cache_read": 0, "cache_write": 0},
+  "tool_totals": {
+    "read": {"calls": 1, "bytes": 1200},
+    "grep": {"calls": 0, "bytes": 0},
+    "glob": {"calls": 0, "bytes": 0},
+    "list": {"calls": 0, "bytes": 0},
+    "other": {"calls": 0, "bytes": 0}
+  },
+  "steps": [
+    {
+      "attempt": 1,
+      "tokens": {"input": 9100, "output": 640, "reasoning": 0, "cache_read": 0, "cache_write": 0},
+      "tools": [{"tool": "read", "target": "repository", "bytes": 1200}]
+    }
+  ]
+}
+```
 
 `confidence` is the model's own score. A caller showing it applies the caps first: a blocking finding caps it at 3, a failed skill is not scored, and a `deleted`, `binary`, `vendored`, `lockfile` or `generated` skip caps it at 4 (`render.SkillScore` does this). A skill with `verdict: failed` may still carry `confidence`; the caller applies the "not scored" cap. It is information only and says nothing about approval.
 
@@ -245,7 +282,7 @@ IDs are only unique within one result and can change between pushes. Store a dis
 
 ### Size limit
 
-A result is at most 10 MB. If the encoded JSON is larger, pergent drops every skill's per-batch `checks` first, and if that is not enough every skill's `summaries`, adding a note to each skill that lost something. Verdicts, findings, failures, files and the rendered comment are always kept. If the result is still too large, pergent delivers an `internal` error result instead.
+A result is at most 10 MB. If the encoded JSON is larger, pergent drops every skill's `runs` (usage data) first, then, if that is not enough, every skill's per-batch `checks`, and then every skill's `summaries`, adding a note to each skill that lost something. Verdicts, findings, failures, files and the rendered comment are always kept. If the result is still too large, pergent delivers an `internal` error result instead.
 
 Credentials are redacted from every string of the result before it leaves pergent. That includes the value of `PERGENT_RESULT_TOKEN`, if it is at least 8 characters long.
 
@@ -260,7 +297,7 @@ Credentials are redacted from every string of the result before it leaves pergen
 | `diff_failed` | 3 | `git diff` between the two commits failed. |
 | `skills_invalid` | 3 | A skill file or `--skills-dir` could not be loaded, including a folder in `--skills-dir` without a `SKILL.md` and a `paths` or `exclude` pattern with bad glob syntax or that can never match a file. |
 | `untrusted_instructions` | 3 | The checkout has instruction files below its root, a symlink to its root, a symlink to outside it, or a symlink whose real target a read rule denies (such as `prod.env`), and `--scrub-instructions` was not passed. |
-| `internal` | 3 | Anything else: git older than 2.40, a failure while scrubbing, or a result over 10 MB that checks and summaries could not shrink enough. |
+| `internal` | 3 | Anything else: git older than 2.40, a failure while scrubbing, or a result over 10 MB that runs, checks and summaries could not shrink enough. |
 
 The list is fixed in version 1.
 
@@ -302,5 +339,7 @@ After a `SIGTERM` the whole HTTP delivery gets 20 seconds, with a single retry a
 ## Compatibility
 
 Version 1 changes only by adding fields. A reader must ignore fields it does not know. Renaming a field, removing one, or changing the meaning of one requires `schema_version: 2`.
+
+The skill's `runs` field is additive and new in this version of pergent.
 
 `--previous` reads a result with this schema. A file with another `schema_version`, or one that cannot be read, is ignored with a warning and the review runs as a first review.

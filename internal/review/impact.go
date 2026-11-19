@@ -95,7 +95,8 @@ func impactMode(links []LinkedRepo) runMode {
 func (r *reviewer) impact(ctx context.Context) (res SkillResult) {
 	start := time.Now()
 	res.Skill = ImpactSkill
-	defer func() { res.Duration = time.Since(start) }()
+	ctx, runs := withRunLog(ctx)
+	defer func() { res.Duration = time.Since(start); res.Runs = runs.sorted() }()
 
 	var usable []LinkedRepo
 	for _, l := range r.req.Linked {

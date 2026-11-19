@@ -43,6 +43,9 @@ type openCodeState struct {
 	Status string         `json:"status"`
 	Input  map[string]any `json:"input,omitempty"`
 	Error  string         `json:"error,omitempty"`
+	// Output is kept raw: a tool that sent a non-string value must not make
+	// the whole event fail to decode.
+	Output json.RawMessage `json:"output,omitempty"`
 }
 
 type openCodeTokens struct {
@@ -163,6 +166,12 @@ type Transcript struct {
 	// Usage sums part.tokens.input, output, reasoning and cache.read/write
 	// over all step_finish events.
 	Usage Usage
+	// PerStep has one entry per step_start, in order: the step's tokens and
+	// the tool calls reported while it was the last step started. At most
+	// maxToolCalls calls are kept per attempt.
+	PerStep []StepUsage
+	// ToolTotals counts every tool call, kept in PerStep or not.
+	ToolTotals ToolTotals
 }
 
 // LastError returns the last error event, or nil.
@@ -203,6 +212,8 @@ func ParseOutput(stdout []byte) Transcript {
 	// When opencode compacts, the last step is its summary, so this is the
 	// size that triggered compaction.
 	var prevStepTokens int
+	// keptCalls counts the tool calls stored in PerStep.
+	var keptCalls int
 
 	scanner := bufio.NewScanner(bytes.NewReader(stdout))
 	scanner.Buffer(make([]byte, 0, 64*1024), maxOutputLine)
@@ -228,6 +239,7 @@ func ParseOutput(stdout []byte) Transcript {
 		switch event.Type {
 		case "step_start":
 			t.Steps++
+			t.PerStep = append(t.PerStep, StepUsage{})
 			t.InStep = true
 			stepText = nil
 			t.Answer = ""
@@ -242,6 +254,13 @@ func ParseOutput(stdout []byte) Transcript {
 					t.Usage.Reasoning += event.Part.Tokens.Reasoning
 					t.Usage.CacheRead += event.Part.Tokens.Cache.Read
 					t.Usage.CacheWrite += event.Part.Tokens.Cache.Write
+					if n := len(t.PerStep); n > 0 {
+						t.PerStep[n-1].Usage = Usage{
+							Input: event.Part.Tokens.Input, Output: event.Part.Tokens.Output,
+							Reasoning: event.Part.Tokens.Reasoning,
+							CacheRead: event.Part.Tokens.Cache.Read, CacheWrite: event.Part.Tokens.Cache.Write,
+						}
+					}
 					prevStepTokens = t.LastStepTokens
 					t.LastStepTokens = event.Part.Tokens.used()
 				}
@@ -274,6 +293,24 @@ func ParseOutput(stdout []byte) Transcript {
 			}
 			t.LastTool = event.Part.Tool
 			t.LastToolTarget = ""
+			call := ToolCall{Tool: toolName(event.Part.Tool)}
+			if st := event.Part.State; st != nil {
+				switch st.Status {
+				case "completed":
+					call.Bytes = outputBytes(st.Output)
+				case "error":
+					call.Bytes = len(st.Error)
+					call.Failed = true
+				}
+				if call.Tool != "other" {
+					call.path = openedPath(st.Input)
+				}
+			}
+			t.ToolTotals.add(call)
+			if n := len(t.PerStep); n > 0 && keptCalls < maxToolCalls {
+				t.PerStep[n-1].Tools = append(t.PerStep[n-1].Tools, call)
+				keptCalls++
+			}
 			if event.Part.State != nil {
 				t.LastToolTarget = toolTarget(event.Part.State.Input)
 				if event.Part.State.Status == "completed" && len(t.Opened) < maxOpened {
@@ -361,4 +398,14 @@ func bodyText(raw json.RawMessage) string {
 		return s
 	}
 	return string(raw)
+}
+
+// outputBytes is the length of a tool result: the decoded string when it is a
+// JSON string, else the length of the raw value.
+func outputBytes(raw json.RawMessage) int {
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return len(s)
+	}
+	return len(raw)
 }

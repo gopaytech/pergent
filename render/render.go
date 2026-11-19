@@ -177,6 +177,12 @@ type Options struct {
 	// included, is collapsed to single spaces. Empty adds nothing. Caller-owned
 	// text, not escaped: it must not carry model text.
 	MetaNote string
+	// HeaderNote is one line of caller text, such as the state of the CI jobs,
+	// written in italics after the header block (after the failures). Its
+	// whitespace, line breaks included, is collapsed to single spaces and the
+	// text is made inert like model text. Short, a layout and every size-limit
+	// step keep it. Empty writes nothing. Never model text.
+	HeaderNote string
 	// Short leaves out the Files list and the passed and n/a checks, with no
 	// note, since nothing was cut for size. Everything else is as without it:
 	// the meta line keeps its file count and "N of M checks passed", and the
@@ -256,8 +262,8 @@ type layout struct {
 // files, the notes and the footer. A hidden last line carries the findings for
 // the next run. That is the default order; o.Layout can change the order of the
 // summary, findings, dismissed, checks and files blocks, fold or open them, or
-// leave one out (see Options.Layout). The headline, meta line, reason, table
-// and failures are kept by every shrink step below.
+// leave one out (see Options.Layout). The headline, meta line, header note,
+// reason, table and failures are kept by every shrink step below.
 //
 // A comment over o.MaxLen is shrunk in steps until it fits: the hidden
 // findings block goes first, then the suggestions' explanations and fixes

@@ -51,6 +51,9 @@ type agentInputs struct {
 	// Description is the change's title and description, "" when none was
 	// given. The path is trusted; the text is the author's.
 	Description string
+	// CIResults is the CI output from running the change, "" when none was
+	// given. The path is trusted; the text is data.
+	CIResults string
 	// Linked are the linked repositories the caller cloned, scrubbed. An entry
 	// with an Error is not to be read.
 	Linked         []review.LinkedRepo
@@ -71,6 +74,8 @@ type agentInputs struct {
 	// changePath is --change-description, or $PERGENT_CHANGE_DESCRIPTION
 	// without the flag.
 	changePath string
+	// ciPath is --ci-results, or $PERGENT_CI_RESULTS without the flag.
+	ciPath string
 	// linkedPath is --linked-repos, or $PERGENT_LINKED_REPOS without the flag.
 	linkedPath string
 	scrub      bool
@@ -250,6 +255,7 @@ func runAgent(ctx context.Context, args []string, getenv func(string) string, st
 		Carried:      in.Carried,
 		Dismissals:   in.Dismissals,
 		Description:  in.Description,
+		CIResults:    in.CIResults,
 		CheckDeleted: in.Review.CheckDeleted,
 		Linked:       in.Linked,
 		Run:          run,
@@ -323,6 +329,7 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 	flags.StringVar(&in.previousPath, "previous", "", "A previous agent result whose findings are attached per skill")
 	flags.StringVar(&in.carriedPath, "carried", "", "A JSON file {\"<skill>\": [\"path\", ...]} of files a previous review covers, left out of this review")
 	flags.StringVar(&in.dismissalsPath, "dismissals", getenv("PERGENT_DISMISSALS"), "A JSON file {\"<skill>\": [{\"file\", \"title\", \"severity\", \"reason\"}, ...]} of findings people rejected earlier, attached to the runs")
+	flags.StringVar(&in.ciPath, "ci-results", getenv("PERGENT_CI_RESULTS"), "A file of the CI job results of the change, attached to the review runs as data")
 	flags.StringVar(&in.changePath, "change-description", getenv("PERGENT_CHANGE_DESCRIPTION"), "A file holding the change's title and description, attached to the review runs as data")
 	flags.StringVar(&in.linkedPath, "linked-repos", getenv("PERGENT_LINKED_REPOS"), "A JSON file [{\"name\", \"path\", \"watched\", \"can_block\", \"error\"}, ...] of linked repositories the caller cloned; they are scrubbed, and only an impact run reads them")
 	flags.BoolVar(&in.scrub, "scrub-instructions", false, "Delete every AGENTS.md, CLAUDE.md and CONTEXT.md in --repo-path before reviewing")
@@ -516,6 +523,7 @@ func prepareAgent(in *agentInputs, logger *log.Logger) *result.Error {
 	if in.changePath != "" {
 		in.Description = readChangeDescription(in.changePath, logger)
 	}
+	in.CIResults = readCIResults(in.ciPath, logger)
 	if in.linkedPath != "" {
 		repos, err := readLinkedRepos(in.linkedPath, logger)
 		if err != nil {
@@ -557,7 +565,7 @@ func gitVersionError(version string, major, minor int, err error) *result.Error 
 
 // trustedInputsOutside refuses a trusted input (--instructions, --skills-dir,
 // a path --skill, --previous, --carried, --dismissals, --change-description,
-// --linked-repos) that resolves to somewhere inside the checkout:
+// --ci-results, --linked-repos) that resolves to somewhere inside the checkout:
 // the change under review could have written it. A --skills-dir above the
 // checkout is refused too, since LoadDir would read the checkout's top-level
 // files as skills. So are a --result file in the checkout, where the change
@@ -616,6 +624,9 @@ func trustedInputs(in *agentInputs) []trustedInput {
 	}
 	if in.changePath != "" {
 		inputs = append(inputs, trustedInput{"--change-description", in.changePath})
+	}
+	if in.ciPath != "" {
+		inputs = append(inputs, trustedInput{"--ci-results", in.ciPath})
 	}
 	if in.linkedPath != "" {
 		inputs = append(inputs, trustedInput{"--linked-repos", in.linkedPath})
@@ -965,6 +976,21 @@ func readChangeDescription(path string, logger *log.Logger) string {
 		return ""
 	}
 	logger.Printf("change description: %d bytes", len(data))
+	return string(data)
+}
+
+// readCIResults reads the CI results the caller wrote. A review is still worth
+// running without them, so a failure is a warning.
+func readCIResults(path string, logger *log.Logger) string {
+	if path == "" {
+		return ""
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		logger.Printf("warning: ignoring --ci-results: %v", err)
+		return ""
+	}
+	logger.Printf("ci results: %d bytes", len(data))
 	return string(data)
 }
 

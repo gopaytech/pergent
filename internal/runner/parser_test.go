@@ -329,3 +329,144 @@ func TestRun_ReportsOpenedPaths(t *testing.T) {
 		t.Errorf("Run() = %+v, want it to report the path it read", got)
 	}
 }
+
+func usageEv(tool, status, field, val string) string {
+	return `{"type":"tool_use","part":{"type":"tool","tool":"` + tool + `","state":{"status":"` + status + `","input":{"filePath":"/x"},"` + field + `":"` + val + `"}}}` + "\n"
+}
+
+const (
+	usageStart = `{"type":"step_start","part":{"type":"step-start"}}` + "\n"
+	usageStop  = `{"type":"step_finish","part":{"type":"step-finish","reason":"stop","tokens":{"input":1,"output":1}}}` + "\n"
+)
+
+func TestParseOutput_PerStep(t *testing.T) {
+	stdout := usageStart +
+		usageEv("read", "completed", "output", "abc") +
+		usageEv("grep", "error", "error", "no") +
+		`{"type":"step_finish","part":{"type":"step-finish","reason":"tool-calls","tokens":{"input":10,"output":3,"reasoning":4,"cache":{"read":50,"write":1}}}}` + "\n" +
+		usageStart +
+		`{"type":"text","part":{"type":"text","text":"Done."}}` + "\n" +
+		`{"type":"step_finish","part":{"type":"step-finish","reason":"stop","tokens":{"input":20,"output":5}}}` + "\n"
+	got := ParseOutput([]byte(stdout))
+	if len(got.PerStep) != 2 {
+		t.Fatalf("len(PerStep) = %d, want 2", len(got.PerStep))
+	}
+	if want := (Usage{Input: 10, Output: 3, Reasoning: 4, CacheRead: 50, CacheWrite: 1}); got.PerStep[0].Usage != want {
+		t.Errorf("PerStep[0].Usage = %+v, want %+v", got.PerStep[0].Usage, want)
+	}
+	if want := (Usage{Input: 20, Output: 5}); got.PerStep[1].Usage != want {
+		t.Errorf("PerStep[1].Usage = %+v, want %+v", got.PerStep[1].Usage, want)
+	}
+	tools := got.PerStep[0].Tools
+	if len(tools) != 2 {
+		t.Fatalf("PerStep[0].Tools = %+v, want 2 calls", tools)
+	}
+	if tools[0].Tool != "read" || tools[0].Bytes != 3 || tools[0].Failed ||
+		tools[1].Tool != "grep" || tools[1].Bytes != 2 || !tools[1].Failed {
+		t.Errorf("PerStep[0].Tools = %+v, want read (3 bytes) and failed grep (2 bytes)", tools)
+	}
+	if tools[0].path != "/x" {
+		t.Errorf("path = %q, want /x", tools[0].path)
+	}
+	if len(got.PerStep[1].Tools) != 0 {
+		t.Errorf("PerStep[1].Tools = %+v, want none", got.PerStep[1].Tools)
+	}
+}
+
+func TestParseOutput_ToolTotals(t *testing.T) {
+	stdout := usageStart +
+		usageEv("read", "completed", "output", "abc") +
+		usageEv("read", "completed", "output", "abcd") +
+		usageEv("grep", "completed", "output", "a") +
+		usageEv("glob", "completed", "output", "a") +
+		usageEv("list", "completed", "output", "a") +
+		usageEv("edit", "completed", "output", "a") +
+		usageEv("invalid", "completed", "output", "a") +
+		usageStop
+	got := ParseOutput([]byte(stdout))
+	if got.ToolTotals.Read != (ToolUse{2, 7}) {
+		t.Errorf("Read = %+v, want {2 7}", got.ToolTotals.Read)
+	}
+	for name, u := range map[string]ToolUse{"Grep": got.ToolTotals.Grep, "Glob": got.ToolTotals.Glob, "List": got.ToolTotals.List} {
+		if u.Calls != 1 {
+			t.Errorf("%s.Calls = %d, want 1", name, u.Calls)
+		}
+	}
+	if got.ToolTotals.Other.Calls != 2 {
+		t.Errorf("Other.Calls = %d, want 2", got.ToolTotals.Other.Calls)
+	}
+	for _, c := range got.PerStep[0].Tools {
+		if !slices.Contains([]string{"read", "grep", "glob", "list", "other"}, c.Tool) {
+			t.Errorf("Tool = %q, not in the fixed set", c.Tool)
+		}
+	}
+}
+
+func TestParseOutput_ToolAfterStepFinishBelongsToThatStep(t *testing.T) {
+	stdout := usageStart + usageStop + usageEv("read", "completed", "output", "ab") + usageStart + usageStop
+	got := ParseOutput([]byte(stdout))
+	if len(got.PerStep) != 2 || len(got.PerStep[0].Tools) != 1 || len(got.PerStep[1].Tools) != 0 {
+		t.Errorf("PerStep = %+v, want the call in step 1", got.PerStep)
+	}
+}
+
+func TestParseOutput_ToolBeforeAnyStep(t *testing.T) {
+	got := ParseOutput([]byte(usageEv("read", "completed", "output", "ab") + usageStart + usageStop))
+	if got.ToolTotals.Read.Calls != 1 {
+		t.Errorf("Read.Calls = %d, want 1", got.ToolTotals.Read.Calls)
+	}
+	if len(got.PerStep) != 1 || len(got.PerStep[0].Tools) != 0 {
+		t.Errorf("PerStep = %+v, want the call in no step", got.PerStep)
+	}
+}
+
+func TestParseOutput_PerStepSumsToUsage(t *testing.T) {
+	for _, f := range []string{"completed", "compacted_no_answer", "compacted_then_answer", "context_overflow", "rate_limited", "step_limit", "timeout", "no_answer", "output_length"} {
+		t.Run(f, func(t *testing.T) {
+			got := ParseOutput(readFixture(t, f+".ndjson"))
+			if len(got.PerStep) != got.Steps {
+				t.Errorf("len(PerStep) = %d, want Steps %d", len(got.PerStep), got.Steps)
+			}
+			var sum Usage
+			for _, s := range got.PerStep {
+				sum = sum.Add(s.Usage)
+			}
+			if sum != got.Usage {
+				t.Errorf("sum of PerStep = %+v, want Usage %+v", sum, got.Usage)
+			}
+			if f == "timeout" && got.PerStep[len(got.PerStep)-1].Usage != (Usage{}) {
+				t.Errorf("last step Usage = %+v, want zero", got.PerStep[len(got.PerStep)-1].Usage)
+			}
+		})
+	}
+}
+
+func TestParseOutput_ToolCallsCapped(t *testing.T) {
+	var b strings.Builder
+	b.WriteString(usageStart)
+	for i := 0; i < maxToolCalls+50; i++ {
+		b.WriteString(usageEv("read", "completed", "output", "a"))
+	}
+	got := ParseOutput([]byte(b.String()))
+	if n := len(got.PerStep[0].Tools); n != maxToolCalls {
+		t.Errorf("kept %d calls, want %d", n, maxToolCalls)
+	}
+	if got.ToolTotals.Read.Calls != maxToolCalls+50 {
+		t.Errorf("Read.Calls = %d, want %d", got.ToolTotals.Read.Calls, maxToolCalls+50)
+	}
+}
+
+func TestParseOutput_NonStringOutputKeepsEvent(t *testing.T) {
+	for _, out := range []string{`{"a":1}`, `42`} {
+		stdout := usageStart +
+			`{"type":"tool_use","part":{"type":"tool","tool":"read","state":{"status":"completed","input":{"filePath":"/x"},"output":` + out + `}}}` + "\n" +
+			usageStop
+		got := ParseOutput([]byte(stdout))
+		if got.LastTool != "read" || !slices.Equal(got.Opened, []string{"/x"}) {
+			t.Errorf("output %s: LastTool %q, Opened %q, want the event kept", out, got.LastTool, got.Opened)
+		}
+		if got.ToolTotals.Read.Calls != 1 || got.ToolTotals.Read.Bytes != len(out) {
+			t.Errorf("output %s: Read = %+v, want 1 call of %d bytes", out, got.ToolTotals.Read, len(out))
+		}
+	}
+}

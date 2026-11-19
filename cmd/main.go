@@ -57,6 +57,7 @@ func main() {
 	var testMode bool
 	var previousReview bool
 	var checkDeleted bool
+	var usageFile string
 
 	flag.Var(&skills, "skill", "Preset name or path to skill .md file (repeatable)")
 	flag.StringVar(&platformFlag, "platform", "", "Platform: github or gitlab")
@@ -71,6 +72,7 @@ func main() {
 	flag.BoolVar(&testMode, "test", false, "Test opencode connection by sending a hello prompt")
 	flag.BoolVar(&previousReview, "previous-review", false, "Attach pergent's previous review comment as context (platform mode only)")
 	flag.BoolVar(&checkDeleted, "check-deleted", false, "Review deleted files and check what still uses deleted and renamed files (off by default)")
+	flag.StringVar(&usageFile, "usage-file", "", "Write each opencode run's tokens, steps and tool use as JSON to this file (off by default)")
 	flag.Parse()
 
 	previousReviewSet, concurrencySet, checkDeletedSet := false, false, false
@@ -200,6 +202,12 @@ func main() {
 	}
 	if failed > 0 {
 		log.Printf("%d of %d skill reviews failed; the failures are reported in the review comment", failed, len(results))
+	}
+
+	if usageFile != "" {
+		if err := writeUsageFile(usageFile, results); err != nil {
+			log.Printf("warning: could not write the usage file: %v", err)
+		}
 	}
 
 	// A comment over the platform's size limit would fail to post, so it is
