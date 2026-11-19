@@ -1,0 +1,5 @@
+{
+  "name": "ContextOverflowError",
+  "statusCode": 413,
+  "message": "prompt is too long"
+}

@@ -1,0 +1,6 @@
+{
+  "name": "APIError",
+  "statusCode": 503,
+  "message": "Overloaded",
+  "responseBody": "{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}"
+}
