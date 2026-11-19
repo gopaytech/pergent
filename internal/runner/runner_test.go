@@ -826,6 +826,43 @@ func TestBuildCommand_ProjectConfigAndInjectedConfig(t *testing.T) {
 	}
 }
 
+func TestBuildCommand_StripsRiskyInheritedEnv(t *testing.T) {
+	stripped := []string{"OPENCODE_CONFIG_DIR", "OPENCODE_FLAGS", "OPENCODE_DB", "OPENCODE_TEST_HOME", "OPENCODE_SIMULATE"}
+	for _, name := range stripped {
+		t.Setenv(name, "inherited")
+	}
+	t.Setenv("OPENCODE_DISABLE_AUTOUPDATE", "false")
+	values := func(env []string, name string) []string {
+		var out []string
+		for _, kv := range env {
+			if v, ok := strings.CutPrefix(kv, name+"="); ok {
+				out = append(out, v)
+			}
+		}
+		return out
+	}
+
+	generated := BuildCommand(context.Background(), "/tmp/config.json", nil, "m", ".").Env
+	for _, name := range stripped {
+		if got := values(generated, name); len(got) != 0 {
+			t.Errorf("generated config: %s = %q, want it removed", name, got)
+		}
+	}
+	if got := values(generated, "OPENCODE_DISABLE_AUTOUPDATE"); !slices.Equal(got, []string{"true"}) {
+		t.Errorf("generated config: OPENCODE_DISABLE_AUTOUPDATE = %q, want exactly [true]", got)
+	}
+
+	own := BuildCommand(context.Background(), "", nil, "m", ".").Env
+	for _, name := range stripped {
+		if got := values(own, name); !slices.Equal(got, []string{"inherited"}) {
+			t.Errorf("own config: %s = %q, want the caller's value", name, got)
+		}
+	}
+	if got := values(own, "OPENCODE_DISABLE_AUTOUPDATE"); !slices.Equal(got, []string{"false"}) {
+		t.Errorf("own config: OPENCODE_DISABLE_AUTOUPDATE = %q, want the caller's [false]", got)
+	}
+}
+
 func TestBuildCommand_DisablesClaudeCodeWithGeneratedConfigOnly(t *testing.T) {
 	const v = "OPENCODE_DISABLE_CLAUDE_CODE=true"
 	if cmd := BuildCommand(context.Background(), "/tmp/config.json", nil, "m", "."); !slices.Contains(cmd.Env, v) {

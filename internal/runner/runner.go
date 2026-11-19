@@ -154,6 +154,20 @@ func BuildCommand(ctx context.Context, configPath string, files []string, messag
 			"OPENCODE_CONFIG_CONTENT", "OPENCODE_CLI_CONFIG_CONTENT",
 			"OPENCODE_CONFIG", "OPENCODE_DISABLE_PROJECT_CONFIG", "OPENCODE_CONFIG_PROJECT_DISABLE",
 			"OPENCODE_DISABLE_CLAUDE_CODE",
+			// Why each of these goes is in the opencode 2.3.2 environment audit.
+			// Replaces the global config dir and loads it as a config
+			// directory, so its plugins would run with the model key in the env.
+			"OPENCODE_CONFIG_DIR",
+			// Experimental feature flags that can add unvetted tools or behaviour.
+			"OPENCODE_FLAGS",
+			// Database path: parallel runs would share one SQLite file and
+			// reach the user's real credentials, undoing the per-run data dir.
+			"OPENCODE_DB",
+			// Test hook that moves where instruction files are discovered.
+			"OPENCODE_TEST_HOME",
+			// Test-only simulation mode.
+			"OPENCODE_SIMULATE",
+			"OPENCODE_DISABLE_AUTOUPDATE",
 		})
 		// Ignore the reviewed repo's own opencode.json and .opencode/ (agents,
 		// plugins), which would otherwise override our permissions or run code
@@ -168,6 +182,9 @@ func BuildCommand(ctx context.Context, configPath string, files []string, messag
 			// opencode 2 also reads CLAUDE.md files (the checkout's and
 			// ~/.claude/CLAUDE.md), which agent mode never loads.
 			"OPENCODE_DISABLE_CLAUDE_CODE=true",
+			// No update check (a network call), and no upgrade that could
+			// replace the binary in the middle of a review.
+			"OPENCODE_DISABLE_AUTOUPDATE=true",
 		)
 	}
 	// opencode 2 takes its project directory from $PWD, not the process's
