@@ -200,7 +200,8 @@ func runAgent(ctx context.Context, args []string, getenv func(string) string, st
 		}
 		return true
 	}
-	meta := result.Meta{PergentVersion: version, Base: in.Base, Head: in.Head}
+	meta := result.Meta{PergentVersion: version, Base: in.Base, Head: in.Head,
+		Provider: getenv("OPENCODE_PROVIDER"), Model: getenv("OPENCODE_MODEL")}
 	// failWith delivers an error result, when there is a target, and returns
 	// the exit code. A usage error is exit 2 whether or not delivery worked.
 	failWith := func(e *result.Error) int {
