@@ -403,6 +403,9 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 	if getenv("OPENCODE_PROVIDER") == "" || getenv("OPENCODE_MODEL") == "" {
 		return usage("agent mode requires OPENCODE_PROVIDER and OPENCODE_MODEL")
 	}
+	if _, err := config.ExtraEnvNames(getenv(config.ExtraEnvVar)); err != nil {
+		return usage("%v", err)
+	}
 	if instructions != "" {
 		abs, err := filepath.Abs(instructions)
 		if err != nil {

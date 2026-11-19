@@ -626,11 +626,11 @@ func TestRun_ExcludeEnv(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("PERGENT_RESULT_TOKEN", "x")
-	t.Setenv("PERGENT_KEEP_ME", "y")
+	t.Setenv("AWS_DROP_ME", "x")
+	t.Setenv("AWS_KEEP_ME", "y")
 
 	opts := testOptions(time.Minute)
-	opts.ExcludeEnv = []string{"PERGENT_RESULT_TOKEN"}
+	opts.ExcludeEnv = []string{"AWS_DROP_ME"}
 	if got := Run(context.Background(), opts); got.Status != StatusCompleted {
 		t.Fatalf("Run() = %+v, want completed", got)
 	}
@@ -638,10 +638,10 @@ func TestRun_ExcludeEnv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(data), "PERGENT_RESULT_TOKEN") {
-		t.Errorf("opencode's environment still has PERGENT_RESULT_TOKEN")
+	if strings.Contains(string(data), "AWS_DROP_ME") {
+		t.Errorf("opencode's environment still has AWS_DROP_ME")
 	}
-	if !strings.Contains(string(data), "PERGENT_KEEP_ME=y") {
+	if !strings.Contains(string(data), "AWS_KEEP_ME=y") {
 		t.Errorf("opencode's environment lost an unrelated variable")
 	}
 }
@@ -925,5 +925,67 @@ func TestBuildCommandSetsPWDToTheRepo(t *testing.T) {
 	}
 	if len(pwds) != 1 || pwds[0] != "PWD="+repo {
 		t.Errorf("PWD entries = %v, want exactly PWD=%s", pwds, repo)
+	}
+}
+
+func envValues(env []string, name string) []string {
+	var out []string
+	for _, kv := range env {
+		if v, ok := strings.CutPrefix(kv, name+"="); ok {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+func TestBuildCommand_AllowListWithGeneratedConfig(t *testing.T) {
+	set := map[string]string{
+		"CI_DEPLOY_SECRET":               "s",
+		"OTEL_EXPORTER_OTLP_ENDPOINT":    "http://collector",
+		"OPENCODE_CONFIG_DIR":            "/evil",
+		"GITHUB_TOKEN":                   "gh",
+		"AWS_REGION":                     "eu-west-1",
+		"GOOGLE_APPLICATION_CREDENTIALS": "/c.json",
+		"LC_ALL":                         "C",
+		"HTTPS_PROXY":                    "http://proxy",
+		"OPENCODE_API_KEY":               "key",
+		"NODE_EXTRA_CA_CERTS":            "/ca.pem",
+	}
+	for k, v := range set {
+		t.Setenv(k, v)
+	}
+	env := BuildCommand(context.Background(), "/tmp/config.json", nil, "m", ".").Env
+	for _, gone := range []string{"CI_DEPLOY_SECRET", "OTEL_EXPORTER_OTLP_ENDPOINT", "OPENCODE_CONFIG_DIR", "GITHUB_TOKEN"} {
+		if got := envValues(env, gone); len(got) != 0 {
+			t.Errorf("%s = %q, want it absent", gone, got)
+		}
+	}
+	for _, kept := range []string{"AWS_REGION", "GOOGLE_APPLICATION_CREDENTIALS", "LC_ALL", "HTTPS_PROXY", "OPENCODE_API_KEY", "NODE_EXTRA_CA_CERTS", "PATH"} {
+		if got := envValues(env, kept); len(got) != 1 || (set[kept] != "" && got[0] != set[kept]) {
+			t.Errorf("%s = %q, want the inherited value once", kept, got)
+		}
+	}
+
+	t.Setenv("PERGENT_OPENCODE_ENV", " OTEL_EXPORTER_OTLP_ENDPOINT ")
+	env = BuildCommand(context.Background(), "/tmp/config.json", nil, "m", ".").Env
+	if got := envValues(env, "OTEL_EXPORTER_OTLP_ENDPOINT"); !slices.Equal(got, []string{"http://collector"}) {
+		t.Errorf("listed OTEL = %q, want it passed", got)
+	}
+	if got := envValues(env, "CI_DEPLOY_SECRET"); len(got) != 0 {
+		t.Errorf("CI_DEPLOY_SECRET = %q, want it still absent", got)
+	}
+
+	// A refused name in the hatch passes nothing extra.
+	t.Setenv("PERGENT_OPENCODE_ENV", "OPENCODE_CONFIG_DIR,OTEL_EXPORTER_OTLP_ENDPOINT")
+	env = BuildCommand(context.Background(), "/tmp/config.json", nil, "m", ".").Env
+	if got := envValues(env, "OPENCODE_CONFIG_DIR"); len(got) != 0 {
+		t.Errorf("OPENCODE_CONFIG_DIR = %q, want it absent", got)
+	}
+
+	own := BuildCommand(context.Background(), "", nil, "m", ".").Env
+	for k, v := range set {
+		if got := envValues(own, k); !slices.Equal(got, []string{v}) {
+			t.Errorf("own config: %s = %q, want the caller's %q", k, got, v)
+		}
 	}
 }

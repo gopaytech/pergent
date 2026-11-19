@@ -84,6 +84,35 @@ func withoutEnv(env, exclude []string) []string {
 	return out
 }
 
+// allowedEnvNames are the inherited variables a generated-config run keeps:
+// process basics, proxies, certificates, config and cache directories, and
+// pergent's own key variable.
+var allowedEnvNames = []string{
+	"PATH", "HOME", "USER", "USERNAME", "LOGNAME", "SHELL", "TMPDIR", "TMP", "TEMP", "LANG", "TZ", "TERM",
+	"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "no_proxy", "all_proxy",
+	"SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS", "NODE_USE_SYSTEM_CA", "NODE_USE_ENV_PROXY", "NODE_TLS_REJECT_UNAUTHORIZED",
+	"XDG_CONFIG_HOME", "XDG_CACHE_HOME",
+	"OPENCODE_API_KEY",
+}
+
+// allowedEnvPrefixes are the cloud-provider and locale prefixes kept as well,
+// so a provider that signs in with the caller's cloud credentials still can.
+var allowedEnvPrefixes = []string{"LC_", "AWS_", "GOOGLE_", "VERTEX_", "AZURE_", "CLOUDFLARE_"}
+
+// allowedEnv returns the entries of env a generated-config run keeps: the
+// names above, the prefixes, and the names in extra.
+func allowedEnv(env, extra []string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		name, _, _ := strings.Cut(kv, "=")
+		if slices.Contains(allowedEnvNames, name) || slices.Contains(extra, name) ||
+			slices.ContainsFunc(allowedEnvPrefixes, func(p string) bool { return strings.HasPrefix(name, p) }) {
+			out = append(out, kv)
+		}
+	}
+	return out
+}
+
 // maxRetries is how many times a run that failed on a transient provider
 // error that is not the provider's (a connection that failed, say) is started
 // again.
@@ -143,38 +172,36 @@ func BuildCommand(ctx context.Context, configPath string, files []string, messag
 
 	env := os.Environ()
 	if configPath != "" {
-		// opencode signs in with OPENCODE_API_KEY here and has no use for a
-		// platform token, which a change under review could otherwise reach.
-		env = withoutEnv(env, []string{"GITHUB_TOKEN", "GITLAB_TOKEN"})
-		// opencode merges OPENCODE_CONFIG_CONTENT over the config file, which
-		// would let a caller's value loosen the permissions; the CLI's own
-		// config content is dropped with it. The values set below replace any
-		// inherited copy.
-		env = withoutEnv(env, []string{
-			"OPENCODE_CONFIG_CONTENT", "OPENCODE_CLI_CONFIG_CONTENT",
-			"OPENCODE_CONFIG", "OPENCODE_DISABLE_PROJECT_CONFIG", "OPENCODE_CONFIG_PROJECT_DISABLE",
-			"OPENCODE_DISABLE_CLAUDE_CODE",
-			// Why each of these goes is in the opencode 2.3.2 environment audit.
-			// Replaces the global config dir and loads it as a config
-			// directory, so its plugins would run with the model key in the env.
-			"OPENCODE_CONFIG_DIR",
-			// Experimental feature flags that can add unvetted tools or behaviour.
-			"OPENCODE_FLAGS",
-			// Database path: parallel runs would share one SQLite file and
-			// reach the user's real credentials, undoing the per-run data dir.
-			"OPENCODE_DB",
-			// Test hook that moves where instruction files are discovered.
-			"OPENCODE_TEST_HOME",
-			// Test-only simulation mode.
-			"OPENCODE_SIMULATE",
-			"OPENCODE_DISABLE_AUTOUPDATE",
-		})
-		// Ignore the reviewed repo's own opencode.json and .opencode/ (agents,
-		// plugins), which would otherwise override our permissions or run code
-		// with the LLM key in the environment. opencode 2.3.2 reads the new
-		// name first and the legacy one only when it is unset, so a caller's
-		// "false" in the new name would win; both are set, in case a later
-		// version drops either.
+		// A generated config runs opencode on an allow-list, not on pergent's
+		// whole environment minus a strip list: a CI job's environment holds
+		// deploy tokens, cloud credentials and other secrets that a change
+		// under review (through a prompt-injected tool call or a plugin) could
+		// reach, and a list of names to remove misses the next one. Reasons
+		// for the names pergent does not pass, found in opencode 2.3.2:
+		//   - OPENCODE_CONFIG_CONTENT, OPENCODE_CLI_CONFIG_CONTENT: inline
+		//     config merged over the file, so it could loosen the permissions.
+		//   - OPENCODE_CONFIG_DIR: replaces the global config dir and loads it
+		//     as a config directory, so its plugins run with the model key in
+		//     the env.
+		//   - OPENCODE_FLAGS: experimental flags that can add unvetted tools.
+		//   - OPENCODE_DB: parallel runs would share one SQLite file and reach
+		//     the user's real credentials, undoing the per-run data dir.
+		//   - OPENCODE_TEST_HOME, OPENCODE_SIMULATE: test hooks.
+		//   - OPENCODE_DISABLE_PROJECT_CONFIG, OPENCODE_CONFIG_PROJECT_DISABLE,
+		//     OPENCODE_DISABLE_CLAUDE_CODE, OPENCODE_DISABLE_AUTOUPDATE: set
+		//     below, so a caller's "false" cannot win.
+		//   - GITHUB_TOKEN, GITLAB_TOKEN: opencode has no use for a platform
+		//     token, which a change under review could otherwise reach.
+		//   - OTEL_*: opencode 2 exports telemetry when these are set, and the
+		//     traces can include prompts and repository text. Opt in with
+		//     PERGENT_OPENCODE_ENV.
+		extra, _ := config.ExtraEnvNames(os.Getenv(config.ExtraEnvVar)) // validated at startup; a bad value passes nothing extra
+		env = allowedEnv(env, extra)
+		// opencode reads the new project-config name first and the legacy one
+		// only when it is unset, so both are set, in case a later version
+		// drops either. The project config (opencode.json, .opencode/ agents
+		// and plugins) would otherwise override our permissions or run code
+		// with the LLM key in the environment.
 		env = append(env,
 			"OPENCODE_CONFIG="+configPath,
 			"OPENCODE_DISABLE_PROJECT_CONFIG=true",

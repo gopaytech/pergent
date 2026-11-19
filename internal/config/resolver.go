@@ -115,6 +115,12 @@ func Resolve(opts Options) (Config, error) {
 	// sandbox applies: the model is not pergent's to choose either.
 	noProvider := os.Getenv("OPENCODE_PROVIDER") == ""
 	modelIgnored := noProvider && os.Getenv("OPENCODE_MODEL") != ""
+	if !noProvider {
+		// Only a generated config runs opencode on an allow-list.
+		if _, err := ExtraEnvNames(os.Getenv(ExtraEnvVar)); err != nil {
+			return Config{}, err
+		}
+	}
 
 	if cfg.Local {
 		if modelIgnored {
