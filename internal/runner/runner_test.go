@@ -724,3 +724,107 @@ func TestStderrWriter(t *testing.T) {
 		})
 	}
 }
+
+func TestRun_StepsAcrossAttempts(t *testing.T) {
+	shortBackoff(t)
+	// opencode runs in RepoPath, so it must exist: point the fixtures' paths at it.
+	repo := t.TempDir()
+	fixture := func(name string) string {
+		b, err := os.ReadFile(filepath.Join("testdata", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.ReplaceAll(string(b), "/builds/repo", repo)
+	}
+	fakeOpencode(t, fakeAttempt{stdout: fixture("rate_limited.ndjson"), code: 1}, fakeAttempt{stdout: fixture("completed.ndjson")})
+	opts := testOptions(time.Minute)
+	opts.RepoPath = repo
+
+	got := Run(context.Background(), opts)
+	if got.Status != StatusCompleted {
+		t.Fatalf("Run() = %+v, want completed", got)
+	}
+	var attempts []int
+	var sum Usage
+	reads := 0
+	for _, s := range got.Steps {
+		attempts = append(attempts, s.Attempt)
+		sum = sum.Add(s.Usage)
+		for _, c := range s.Tools {
+			if c.Tool != "other" && c.Target != TargetRepository {
+				t.Errorf("tool call %+v, want target %q", c, TargetRepository)
+			}
+			if c.Tool == "read" {
+				reads++
+			}
+		}
+	}
+	if want := []int{1, 1, 2, 2, 2, 2}; !slices.Equal(attempts, want) {
+		t.Errorf("attempts = %v, want %v", attempts, want)
+	}
+	if sum != got.Usage {
+		t.Errorf("sum of step usage = %+v, want Usage %+v", sum, got.Usage)
+	}
+	want := 0
+	for _, f := range []string{"rate_limited.ndjson", "completed.ndjson"} {
+		b, err := os.ReadFile(filepath.Join("testdata", f))
+		if err != nil {
+			t.Fatal(err)
+		}
+		want += strings.Count(string(b), `"tool":"read"`)
+	}
+	if reads != want || got.ToolTotals.Read.Calls != want {
+		t.Errorf("read calls: steps %d, totals %d, want %d", reads, got.ToolTotals.Read.Calls, want)
+	}
+}
+
+// opencode resolves its working directory, so the model reads the real path
+// of a repository that is reached through a symlink. Those reads are still
+// the repository.
+func TestRun_RepositoryBehindASymlink(t *testing.T) {
+	shortBackoff(t)
+	real, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join("testdata", "completed.ndjson"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fakeOpencode(t, fakeAttempt{stdout: strings.ReplaceAll(string(b), "/builds/repo", real)})
+	opts := testOptions(time.Minute)
+	opts.RepoPath = link
+
+	got := Run(context.Background(), opts)
+	reads := 0
+	for _, s := range got.Steps {
+		for _, c := range s.Tools {
+			if c.Tool == "read" {
+				reads++
+				if c.Target != TargetRepository {
+					t.Errorf("read %+v, want target %q", c, TargetRepository)
+				}
+			}
+		}
+	}
+	if reads == 0 {
+		t.Fatalf("no read calls in %+v", got.Steps)
+	}
+}
+
+func TestRun_FailedRunKeepsSteps(t *testing.T) {
+	shortBackoff(t)
+	fakeOpencode(t, fakeAttempt{fixture: "rate_limited.ndjson", code: 1})
+
+	got := Run(context.Background(), testOptions(time.Minute))
+	if got.Status != StatusFailed {
+		t.Fatalf("Run() = %+v, want failed", got)
+	}
+	if len(got.Steps) == 0 || got.ToolTotals.Read.Calls == 0 {
+		t.Errorf("failed run lost its steps: Steps %d, ToolTotals %+v", len(got.Steps), got.ToolTotals)
+	}
+}

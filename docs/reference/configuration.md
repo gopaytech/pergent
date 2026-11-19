@@ -16,6 +16,7 @@
 | `--timeout` | **Breaking:** max wall-clock time for the whole review, all skills, batches, retries and checks together. It used to apply to each skill run separately, so a job that relied on a per-skill limit now shares one budget | `10m` |
 | `--concurrency` | Max opencode runs in flight at once, across all skills and batches. Must be at least 1 | `4` |
 | `--check-deleted` | Review the lines a change deletes, and check what still uses deleted files and the old paths of renamed files. Costs more tokens (see [Deleted files](../concepts/deleted-files.md)) | `false` |
+| `--usage-file` | Write each opencode run's tokens, steps and tool use as JSON to this file. Each skill has `name`, `tokens` and `runs`, with `runs` as in the [agent result](../agent-result-schema.md). Raw counts only, no prices. A file that cannot be written is a warning | unset |
 | `--repo-path` | Path to repo root | `.` |
 
 ## 🌱 Environment variables

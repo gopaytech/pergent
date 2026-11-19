@@ -267,6 +267,41 @@ func TestEncode_SizeCap(t *testing.T) {
 	}
 }
 
+func TestEncode_SizeCapDropsRunsFirst(t *testing.T) {
+	sr := review.SkillResult{
+		Skill:     "s",
+		Verdict:   review.NoBlockingIssues,
+		Summaries: []review.BatchSummary{{Batch: 1, Text: "short summary"}},
+		Checks:    []review.BatchChecks{{Batch: 1, Checks: []finding.Check{{Name: "n", Status: "pass"}}}},
+	}
+	r := Build(testMeta(), []review.SkillResult{sr})
+	r.Skills[0].Runs = []Run{{Run: "1/1", Attachments: []Attachment{{Name: strings.Repeat("z", 11*1024*1024)}}}}
+	b, err := Encode(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b) > 10*1024*1024 {
+		t.Fatalf("encoded %d bytes", len(b))
+	}
+	sk := decode(t, b)["skills"].([]any)[0].(map[string]any)
+	if _, ok := sk["runs"]; ok {
+		t.Errorf("runs not dropped")
+	}
+	if _, ok := sk["checks"]; !ok {
+		t.Errorf("checks dropped though dropping runs was enough")
+	}
+	if _, ok := sk["summaries"]; !ok {
+		t.Errorf("summaries dropped though dropping runs was enough")
+	}
+	notes := sk["notes"].([]any)
+	if len(notes) != 1 || notes[0] != "Runs omitted to fit the 10 MB result limit." {
+		t.Errorf("notes = %v", notes)
+	}
+	if len(r.Skills[0].Runs) == 0 {
+		t.Errorf("Encode mutated the caller's result")
+	}
+}
+
 func TestEncode_SizeCapDropsSummariesNext(t *testing.T) {
 	big := strings.Repeat("y", 11*1024*1024)
 	sr := review.SkillResult{
