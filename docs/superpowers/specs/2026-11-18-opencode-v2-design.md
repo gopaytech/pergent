@@ -171,3 +171,13 @@ The unit tests keep their fake opencode. A new opt-in integration test runs the 
 ## Open questions
 
 None.
+
+## Addendum (2026-11-19): environment allow-list
+
+Owner decisions:
+
+1. Cloud-provider prefixes (`AWS_`, `GOOGLE_`, `VERTEX_`, `AZURE_`, `CLOUDFLARE_`) are passed by default.
+2. The escape hatch is `PERGENT_OPENCODE_ENV`, env only, no flag.
+3. `OTEL_*` is dropped by default.
+
+With a generated config, opencode's environment is built from an allow-list, not pergent's whole environment minus a strip list. Own-config runs are unchanged.

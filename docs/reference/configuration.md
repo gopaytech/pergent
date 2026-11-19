@@ -48,6 +48,7 @@
 | `PERGENT_CONCURRENCY` | Max opencode runs in flight at once (see `--concurrency`) |
 | `PERGENT_PREVIOUS_REVIEW` | `true`/`false` — attach the previous review's findings as context (explicit `--previous-review` flag wins over this) |
 | `PERGENT_CHECK_DELETED` | `true`/`false`: review deleted files and check what still uses deleted and renamed files (explicit `--check-deleted` flag wins over this; default `false`; any other value is a config error) |
+| `PERGENT_OPENCODE_ENV` | Comma-separated names of extra environment variables to pass to opencode in a run with a generated config (for example `OTEL_EXPORTER_OTLP_ENDPOINT`). Env only, no flag. Exact names, spaces trimmed. A name that is not a variable name, starts with `OPENCODE_` or `PERGENT_`, or is `GITHUB_TOKEN`, `GITLAB_TOKEN`, `PWD`, `XDG_DATA_HOME` or `XDG_STATE_HOME` is a config error (`usage` in agent mode). Empty by default. See [the sandbox](../concepts/sandbox.md) |
 
 ### Own-config mode
 
