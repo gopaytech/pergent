@@ -94,6 +94,18 @@ type EventError struct {
 	ProviderID   string
 }
 
+func eventError(oe *openCodeError) EventError {
+	e := EventError{Name: oe.Name}
+	if oe.Data != nil {
+		e.Message = oe.Data.Message
+		e.StatusCode = oe.Data.StatusCode
+		e.IsRetryable = oe.Data.IsRetryable
+		e.ResponseBody = oe.Data.ResponseBody
+		e.ProviderID = oe.Data.ProviderID
+	}
+	return e
+}
+
 // Usage is the tokens a run consumed, summed over every finished step.
 // Input and Output are what opencode reports as input and output; Reasoning,
 // CacheRead and CacheWrite are reported apart and never added to them.
@@ -303,15 +315,7 @@ func ParseOutput(stdout []byte) Transcript {
 			if event.Error == nil {
 				continue
 			}
-			e := EventError{Name: event.Error.Name}
-			if event.Error.Data != nil {
-				e.Message = event.Error.Data.Message
-				e.StatusCode = event.Error.Data.StatusCode
-				e.IsRetryable = event.Error.Data.IsRetryable
-				e.ResponseBody = event.Error.Data.ResponseBody
-				e.ProviderID = event.Error.Data.ProviderID
-			}
-			t.Errors = append(t.Errors, e)
+			t.Errors = append(t.Errors, eventError(event.Error))
 		}
 	}
 	if err := scanner.Err(); err != nil {
