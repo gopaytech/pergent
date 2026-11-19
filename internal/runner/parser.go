@@ -75,14 +75,23 @@ type openCodeErrData struct {
 	Message     string `json:"message"`
 	StatusCode  int    `json:"statusCode,omitempty"`
 	IsRetryable bool   `json:"isRetryable,omitempty"`
+	// ResponseBody is the provider's raw HTTP body; ProviderID is set only on
+	// a ProviderAuthError.
+	ResponseBody string `json:"responseBody,omitempty"`
+	ProviderID   string `json:"providerID,omitempty"`
 }
 
 // EventError is an error event reported by opencode (a session.error).
+// ResponseBody and ProviderID are kept to classify a provider error
+// (Classify) only: the body is the provider's own text and may echo the
+// request, so it never goes into a cause, a log line or the result.
 type EventError struct {
-	Name        string
-	Message     string
-	StatusCode  int
-	IsRetryable bool
+	Name         string
+	Message      string
+	StatusCode   int
+	IsRetryable  bool
+	ResponseBody string
+	ProviderID   string
 }
 
 // Usage is the tokens a run consumed, summed over every finished step.
@@ -299,6 +308,8 @@ func ParseOutput(stdout []byte) Transcript {
 				e.Message = event.Error.Data.Message
 				e.StatusCode = event.Error.Data.StatusCode
 				e.IsRetryable = event.Error.Data.IsRetryable
+				e.ResponseBody = event.Error.Data.ResponseBody
+				e.ProviderID = event.Error.Data.ProviderID
 			}
 			t.Errors = append(t.Errors, e)
 		}
