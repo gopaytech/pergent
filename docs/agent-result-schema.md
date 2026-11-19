@@ -162,6 +162,7 @@ Top level:
 | `budget_seconds` | number | The review's `--timeout` in seconds. Completed results only. |
 | `skills` | array | One entry per skill, in the order loaded. Completed results only. A completed result with no skills has no `skills` key. |
 | `error` | object | `code` (one of the [error codes](#error-codes)) and `message`. Error results only. |
+| `provider_error` | object | The most severe classified provider error in any skill's `failures` (`auth`, then `billing`, `quota`, `rate_limit`; the first in skill and batch order on a tie). Completed results only; omitted when no failure has one. Same shape as `failures[].cause.provider_error`. New in the next pergent release. An additive field: `schema_version` stays `1`, and a reader that doesn't know it can ignore it. |
 | `comment` | object | The rendered comment. See below. |
 
 `comment`:
@@ -188,7 +189,7 @@ Each entry of `skills`:
 | `files.carried` | array | Paths the caller's previous review covers; not reviewed in this run. Omitted when empty. |
 | `files.skipped` | array | `{path, rule}`: files left out, the machine-readable record of what was not reviewed. `rule` is one of the values in [What a verdict covers](#what-a-verdict-covers). |
 | `files.not_reviewed` | array | `{path, cause}`: in-scope files whose batch failed. `cause` is plain one-line text. |
-| `failures` | array | One entry per batch that did not finish: `files`, `message` (plain one-line text: the failure's own message, if any, followed by the cause's message) and, when known, `cause` with `kind` and `message`. `kind` is `context_overflow`, `timeout`, `opencode_error`, `step_limit`, `exit_error`, `no_answer` or `cancelled` (the review was stopped by `SIGTERM` or `SIGINT` while opencode ran). |
+| `failures` | array | One entry per batch that did not finish: `files`, `message` (plain one-line text: the failure's own message, if any, followed by the cause's message) and, when known, `cause` with `kind` and `message`. `kind` is `context_overflow`, `timeout`, `opencode_error`, `step_limit`, `exit_error`, `no_answer` or `cancelled` (the review was stopped by `SIGTERM` or `SIGINT` while opencode ran). A cause of kind `opencode_error` may carry `provider_error`: `class` (`quota`, `billing`, `auth` or `rate_limit`), `status` (the HTTP status; omitted when opencode gave none), `provider` and `model` (`OPENCODE_PROVIDER` and `OPENCODE_MODEL`; without them `provider` is the one a `ProviderAuthError` names, else omitted). The first three mean waiting will not help, and pergent did not start the run again. The provider's own response body is never in the result. Omitted when the error has no class (a 5xx, a connection error, anything else). Also additive. |
 | `notes` | array | Plain-text notes, such as "Checks omitted to fit the 10 MB result limit." When the run had `--dismissals` entries for the skill and the model left findings out because of them, one note lists them: `Left out because of past dismissals: <title> (<rejected title>); ...`, at most 20 entries followed by `and N more`. It is a note, not a field, and never changes the verdict. |
 | `batches`, `batches_finished` | number | Batches the skill needed, and how many finished. |
 | `duration_seconds` | number | Wall-clock time for the skill, to a tenth of a second. |
