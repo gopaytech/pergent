@@ -336,13 +336,18 @@ func TestPrepareAgent_Codes(t *testing.T) {
 			t.Errorf("prepareAgent() error = %+v, want %s", e, result.CodeSkillsInvalid)
 		}
 	})
-	for _, flag := range []string{"--skills-dir", "--skill", "--instructions", "--previous", "--carried", "--dismissals", "--change-description", "--ci-results", "--linked-repos"} {
+	for _, flag := range []string{"--skills-dir", "--skill", "--instructions", "--previous", "--carried", "--dismissals", "--change-description", "--ci-results", "--linked-repos", "--graph"} {
 		t.Run("usage for "+flag+" inside the checkout", func(t *testing.T) {
 			writeFile(t, repo, "inside/s.md", "---\nname: inside\n---\nBody.\n")
 			defer os.RemoveAll(filepath.Join(repo, "inside"))
 			target := filepath.Join(repo, "inside", "s.md")
 			if flag == "--skills-dir" {
 				target = filepath.Join(repo, "inside")
+			}
+			if flag == "--graph" {
+				// A good graph file, so only its place is wrong.
+				target = filepath.Join(repo, "inside", "g.json")
+				writeFile(t, repo, "inside/g.json", string(mustEncode(t, callGraph())))
 			}
 			args := agentArgs(repo, base, head, skills, flag, target)
 			if flag == "--skills-dir" {

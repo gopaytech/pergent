@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gopaytech/pergent/graph"
 	"github.com/gopaytech/pergent/internal/checkout"
 	"github.com/gopaytech/pergent/internal/config"
 	"github.com/gopaytech/pergent/internal/diff"
@@ -56,7 +57,10 @@ type agentInputs struct {
 	CIResults string
 	// Linked are the linked repositories the caller cloned, scrubbed. An entry
 	// with an Error is not to be read.
-	Linked         []review.LinkedRepo
+	Linked []review.LinkedRepo
+	// Graph is the code graph of the default branch, nil when none was given
+	// or the file could not be used.
+	Graph          *graph.File
 	MaxCommentSize int
 	Target         result.Target
 	Diff           string
@@ -78,7 +82,9 @@ type agentInputs struct {
 	ciPath string
 	// linkedPath is --linked-repos, or $PERGENT_LINKED_REPOS without the flag.
 	linkedPath string
-	scrub      bool
+	// graphPath is --graph; it has no environment variable.
+	graphPath string
+	scrub     bool
 	// $HOME and $XDG_CONFIG_HOME, where opencode finds its global config.
 	home, configHome string
 }
@@ -259,6 +265,7 @@ func runAgent(ctx context.Context, args []string, getenv func(string) string, st
 		CIResults:    in.CIResults,
 		CheckDeleted: in.Review.CheckDeleted,
 		Linked:       in.Linked,
+		Graph:        in.Graph,
 		Run:          run,
 		Classifier:   &in.Classifier,
 		Sandbox: review.Sandbox{
@@ -331,6 +338,7 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 	flags.StringVar(&in.carriedPath, "carried", "", "A JSON file {\"<skill>\": [\"path\", ...]} of files a previous review covers, left out of this review")
 	flags.StringVar(&in.dismissalsPath, "dismissals", getenv("PERGENT_DISMISSALS"), "A JSON file {\"<skill>\": [{\"file\", \"title\", \"severity\", \"reason\"}, ...]} of findings people rejected earlier, attached to the runs")
 	flags.StringVar(&in.ciPath, "ci-results", getenv("PERGENT_CI_RESULTS"), "A file of the CI job results of the change, attached to the review runs as data")
+	flags.StringVar(&in.graphPath, "graph", "", "A pergent-graph/v1 file of the default branch, outside --repo-path")
 	flags.StringVar(&in.changePath, "change-description", getenv("PERGENT_CHANGE_DESCRIPTION"), "A file holding the change's title and description, attached to the review runs as data")
 	flags.StringVar(&in.linkedPath, "linked-repos", getenv("PERGENT_LINKED_REPOS"), "A JSON file [{\"name\", \"path\", \"watched\", \"can_block\", \"error\"}, ...] of linked repositories the caller cloned; they are scrubbed, and only an impact run reads them")
 	flags.BoolVar(&in.scrub, "scrub-instructions", false, "Delete every AGENTS.md, CLAUDE.md and CONTEXT.md in --repo-path before reviewing")
@@ -525,6 +533,7 @@ func prepareAgent(in *agentInputs, logger *log.Logger) *result.Error {
 		in.Description = readChangeDescription(in.changePath, logger)
 	}
 	in.CIResults = readCIResults(in.ciPath, logger)
+	in.Graph = readGraph(in.graphPath, logger)
 	if in.linkedPath != "" {
 		repos, err := readLinkedRepos(in.linkedPath, logger)
 		if err != nil {
@@ -566,7 +575,7 @@ func gitVersionError(version string, major, minor int, err error) *result.Error 
 
 // trustedInputsOutside refuses a trusted input (--instructions, --skills-dir,
 // a path --skill, --previous, --carried, --dismissals, --change-description,
-// --ci-results, --linked-repos) that resolves to somewhere inside the checkout:
+// --ci-results, --linked-repos, --graph) that resolves to somewhere inside the checkout:
 // the change under review could have written it. A --skills-dir above the
 // checkout is refused too, since LoadDir would read the checkout's top-level
 // files as skills. So are a --result file in the checkout, where the change
@@ -631,6 +640,9 @@ func trustedInputs(in *agentInputs) []trustedInput {
 	}
 	if in.linkedPath != "" {
 		inputs = append(inputs, trustedInput{"--linked-repos", in.linkedPath})
+	}
+	if in.graphPath != "" {
+		inputs = append(inputs, trustedInput{"--graph", in.graphPath})
 	}
 	if in.home != "" {
 		inputs = append(inputs, trustedInput{"$HOME", in.home})

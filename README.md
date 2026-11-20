@@ -165,6 +165,11 @@ jobs:
           OPENCODE_MODEL: claude-sonnet-4
 ```
 
+### Code graph (optional)
+
+pergent can read a code graph of your default branch and give each batch run the callers and callees of the code it changes, so the model needs fewer searches. Build the graph with graphify, then convert it with `pergent graph convert`.
+See [Code graph](docs/concepts/code-graph.md).
+
 ## 📚 Documentation
 
 **Concepts**
@@ -175,6 +180,7 @@ jobs:
 | [The review comment](docs/concepts/review-comment.md) | What the comment shows, and its layouts |
 | [The change's title and description](docs/concepts/change-description.md) | How a review uses what the author wrote |
 | [Deleted files](docs/concepts/deleted-files.md) | The opt-in check of deleted and renamed files, and what still uses them |
+| [Code graph](docs/concepts/code-graph.md) | An optional graph that gives each batch the callers of the code it changes |
 | [Previous review as context](docs/concepts/previous-review.md) | How a re-review knows what it said before |
 | [When a review fails](docs/concepts/failed-reviews.md) | What a failed run means, and when CI goes red |
 | [Agent sandbox](docs/concepts/sandbox.md) | What the review agent can and can't do |

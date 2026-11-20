@@ -36,6 +36,9 @@ func main() {
 		agentMain(os.Args[2:])
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "graph" {
+		os.Exit(graphMain(os.Args[2:], os.Stderr))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "--version" {
 		fmt.Println("pergent", version)
 		return
@@ -58,6 +61,7 @@ func main() {
 	var previousReview bool
 	var checkDeleted bool
 	var usageFile string
+	var graphFile string
 
 	flag.Var(&skills, "skill", "Preset name or path to skill .md file (repeatable)")
 	flag.StringVar(&platformFlag, "platform", "", "Platform: github or gitlab")
@@ -73,6 +77,7 @@ func main() {
 	flag.BoolVar(&previousReview, "previous-review", false, "Attach pergent's previous review comment as context (platform mode only)")
 	flag.BoolVar(&checkDeleted, "check-deleted", false, "Review deleted files and check what still uses deleted and renamed files (off by default)")
 	flag.StringVar(&usageFile, "usage-file", "", "Write each opencode run's tokens, steps and tool use as JSON to this file (off by default)")
+	flag.StringVar(&graphFile, "graph", "", "A pergent-graph/v1 file of the default branch; each batch run gets the callers and callees of the code it changes (off by default)")
 	flag.Parse()
 
 	previousReviewSet, concurrencySet, checkDeletedSet := false, false, false
@@ -189,6 +194,7 @@ func main() {
 		Previous:     previous,
 		Description:  description,
 		CheckDeleted: cfg.CheckDeleted,
+		Graph:        readGraph(graphFile, log.Default()),
 	})
 	failed := 0
 	for _, r := range results {

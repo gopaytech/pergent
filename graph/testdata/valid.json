@@ -1,0 +1,25 @@
+{
+  "format": "pergent-graph/v1",
+  "provider": "graphify",
+  "provider_version": "0.9.112",
+  "commit": "0123456789abcdef0123456789abcdef01234567",
+  "built_at": "2026-11-19T10:00:00Z",
+  "nodes": [
+    {"id": "n1", "kind": "file", "name": "server.go", "file": "server.go", "line": 1},
+    {"id": "n2", "kind": "type", "name": "Server", "file": "server.go", "line": 3},
+    {"id": "n3", "kind": "function", "name": "Dispatch", "file": "server.go", "line": 10, "end_line": 18},
+    {"id": "n4", "kind": "method", "name": "Run", "file": "server.go", "line": 20},
+    {"id": "n5", "kind": "file", "name": "client.go", "file": "client.go", "line": 1},
+    {"id": "n6", "kind": "function", "name": "Call", "file": "client.go", "line": 5},
+    {"id": "n7", "kind": "file", "name": "base.go", "file": "util/base.go", "line": 1},
+    {"id": "n8", "kind": "type", "name": "Base", "file": "util/base.go", "line": 2}
+  ],
+  "edges": [
+    {"from": "n4", "to": "n3", "kind": "calls"},
+    {"from": "n6", "to": "n3", "kind": "calls"},
+    {"from": "n5", "to": "n1", "kind": "imports"},
+    {"from": "n1", "to": "n3", "kind": "contains"},
+    {"from": "n2", "to": "n4", "kind": "contains"},
+    {"from": "n2", "to": "n8", "kind": "inherits"}
+  ]
+}
