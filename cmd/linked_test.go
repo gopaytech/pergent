@@ -525,12 +525,19 @@ func TestPrepareAgent_LinkedPathsThatWidenTheSandbox(t *testing.T) {
 	skills := filepath.Join(parent, "skills")
 	mustWrite(t, parent, "inputs/previous.json", "{}")
 	previous := filepath.Join(parent, "inputs", "previous.json")
+	// A temp directory of its own: the real one holds the checkout, which is a
+	// usage error, and on macOS it ends in a slash, which is not a clean path.
+	tmp := filepath.Join(parent, "tmp")
+	if err := os.Mkdir(tmp, 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	cases := map[string]struct {
-		path string
-		args []string
+		path   string
+		args   []string
+		tmpdir bool
 	}{
-		"the temp directory":                 {path: os.TempDir()},
+		"the temp directory":                 {path: tmp, tmpdir: true},
 		"the home directory":                 {path: home},
 		"a directory holding home":           {path: parent},
 		"a directory of the skills":          {path: skills},
@@ -540,6 +547,9 @@ func TestPrepareAgent_LinkedPathsThatWidenTheSandbox(t *testing.T) {
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
+			if c.tmpdir {
+				t.Setenv("TMPDIR", tmp)
+			}
 			p := writeLinkedFile(t, `[{"name":"billing","path":`+jsonString(c.path)+`},{"name":"ok","path":`+jsonString(t.TempDir())+`}]`)
 			args := agentArgs(repo, base, head, skills, "--linked-repos", p)
 			args = append(args, c.args...)
@@ -551,6 +561,9 @@ func TestPrepareAgent_LinkedPathsThatWidenTheSandbox(t *testing.T) {
 			}
 			if len(in.Linked) != 2 || in.Linked[0].Error == "" || in.Linked[1].Error != "" {
 				t.Fatalf("Linked = %+v, want only billing failed", in.Linked)
+			}
+			if strings.Contains(in.Linked[0].Error, "clean path") {
+				t.Fatalf("billing failed as %q, want the reason this case tests", in.Linked[0].Error)
 			}
 			if !strings.Contains(logs.String(), "billing") {
 				t.Errorf("logged %q, want the reason", logs.String())
