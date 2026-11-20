@@ -18,9 +18,11 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/gopaytech/pergent/graph"
 	"github.com/gopaytech/pergent/internal/config"
 	"github.com/gopaytech/pergent/internal/diff"
 	"github.com/gopaytech/pergent/internal/finding"
+	"github.com/gopaytech/pergent/internal/graphpack"
 	"github.com/gopaytech/pergent/internal/redact"
 	"github.com/gopaytech/pergent/internal/runner"
 	"github.com/gopaytech/pergent/internal/skill"
@@ -82,6 +84,10 @@ type Request struct {
 	// Error fails that check and is never read. A skill named ImpactSkill is
 	// refused while Linked is not empty. Nil changes nothing.
 	Linked []LinkedRepo
+	// Graph is a code graph of the default branch. Each batch run with a diff
+	// gets a hint built from it (graph-context.md), last among its files. Other
+	// runs never get it. Nil changes nothing.
+	Graph *graph.File
 	// Run runs opencode; nil means runner.Run.
 	Run RunFunc
 	// Classifier decides the default exclusions; nil means
@@ -245,6 +251,9 @@ type reviewer struct {
 	// those that are not deleted: a deleted path that is also live changed
 	// type (a file became a symlink) and still exists.
 	atHead, live map[string]bool
+	// graph is req.Graph ready for lookups, nil without one. Set before any
+	// run starts, then only read.
+	graph *graphpack.Index
 }
 
 // Run reviews the change with every skill and batch concurrently, with at
@@ -299,6 +308,9 @@ func Run(ctx context.Context, req Request) []SkillResult {
 		if !f.Deleted {
 			r.live[f.Path] = true
 		}
+	}
+	if req.Graph != nil {
+		r.graph = graphpack.NewIndex(req.Graph)
 	}
 
 	results := make([]SkillResult, len(req.Skills))
@@ -367,6 +379,9 @@ type batchOutcome struct {
 	// deletedFailed is set when the list of deleted files could not be
 	// attached to the batch's run.
 	deletedFailed bool
+	// graphFailed is set when the code graph hint could not be attached to
+	// the batch's run.
+	graphFailed bool
 	// leftOut is what the batch's answer says it left out because of past
 	// dismissals.
 	leftOut []finding.LeftOut
@@ -529,6 +544,9 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillRes
 		}
 		if o.deletedFailed {
 			res.noteDeletedFailed()
+		}
+		if o.graphFailed {
+			res.noteGraphFailed()
 		}
 		switch {
 		case o.notStarted:
@@ -732,8 +750,10 @@ func attachRejected(dir string, rejected []finding.Rejected) (string, error) {
 // no diff.
 func (r *reviewer) reviewBatch(ctx context.Context, s skill.Skill, batch []diff.FileDiff, n, total int, prev []finding.Finding, hasPrev, hasCarried bool, refs []string) (o batchOutcome) {
 	var usage runner.Usage
-	dismissalsFailed, deletedFailed := false, false
-	defer func() { o.usage, o.dismissalsFailed, o.deletedFailed = usage, dismissalsFailed, deletedFailed }()
+	dismissalsFailed, deletedFailed, graphFailed := false, false, false
+	defer func() {
+		o.usage, o.dismissalsFailed, o.deletedFailed, o.graphFailed = usage, dismissalsFailed, deletedFailed, graphFailed
+	}()
 	label := fmt.Sprintf("%d/%d", n, total)
 	if len(batch) == 0 {
 		label = "references"
@@ -855,6 +875,15 @@ func (r *reviewer) reviewBatch(ctx context.Context, s skill.Skill, batch []diff.
 		} else {
 			files = append(files, p)
 			message += " " + rejectedMessage
+		}
+	}
+	// Last of all, so every other file and sentence is as it is without a
+	// graph.
+	if r.graph != nil && len(batch) > 0 {
+		var p string
+		if p, graphFailed = r.attachGraph(dir, s.Name, label, batch); p != "" {
+			files = append(files, p)
+			message += " " + graphMessage
 		}
 	}
 
