@@ -59,7 +59,7 @@ The rules that keep it safe:
 pergent --local --skill code-review --graph graph.json
 ```
 
-`--graph` works in local mode and in CI mode. Use it only when the change targets the default branch the graph was built from: on another branch the line numbers can be far off. A missing or bad file is skipped with one log line, `graph: skipped: <reason>`, and the review is the same as without the flag. A good file logs `graph: commit <sha>, <n> nodes, <m> edges`.
+`--graph` works in local mode, CI mode and agent mode. Without the flag, pergent reads the file named by `PERGENT_GRAPH`; the flag wins when both are set. An older pergent does not know `--graph` and exits on it, but it ignores the variable and reviews without a graph. So a caller that must also work with older images sets `PERGENT_GRAPH` instead of the flag. Use it only when the change targets the default branch the graph was built from: on another branch the line numbers can be far off. A missing or bad file is skipped with one log line, `graph: skipped: <reason>`, and the review is the same as without the flag. A good file logs `graph: commit <sha>, <n> nodes, <m> edges`.
 
 ## The hint
 

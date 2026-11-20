@@ -360,6 +360,19 @@ func TestPrepareAgent_Codes(t *testing.T) {
 			}
 		})
 	}
+	t.Run("usage for PERGENT_GRAPH inside the checkout", func(t *testing.T) {
+		writeFile(t, repo, "inside/g.json", string(mustEncode(t, callGraph())))
+		defer os.RemoveAll(filepath.Join(repo, "inside"))
+		env := agentEnv(map[string]string{"PERGENT_GRAPH": filepath.Join(repo, "inside", "g.json")})
+		in, e := parseAgent(agentArgs(repo, base, head, skills), env)
+		if e != nil {
+			t.Fatalf("parseAgent() error: %+v", e)
+		}
+		e = prepareAgent(&in, quietLog)
+		if e == nil || e.Code != result.CodeUsage || !strings.Contains(e.Message, "--graph") {
+			t.Errorf("prepareAgent() error = %+v, want %s naming --graph", e, result.CodeUsage)
+		}
+	})
 	t.Run("usage for --instructions symlinked into the checkout", func(t *testing.T) {
 		writeFile(t, repo, "inside/i.md", "x\n")
 		defer os.RemoveAll(filepath.Join(repo, "inside"))
@@ -1283,6 +1296,27 @@ func TestParseAgent_CIResultsFromEnv(t *testing.T) {
 	}
 	if in.ciPath != "/flag/ci.md" {
 		t.Errorf("ciPath = %q, want the flag to win", in.ciPath)
+	}
+}
+
+func TestParseAgent_GraphFromEnv(t *testing.T) {
+	sha := strings.Repeat("a", 40)
+	args := []string{"--repo-path", "/r", "--base", sha, "--head", sha, "--skills-dir", "/s", "--result", "-"}
+	env := agentEnv(map[string]string{"PERGENT_GRAPH": "/env/graph.json"})
+
+	in, e := parseAgent(args, env)
+	if e != nil {
+		t.Fatalf("parseAgent() error: %+v", e)
+	}
+	if in.graphPath != "/env/graph.json" {
+		t.Errorf("graphPath = %q, want the PERGENT_GRAPH path", in.graphPath)
+	}
+	in, e = parseAgent(append(args, "--graph", "/flag/graph.json"), env)
+	if e != nil {
+		t.Fatalf("parseAgent() error: %+v", e)
+	}
+	if in.graphPath != "/flag/graph.json" {
+		t.Errorf("graphPath = %q, want the flag to win", in.graphPath)
 	}
 }
 
