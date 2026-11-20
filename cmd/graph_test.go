@@ -278,7 +278,7 @@ func TestMain_GraphFlagInLocalMode(t *testing.T) {
 		stdout, stderr, config, last string
 		args                         []string
 	}
-	run := func(t *testing.T, flags string) capture {
+	run := func(t *testing.T, flags string, env ...string) capture {
 		t.Helper()
 		for _, f := range []string{"args", "config", "last"} {
 			os.Remove(filepath.Join(capDir, f))
@@ -291,6 +291,7 @@ func TestMain_GraphFlagInLocalMode(t *testing.T) {
 			"OPENCODE_PROVIDER=anthropic",
 			"OPENCODE_MODEL=claude-sonnet-4",
 		)
+		cmd.Env = append(cmd.Env, env...)
 		var so, se bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &so, &se
 		if err := cmd.Run(); err != nil {
@@ -334,6 +335,20 @@ func TestMain_GraphFlagInLocalMode(t *testing.T) {
 			}
 		})
 	}
+	// PERGENT_GRAPH names the file when --graph is not passed; a bad one is
+	// skipped the same way.
+	t.Run("broken from PERGENT_GRAPH", func(t *testing.T) {
+		c := run(t, "", "PERGENT_GRAPH="+broken)
+		if c.stdout != plain.stdout || !slices.Equal(c.args, plain.args) || !strings.Contains(c.stderr, "graph: skipped: ") {
+			t.Errorf("the run differs from one with no graph, or logs no skip:\nargs %q\nstderr:\n%s", c.args, c.stderr)
+		}
+	})
+	t.Run("valid from PERGENT_GRAPH", func(t *testing.T) {
+		c := run(t, "", "PERGENT_GRAPH="+writeGraphFile(t, callGraph()))
+		if !strings.Contains(c.last, "- B  b.go:3") || !strings.Contains(c.stderr, "graph: commit 0123456789ab, 2 nodes, 1 edges") {
+			t.Errorf("graph-context.md = %q, want the caller of A; stderr:\n%s", c.last, c.stderr)
+		}
+	})
 	t.Run("valid", func(t *testing.T) {
 		c := run(t, "--graph "+writeGraphFile(t, callGraph()))
 		if c.stdout != plain.stdout {

@@ -17,7 +17,7 @@
 | `--concurrency` | Max opencode runs in flight at once, across all skills and batches. Must be at least 1 | `4` |
 | `--check-deleted` | Review the lines a change deletes, and check what still uses deleted files and the old paths of renamed files. Costs more tokens (see [Deleted files](../concepts/deleted-files.md)) | `false` |
 | `--usage-file` | Write each opencode run's tokens, steps and tool use as JSON to this file. Each skill has `name`, `tokens` and `runs`, with `runs` as in the [agent result](../agent-result-schema.md). Raw counts only, no prices. A file that cannot be written is a warning | unset |
-| `--graph` | A [code graph](../concepts/code-graph.md) of the default branch (`pergent-graph/v1`). Each batch run gets the callers and callees of the code it changes. A missing or bad file is skipped with a log line | unset |
+| `--graph` | A [code graph](../concepts/code-graph.md) of the default branch (`pergent-graph/v1`). Each batch run gets the callers and callees of the code it changes. A missing or bad file is skipped with a log line | `$PERGENT_GRAPH`, else unset |
 | `--repo-path` | Path to repo root | `.` |
 
 ## 🌱 Environment variables
@@ -49,6 +49,7 @@
 | `PERGENT_TIMEOUT` | Max wall-clock time for the whole review (see `--timeout`; **breaking**: it used to be per skill run) |
 | `PERGENT_CONCURRENCY` | Max opencode runs in flight at once (see `--concurrency`) |
 | `PERGENT_PREVIOUS_REVIEW` | `true`/`false` — attach the previous review's findings as context (explicit `--previous-review` flag wins over this) |
+| `PERGENT_GRAPH` | The code graph file, as `--graph` (an explicit `--graph` flag wins over this). A missing or bad file is skipped with a log line, as with the flag |
 | `PERGENT_CHECK_DELETED` | `true`/`false`: review deleted files and check what still uses deleted and renamed files (explicit `--check-deleted` flag wins over this; default `false`; any other value is a config error) |
 | `PERGENT_OPENCODE_ENV` | Comma-separated names of extra environment variables to pass to opencode in a run with a generated config (for example `OTEL_EXPORTER_OTLP_ENDPOINT`). Env only, no flag. Exact names, spaces trimmed. A name that is not a variable name, starts with `OPENCODE_` or `PERGENT_`, or is `GITHUB_TOKEN`, `GITLAB_TOKEN`, `PWD`, `XDG_DATA_HOME` or `XDG_STATE_HOME` is a config error (`usage` in agent mode). Empty by default. See [the sandbox](../concepts/sandbox.md) |
 

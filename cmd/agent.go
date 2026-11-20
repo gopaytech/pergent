@@ -82,7 +82,7 @@ type agentInputs struct {
 	ciPath string
 	// linkedPath is --linked-repos, or $PERGENT_LINKED_REPOS without the flag.
 	linkedPath string
-	// graphPath is --graph; it has no environment variable.
+	// graphPath is --graph, or $PERGENT_GRAPH without the flag.
 	graphPath string
 	scrub     bool
 	// $HOME and $XDG_CONFIG_HOME, where opencode finds its global config.
@@ -338,7 +338,7 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 	flags.StringVar(&in.carriedPath, "carried", "", "A JSON file {\"<skill>\": [\"path\", ...]} of files a previous review covers, left out of this review")
 	flags.StringVar(&in.dismissalsPath, "dismissals", getenv("PERGENT_DISMISSALS"), "A JSON file {\"<skill>\": [{\"file\", \"title\", \"severity\", \"reason\"}, ...]} of findings people rejected earlier, attached to the runs")
 	flags.StringVar(&in.ciPath, "ci-results", getenv("PERGENT_CI_RESULTS"), "A file of the CI job results of the change, attached to the review runs as data")
-	flags.StringVar(&in.graphPath, "graph", "", "A pergent-graph/v1 file of the default branch, outside --repo-path")
+	flags.StringVar(&in.graphPath, "graph", getenv("PERGENT_GRAPH"), "A pergent-graph/v1 file of the default branch, outside --repo-path")
 	flags.StringVar(&in.changePath, "change-description", getenv("PERGENT_CHANGE_DESCRIPTION"), "A file holding the change's title and description, attached to the review runs as data")
 	flags.StringVar(&in.linkedPath, "linked-repos", getenv("PERGENT_LINKED_REPOS"), "A JSON file [{\"name\", \"path\", \"watched\", \"can_block\", \"error\"}, ...] of linked repositories the caller cloned; they are scrubbed, and only an impact run reads them")
 	flags.BoolVar(&in.scrub, "scrub-instructions", false, "Delete every AGENTS.md, CLAUDE.md and CONTEXT.md in --repo-path before reviewing")

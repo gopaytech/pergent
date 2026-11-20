@@ -77,7 +77,7 @@ func main() {
 	flag.BoolVar(&previousReview, "previous-review", false, "Attach pergent's previous review comment as context (platform mode only)")
 	flag.BoolVar(&checkDeleted, "check-deleted", false, "Review deleted files and check what still uses deleted and renamed files (off by default)")
 	flag.StringVar(&usageFile, "usage-file", "", "Write each opencode run's tokens, steps and tool use as JSON to this file (off by default)")
-	flag.StringVar(&graphFile, "graph", "", "A pergent-graph/v1 file of the default branch; each batch run gets the callers and callees of the code it changes (off by default)")
+	flag.StringVar(&graphFile, "graph", os.Getenv("PERGENT_GRAPH"), "A pergent-graph/v1 file of the default branch; each batch run gets the callers and callees of the code it changes (off by default)")
 	flag.Parse()
 
 	previousReviewSet, concurrencySet, checkDeletedSet := false, false, false
