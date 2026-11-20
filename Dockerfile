@@ -29,7 +29,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install opencode: its release names amd64 "x64". The checksums are the
-# release assets' digests: change them together with the version.
+# release assets' digests: change them together with the version. The archive
+# holds one top-level `opencode`; naming it makes a changed layout fail here.
 ARG OPENCODE_VERSION=2.3.2
 ARG OPENCODE_SHA256_X64=563b5d663637226b6e3bb4bb6803281bc39b0d2cd88db06d674b6420aab009b0
 ARG OPENCODE_SHA256_ARM64=9d10185acdb72336e086e699ca363a6065f410fd3c1caed0dc8046e95ac06ccb
@@ -41,7 +42,7 @@ RUN case "${TARGETARCH}" in \
     && curl -fsSL -o /tmp/opencode.tar.gz \
     "https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-${opencode_arch}.tar.gz" \
     && echo "${opencode_sha256}  /tmp/opencode.tar.gz" | sha256sum -c - \
-    && tar -xzf /tmp/opencode.tar.gz -C /usr/local/bin/ \
+    && tar -xzf /tmp/opencode.tar.gz -C /usr/local/bin/ opencode \
     && rm /tmp/opencode.tar.gz \
     && chmod +x /usr/local/bin/opencode \
     && opencode --version
