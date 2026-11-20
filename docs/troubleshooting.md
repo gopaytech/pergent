@@ -32,7 +32,7 @@ PERGENT_DEBUG_OUTPUT=/tmp/pergent-raw.json pergent --local --skill code-review
 cat /tmp/pergent-raw.*.json
 ```
 
-A quota, billing or auth error (`HTTP 429` with a used-up quota, `HTTP 402`, "credit balance is too low", `HTTP 401`, `HTTP 403`, a `provider.auth` error) is not retried: check the account and the key, not pergent. See [When a review fails](concepts/failed-reviews.md).
+A quota, billing or auth error (`HTTP 429` with a used-up quota, a `provider.quota` or other opencode limit error, `HTTP 402`, "credit balance is too low", `HTTP 401`, `HTTP 403`, a `provider.auth` error) is not retried: check the account and the key, not pergent. See [When a review fails](concepts/failed-reviews.md).
 
 This shows the raw NDJSON events. Every opencode run (and every retry of one) writes its own file, named from your path with a number before the extension (`/tmp/pergent-raw.1.json`, `/tmp/pergent-raw.2.json`, ...), and pergent logs each path as it writes it. A file that exists is never written over. The files are readable by you alone (mode 600), and credentials such as the API key are redacted. Treat them as private anyway: they hold the code and the review. The review is the text of the last `step_start`...`step_finish` block whose `step_finish` has a reason other than `tool-calls`. `"type":"error"` events carry opencode's error, and `text` events with `"synthetic":true` are opencode's own messages, never the model's.
 

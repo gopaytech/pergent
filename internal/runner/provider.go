@@ -42,6 +42,21 @@ type providerRule struct {
 
 var creditTooLow = regexp.MustCompile(`(?i)credit balance is too low`)
 
+// opencodeQuotaTypes are the error types opencode v2.3.2 gives a used-up
+// allowance (packages/core/src/session/to-session-error.ts): its
+// QuotaExceeded error, and the named limits it splits out of it or, for
+// provider.chatgpt-limit, out of any error whose body carries ChatGPT's
+// subscription_sharing_usage_limit_exceeded code. opencode does not retry
+// any of them.
+var opencodeQuotaTypes = map[string]bool{
+	"provider.quota":              true,
+	"provider.free-limit":         true,
+	"provider.budget-limit":       true,
+	"provider.model-budget-limit": true,
+	"provider.go-limit":           true,
+	"provider.chatgpt-limit":      true,
+}
+
 // providerRules classifies a provider error; the first match wins. The list
 // is strict on purpose: a wrong quota guess moves a review to a weaker or
 // costlier model for an error a short wait would fix, so an unknown 429 is
@@ -77,6 +92,12 @@ var providerRules = []providerRule{
 	{"insufficient quota in the stream", ClassQuota, func(e EventError, b providerBody) bool {
 		return e.StatusCode == 0 && strings.HasPrefix(e.Name, "provider.") && b.code == "insufficient_quota"
 	}},
+	// opencode 2 types a used-up allowance itself (QuotaExceeded, from its
+	// own codes and texts, and a stream error no body rule here reads). A
+	// server error with a quota body stays no class.
+	{"opencode quota type", ClassQuota, func(e EventError, _ providerBody) bool {
+		return opencodeQuotaTypes[e.Name] && e.StatusCode < 500
+	}},
 	{"rate limit", ClassRateLimit, func(e EventError, _ providerBody) bool {
 		return e.StatusCode == 429
 	}},
@@ -94,20 +115,32 @@ func Classify(e EventError) ProviderClass {
 	return ClassNone
 }
 
+// decodeProviderBody reads error.code, type, status, message and the quota
+// IDs in error.details. When error.code is missing, the code is read from the
+// OpenAI Responses API's stream layouts: response.error.code
+// (response.failed) or a top-level code (an error event).
 func decodeProviderBody(body string) providerBody {
 	var b providerBody
-	var top struct {
-		Error map[string]json.RawMessage `json:"error"`
-	}
+	var top map[string]json.RawMessage
 	if body == "" || json.Unmarshal([]byte(body), &top) != nil {
 		return b
 	}
-	b.code = rawString(top.Error["code"])
-	b.typ = rawString(top.Error["type"])
-	b.status = rawString(top.Error["status"])
-	b.message = rawString(top.Error["message"])
+	var errObj, resp, respErr map[string]json.RawMessage
+	json.Unmarshal(top["error"], &errObj)
+	json.Unmarshal(top["response"], &resp)
+	json.Unmarshal(resp["error"], &respErr)
+	b.code = rawString(errObj["code"])
+	if b.code == "" {
+		b.code = rawString(respErr["code"])
+	}
+	if b.code == "" {
+		b.code = rawString(top["code"])
+	}
+	b.typ = rawString(errObj["type"])
+	b.status = rawString(errObj["status"])
+	b.message = rawString(errObj["message"])
 	var details []map[string]json.RawMessage
-	if json.Unmarshal(top.Error["details"], &details) != nil {
+	if json.Unmarshal(errObj["details"], &details) != nil {
 		return b
 	}
 	for _, d := range details {

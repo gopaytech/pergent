@@ -1,5 +1,5 @@
 {
-  "type": "provider.rate-limit",
+  "type": "provider.quota",
   "message": "You exceeded your current quota, please check your plan and billing details.",
   "status": 429,
   "response": {
