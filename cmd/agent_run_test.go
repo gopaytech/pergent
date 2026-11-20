@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
@@ -19,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gopaytech/pergent/graph"
 	"github.com/gopaytech/pergent/internal/finding"
 	"github.com/gopaytech/pergent/internal/result"
 	"github.com/gopaytech/pergent/internal/runner"
@@ -754,5 +757,113 @@ func TestAgentNoLinkedReposUnchanged(t *testing.T) {
 	r := decodeOnly(t, stdout.Bytes())
 	if _, has := skillNamed(r, "impact"); has || len(r.Skills) != 1 || fake.total != 1 {
 		t.Errorf("skills = %+v, runs = %d, want the one skill and one run", r.Skills, fake.total)
+	}
+}
+
+// agentGraph is a v1 graph of agentRepo's base: B in b.go and P in k.pem
+// call A in a.go, which holds line 1.
+func agentGraph(t *testing.T) string {
+	t.Helper()
+	g := &graph.File{
+		Format: graph.Format, Provider: "graphify", ProviderVersion: "0.9.112",
+		Commit: "0123456789abcdef0123456789abcdef01234567", BuiltAt: "2026-11-19T10:00:00Z",
+		Nodes: []graph.Node{
+			{ID: "n1", Kind: graph.KindFunction, Name: "A", File: "a.go", Line: 1},
+			{ID: "n2", Kind: graph.KindFunction, Name: "B", File: "b.go", Line: 1},
+			{ID: "n3", Kind: graph.KindFunction, Name: "P", File: "k.pem", Line: 2},
+		},
+		Edges: []graph.Edge{{From: "n2", To: "n1", Kind: graph.EdgeCalls}, {From: "n3", To: "n1", Kind: graph.EdgeCalls}},
+	}
+	return writeGraphFile(t, g)
+}
+
+func TestPrepareAgent_GraphMissing(t *testing.T) {
+	sandboxEnv(t)
+	dir, base, head := agentRepo(t, nil)
+	in := mustParse(t, agentArgs(dir, base, head, oneSkill(t), "--graph", filepath.Join(t.TempDir(), "missing.json")))
+	var buf bytes.Buffer
+	if e := prepareAgent(&in, log.New(&buf, "", 0)); e != nil {
+		t.Fatalf("prepareAgent() error = %+v, want none", e)
+	}
+	if in.Graph != nil {
+		t.Errorf("Graph = %+v, want nil", in.Graph)
+	}
+	if !strings.Contains(buf.String(), "graph: skipped: ") {
+		t.Errorf("log = %q, want graph: skipped", buf.String())
+	}
+}
+
+func TestRunAgent_GraphReachesTheRun(t *testing.T) {
+	sandboxEnv(t)
+	dir, base, head := agentRepo(t, nil)
+	var stdout, stderr bytes.Buffer
+	var hints []string
+	inner := answerRun(t)
+	run := func(ctx context.Context, opts runner.Options) runner.RunResult {
+		for _, p := range opts.Files {
+			if filepath.Base(p) == "graph-context.md" {
+				data, err := os.ReadFile(p)
+				if err != nil {
+					t.Error(err)
+				}
+				hints = append(hints, string(data))
+			}
+		}
+		return inner(ctx, opts)
+	}
+	code := runAgent(context.Background(), agentArgs(dir, base, head, oneSkill(t), "--graph", agentGraph(t)), agentEnv(nil), &stdout, &stderr, run)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr:\n%s", code, stderr.String())
+	}
+	if len(hints) != 1 {
+		t.Fatalf("%d runs had graph-context.md, want 1", len(hints))
+	}
+	if !strings.Contains(hints[0], "- B  b.go:1") {
+		t.Errorf("hint = %q, want the caller B", hints[0])
+	}
+	if strings.Contains(hints[0], "k.pem") {
+		t.Errorf("hint = %q, lists a file the hardened rules deny", hints[0])
+	}
+}
+
+func TestRunAgent_GraphBrokenSameResult(t *testing.T) {
+	sandboxEnv(t)
+	dir, base, head := agentRepo(t, nil)
+	broken := filepath.Join(t.TempDir(), "broken.json")
+	writeFile(t, filepath.Dir(broken), "broken.json", "{nope")
+	resultOf := func(extra ...string) map[string]any {
+		t.Helper()
+		var stdout, stderr bytes.Buffer
+		if code := runAgent(context.Background(), agentArgs(dir, base, head, oneSkill(t), extra...), agentEnv(nil), &stdout, &stderr, answerRun(t)); code != 0 {
+			t.Fatalf("exit code = %d; stderr:\n%s", code, stderr.String())
+		}
+		var m map[string]any
+		if err := json.Unmarshal(stdout.Bytes(), &m); err != nil {
+			t.Fatal(err)
+		}
+		clearTimes(m)
+		return m
+	}
+	plain := resultOf()
+	if got := resultOf("--graph", broken); !reflect.DeepEqual(got, plain) {
+		t.Errorf("result with a broken --graph:\n%v\nwant\n%v", got, plain)
+	}
+}
+
+// clearTimes removes the fields that hold a time or a duration, at any depth.
+func clearTimes(v any) {
+	switch x := v.(type) {
+	case map[string]any:
+		for k, e := range x {
+			if strings.HasSuffix(k, "_at") || strings.HasSuffix(k, "_seconds") || k == "duration_ms" {
+				delete(x, k)
+				continue
+			}
+			clearTimes(e)
+		}
+	case []any:
+		for _, e := range x {
+			clearTimes(e)
+		}
 	}
 }
