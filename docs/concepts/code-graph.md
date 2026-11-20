@@ -1,4 +1,11 @@
-# 🕸️ Code graph
+# 🕸️ Code graph (experimental)
+
+> **Experimental.** The code graph is off by default, and in our tests it did not help:
+>
+> - **Cost:** on 3 changes reviewed with `deepseek-v4-pro`, the reviews with the graph used 22% fewer steps and 30% fewer `grep` calls, but the token cost was only 0.6% lower.
+> - **Bugs:** on 5 changes with a known bug, reviewed with `qwen3.7-plus`, the review found 0 of the 5 bugs, with the graph and without it. With the graph it cost 68% more.
+>
+> Keep it off unless you are measuring it.
 
 ## What it is
 
