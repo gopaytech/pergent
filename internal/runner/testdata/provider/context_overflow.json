@@ -1,5 +1,5 @@
 {
-  "name": "ContextOverflowError",
-  "statusCode": 413,
-  "message": "prompt is too long"
+  "type": "provider.invalid-request",
+  "message": "prompt is too long",
+  "status": 413
 }

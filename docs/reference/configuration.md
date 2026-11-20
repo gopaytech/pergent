@@ -49,12 +49,15 @@
 | `PERGENT_CONCURRENCY` | Max opencode runs in flight at once (see `--concurrency`) |
 | `PERGENT_PREVIOUS_REVIEW` | `true`/`false` — attach the previous review's findings as context (explicit `--previous-review` flag wins over this) |
 | `PERGENT_CHECK_DELETED` | `true`/`false`: review deleted files and check what still uses deleted and renamed files (explicit `--check-deleted` flag wins over this; default `false`; any other value is a config error) |
+| `PERGENT_OPENCODE_ENV` | Comma-separated names of extra environment variables to pass to opencode in a run with a generated config (for example `OTEL_EXPORTER_OTLP_ENDPOINT`). Env only, no flag. Exact names, spaces trimmed. A name that is not a variable name, starts with `OPENCODE_` or `PERGENT_`, or is `GITHUB_TOKEN`, `GITLAB_TOKEN`, `PWD`, `XDG_DATA_HOME` or `XDG_STATE_HOME` is a config error (`usage` in agent mode). Empty by default. See [the sandbox](../concepts/sandbox.md) |
 
 ### Own-config mode
 
 | Variable | Description |
 |---|---|
 | `PERGENT_USE_OPENCODE_CONFIG` | `true`/`false` — in GitHub/GitLab CI, allow a review with an empty `OPENCODE_PROVIDER` on opencode's own config. **No sandbox**: do not use on untrusted changes (see [option B](#own-config-mode)). Not needed with `--local`; agent mode always needs a provider |
+
+**Breaking:** every mode needs opencode 2.3.2 or later on the `PATH`, and an older or unreadable version is refused before any review. The image ships it. Own-config mode, `--local` and any run outside the image need it installed. A login stored by opencode 2 (`opencode auth login`) does not reach a run, because each run gets its own data directory with only the 1.x `auth.json` copied in. Give the key through `OPENCODE_API_KEY`, or in own-config mode through the provider's own variable or your opencode config.
 
 Config resolution priority: CLI flags > `PERGENT_*` env vars > auto-detect from CI > defaults.
 

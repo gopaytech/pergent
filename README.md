@@ -30,7 +30,7 @@ Agentic PR/MR review tool for CI/CD pipelines. Unlike single-shot review tools, 
 - **Any size of change**: changed files are split into batches that fit the model's context, and every skill and batch runs in parallel under one time budget.
 - **Structured findings and verdicts**: each skill ends `no_blocking_issues`, `has_blocking_issues` or `failed`; blocking findings are re-checked by a separate run before they count.
 - **Honest failures**: a timeout, context overflow or provider error is reported with its cause, never as a pass, and the CI job stays green.
-- **Read-only sandbox**: the agent can only read, grep, glob and list; edits, shell, web access and `.env` reads are denied (and in CI such files are deleted from the checkout first, since `grep` doesn't apply the read rules), and secrets are redacted from everything pergent prints.
+- **Read-only sandbox**: an allow-list lets the agent read, grep and glob and nothing else; edits, shell, web access and `.env` reads are denied (and in CI such files are deleted from the checkout first, since `grep` doesn't apply the read rules), and secrets are redacted from everything pergent prints.
 - **One comment, updated**: GitHub and GitLab get a single review comment that is edited on every push instead of piling up; `--previous-review` gives the model the last review's findings as context.
 - **Agent mode**: `pergent agent` reviews a prepared checkout with trusted inputs only and delivers a versioned JSON result, for running pergent as a service.
 
@@ -66,7 +66,9 @@ make build
 # Binary at ./bin/pergent
 ```
 
-Requires [opencode](https://github.com/anomalyco/opencode) installed on the system.
+Requires [opencode](https://github.com/anomalyco/opencode) 2.3.2 or later installed on the system.
+
+**Breaking:** pergent now needs opencode 2.3.2 or later and refuses an older one before any review. The image ships it. If you run pergent outside the image, with `--local` or on opencode's own config, put opencode 2.3.2 or later on your `PATH`. A login stored by opencode 2 does not reach a review: give the key through `OPENCODE_API_KEY` or the provider's own variable (see [option B](#local-mode)). With a generated config, opencode no longer inherits pergent's whole environment: only an allow-list passes (process basics, proxies, certificates, `OPENCODE_API_KEY`, and `AWS_`, `GOOGLE_`, `VERTEX_`, `AZURE_`, `CLOUDFLARE_` and `LC_` variables). `OTEL_*` is not passed unless you list it in `PERGENT_OPENCODE_ENV`, and neither is any other variable you relied on.
 
 A build from source reports its version as `dev`; only a release image carries a real one. pergent.sh treats `dev` as older than any release, so such an image gets full reviews.
 
@@ -77,7 +79,7 @@ A build from source reports its version as `dev`; only a release image carries a
 Run reviews locally and print output to stdout. No platform token or PR required.
 
 **Prerequisites:**
-- [opencode](https://github.com/anomalyco/opencode) installed
+- [opencode](https://github.com/anomalyco/opencode) 2.3.2 or later installed
 - A git repo with commits ahead of the base branch
 
 **Setup LLM (option A -- configure via env vars):**
@@ -92,6 +94,7 @@ export OPENCODE_MODEL=claude-sonnet-4       # model to use
 
 If you already have opencode configured (e.g., GitHub Copilot, custom `opencode.json`), leave `OPENCODE_PROVIDER` (and `OPENCODE_MODEL`) unset. pergent will use opencode's own config. In this mode pergent does not generate a config, so the [agent sandbox](docs/concepts/sandbox.md) above does not apply: opencode runs with whatever agents and permissions your config defines. pergent attaches the skill's instructions (with the output format) to each run as a file `review-instructions.md`, because they would otherwise live only in the config it did not write.
 
+- **A login stored by opencode 2 does not reach a run.** pergent gives each run its own data directory and copies in only `auth.json`, which opencode 1.x wrote. `opencode auth login` on opencode 2 stores the key in a database pergent does not copy. Set the provider's key in its environment variable (such as `ANTHROPIC_API_KEY`) or in your `opencode.json` instead. A GitHub Copilot login works only if it was made with opencode 1.x.
 - With `--local` this needs nothing more: it is your own machine. `OPENCODE_MODEL` without `OPENCODE_PROVIDER` is ignored and logs a warning.
 - **In GitHub or GitLab CI it needs an opt-in: set `PERGENT_USE_OPENCODE_CONFIG=true`.** Without it, an empty `OPENCODE_PROVIDER` is a config error (an unset CI variable expands to an empty one, and the review would silently lose its sandbox). The error also names `OPENCODE_MODEL` when that is set without a provider.
 - **This mode has no sandbox, so do not use it on untrusted changes.** The project config is on, so the change's own `AGENTS.md` and `opencode.json` (agents, plugins, permissions) apply, opencode may run commands, and `GITHUB_TOKEN` / `GITLAB_TOKEN` stay in opencode's environment because it may sign in with one. A pull request from a fork or an outside contributor can use that. pergent logs a warning on every such run. For untrusted changes, set `OPENCODE_PROVIDER` so pergent runs the review in its read-only sandbox.

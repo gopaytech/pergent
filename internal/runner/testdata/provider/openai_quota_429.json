@@ -1,6 +1,8 @@
 {
-  "name": "APIError",
-  "statusCode": 429,
+  "type": "provider.rate-limit",
   "message": "You exceeded your current quota, please check your plan and billing details.",
-  "responseBody": "{\"error\":{\"message\":\"You exceeded your current quota, please check your plan and billing details.\",\"type\":\"insufficient_quota\",\"param\":null,\"code\":\"insufficient_quota\"}}"
+  "status": 429,
+  "response": {
+    "body": "{\"error\":{\"message\":\"You exceeded your current quota, please check your plan and billing details.\",\"type\":\"insufficient_quota\",\"param\":null,\"code\":\"insufficient_quota\"}}"
+  }
 }

@@ -28,6 +28,11 @@ const TempPrefix = "pergent-"
 // inside it.
 const DataDirPrefix = "opencode-data-pergent-"
 
+// StateDirPrefix starts the name of each run's opencode state directory
+// (XDG_STATE_HOME), which holds the shared server's service.json. The same
+// rule as DataDirPrefix applies: it must not start with "pergent-".
+const StateDirPrefix = "opencode-state-pergent-"
+
 // PromptFileName is the file, next to opencode.json, that holds the agent's
 // prompt. The config names it with a {file:} token.
 const PromptFileName = "agent-prompt.md"
@@ -42,6 +47,7 @@ type openCodeConfig struct {
 	Permission   map[string]any              `json:"permission"`
 	Compaction   openCodeCompaction          `json:"compaction"`
 	LSP          bool                        `json:"lsp"`
+	Snapshot     bool                        `json:"snapshot"`
 }
 
 type openCodeCompaction struct {
@@ -76,6 +82,9 @@ type openCodeAgent struct {
 	Model       string `json:"model"`
 	Steps       int    `json:"steps"`
 	Prompt      string `json:"prompt,omitempty"`
+	// Permission repeats the top-level block: opencode 2 appends an agent's
+	// rules after every global one and the last match wins.
+	Permission map[string]any `json:"permission,omitempty"`
 }
 
 // OpenCodeOptions configures GenerateOpenCodeConfigWith.
@@ -254,6 +263,33 @@ func GenerateOpenCodeConfigWith(o OpenCodeOptions) (string, func(), error) {
 		}
 	}
 
+	// An allow-list: "*" denies every tool, then only the read tools are
+	// allowed, so a tool opencode adds later (opencode 2 added execute,
+	// question and image generation) is denied without a change here.
+	// Rules are last-match-wins. encoding/json sorts map keys, and "*" sorts
+	// before letters, so "*" is written first and the specific allows after it,
+	// which is the order these rules need. The read patterns inside "read" are
+	// emitted as "*", "*.env", "*.env.*", "*.env.example" (then "*.key",
+	// "*.pem", "*.tfvars" with DenySecretFiles) for the same reason.
+	// The block is also set on the agent: opencode 2 appends agent rules after
+	// the global ones, so a user's global config cannot loosen it.
+	permission := map[string]any{
+		"*":    "deny",
+		"read": readRules,
+		"glob": "allow",
+		"grep": "allow",
+		// "*": "deny" would also deny the files pergent attaches, the diffs and
+		// the index it writes for runs (all in pergent-* temp directories), and
+		// the <data>/opencode/tool-output folder where opencode saves a long tool
+		// result and points the model at it, so those are allowed here. Only that
+		// folder of the data directory is allowed. If a version moves it, that
+		// read is denied. A denied call only fails that one tool call. An impact
+		// run also reads its linked repositories' clones.
+		"external_directory": externalDirectory,
+		// Not a permission action in opencode 2; kept for compatibility.
+		"doom_loop": "allow",
+	}
+
 	cfg := openCodeConfig{
 		Schema:       "https://opencode.ai/config.json",
 		Model:        fullModel,
@@ -275,48 +311,24 @@ func GenerateOpenCodeConfigWith(o OpenCodeOptions) (string, func(), error) {
 				Mode:        "primary",
 				Model:       fullModel,
 				Steps:       maxTurns,
+				Permission:  permission,
 			},
 		},
-		// Rules are last-match-wins. encoding/json sorts map keys, so the read
-		// patterns are emitted as "*", "*.env", "*.env.*", "*.env.example"
-		// (then "*.key", "*.pem", "*.tfvars" with DenySecretFiles), which is
-		// the order these rules need.
-		Permission: map[string]any{
-			"read": readRules,
-			// edit also gates the write and apply_patch tools
-			"edit":      "deny",
-			"bash":      "deny",
-			"glob":      "allow",
-			"grep":      "allow",
-			"list":      "allow",
-			"task":      "deny",
-			"skill":     "deny",
-			"webfetch":  "deny",
-			"websearch": "deny",
-			// opencode's default for these two is "ask". `opencode run` rejects
-			// every ask, and a rejection ends the run with no answer; a deny
-			// only fails that one tool call. The model may re-read the files
-			// pergent attaches, and read the diffs and the index it writes for
-			// runs, which all live in pergent-* temp directories. opencode saves
-			// a long tool result in <data>/opencode/tool-output (so in 1.3.17 and
-			// 1.19.4) and points the model at it; only that folder of the data
-			// directory is allowed. If a version moves it, that read is denied.
-			// An impact run also reads its linked repositories' clones.
-			"external_directory": externalDirectory,
-			// A repeated tool call is bounded by the agent's step limit.
-			"doom_loop": "allow",
-		},
+		Permission: permission,
 		// Auto-compaction summarises the conversation when the context fills
 		// and then prompts the model to continue, which can end a run with no
 		// review. With it off, an overflow ends the run with a
-		// ContextOverflowError, which pergent reports as the failure cause.
+		// context overflow error, which pergent reports as the failure cause.
 		Compaction: openCodeCompaction{Auto: false},
-		// The read tool starts language servers whatever the permissions say,
-		// and a server can be a program from the reviewed repo (opencode prefers
-		// its node_modules/.bin/biome), running with the LLM key in its
-		// environment. opencode 1.19 leaves them off when this is unset, but
-		// older versions turn them on, and so can a global config.
+		// opencode 2 never starts language servers. Before it, the read tool
+		// started them whatever the permissions said, and a server can be a
+		// program from the reviewed repo (opencode prefers its
+		// node_modules/.bin/biome), running with the LLM key in its
+		// environment. The setting is kept in case a version turns them on.
 		LSP: false,
+		// Snapshots run git in the checkout after each step and write to its
+		// object store; a review writes nothing there.
+		Snapshot: false,
 	}
 
 	tmpDir, err := os.MkdirTemp("", "pergent-*")

@@ -1,6 +1,8 @@
 {
-  "name": "APIError",
-  "statusCode": 503,
+  "type": "provider.internal",
   "message": "Overloaded",
-  "responseBody": "{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}"
+  "status": 503,
+  "response": {
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}"
+  }
 }

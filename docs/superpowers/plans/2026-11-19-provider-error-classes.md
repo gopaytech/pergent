@@ -40,7 +40,7 @@
 - The key env name stays `OPENCODE_API_KEY`. Redaction does not change.
 - Without a provider error the result JSON, the CI comment and the render goldens are byte-identical to today. `render/` is not touched.
 - `make vet` and `make test` pass. `go test ./render/...` passes with no golden change.
-- Commit with `git -c user.email=zufardhiyaulhaq@gmail.com commit`, conventional subject, last line `Co-Authored-By: Claude <model that wrote it> <noreply@anthropic.com>`. Run tests and commits as separate commands. Never push, tag or release unless the owner asks.
+- Commit with a conventional subject, last line `Co-Authored-By: Claude <model that wrote it> <noreply@anthropic.com>`. Run tests and commits as separate commands. Never push, tag or release unless the owner asks.
 - Public repository: before each commit run `git grep -niE 'golabs|gojek|gopay[^t]|goto\b' -- . ':!go.sum' ':!docs/superpowers/plans/*'` plus a `grep` over each new untracked file; both print nothing. Fixture bodies use the public error shapes of each provider, never a real key or account id.
 - No container, no `gh`, `glab` or `curl`.
 

@@ -350,6 +350,7 @@ func TestMain_ScrubsLinksInPlatformMode(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=^TestMain_ScrubsLinksInPlatformMode$")
 	cmd.Env = append(os.Environ(),
 		"PERGENT_TEST_SCRUB_REPO="+root,
+		"PERGENT_TEST_REAL_VERSION_CHECK=1",
 		"GITLAB_TOKEN=test-token",
 		"CI_SERVER_URL="+srv.URL,
 		"CI_PROJECT_ID=1",

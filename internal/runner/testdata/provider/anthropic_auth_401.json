@@ -1,6 +1,8 @@
 {
-  "name": "APIError",
-  "statusCode": 401,
+  "type": "provider.auth",
   "message": "invalid x-api-key",
-  "responseBody": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"invalid x-api-key\"}}"
+  "status": 401,
+  "response": {
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"invalid x-api-key\"}}"
+  }
 }

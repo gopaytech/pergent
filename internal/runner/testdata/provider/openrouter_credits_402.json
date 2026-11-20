@@ -1,6 +1,8 @@
 {
-  "name": "APIError",
-  "statusCode": 402,
+  "type": "provider.invalid-request",
   "message": "Insufficient credits.",
-  "responseBody": "{\"error\":{\"message\":\"Insufficient credits. Add more credits to continue.\",\"code\":402}}"
+  "status": 402,
+  "response": {
+    "body": "{\"error\":{\"message\":\"Insufficient credits. Add more credits to continue.\",\"code\":402}}"
+  }
 }

@@ -1,6 +1,8 @@
 {
-  "name": "APIError",
-  "statusCode": 402,
+  "type": "provider.invalid-request",
   "message": "Insufficient Balance",
-  "responseBody": "{\"error\":{\"message\":\"Insufficient Balance\",\"type\":\"unknown_error\",\"param\":null,\"code\":\"invalid_request_error\"}}"
+  "status": 402,
+  "response": {
+    "body": "{\"error\":{\"message\":\"Insufficient Balance\",\"type\":\"unknown_error\",\"param\":null,\"code\":\"invalid_request_error\"}}"
+  }
 }

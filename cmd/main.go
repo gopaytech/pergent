@@ -17,6 +17,7 @@ import (
 	"github.com/gopaytech/pergent/internal/platform"
 	"github.com/gopaytech/pergent/internal/redact"
 	"github.com/gopaytech/pergent/internal/review"
+	"github.com/gopaytech/pergent/internal/runner"
 	"github.com/gopaytech/pergent/internal/skill"
 	"github.com/gopaytech/pergent/render"
 )
@@ -24,6 +25,10 @@ import (
 // version is the release without its "v". The release image sets it from the
 // tag at build time, so it can't go stale; hosts compare it.
 var version = "dev"
+
+// checkOpencodeVersion is a variable so tests that do not test the check can
+// replace it.
+var checkOpencodeVersion = runner.CheckOpencodeVersion
 
 func main() {
 	setupLogging(os.Stderr)
@@ -109,6 +114,13 @@ func main() {
 	}
 	for _, w := range cfg.Warnings {
 		log.Printf("warning: %s", w)
+	}
+	versionWarning, versionErr := checkOpencodeVersion(ctx)
+	if versionErr != nil {
+		log.Fatalf("config error: %v", versionErr)
+	}
+	if versionWarning != "" {
+		log.Printf("warning: %s", versionWarning)
 	}
 
 	var loadedSkills []skill.Skill

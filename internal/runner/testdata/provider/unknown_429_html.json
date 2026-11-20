@@ -1,6 +1,8 @@
 {
-  "name": "APIError",
-  "statusCode": 429,
+  "type": "provider.rate-limit",
   "message": "Too Many Requests",
-  "responseBody": "<html><head><title>429 Too Many Requests</title></head><body><center><h1>429 Too Many Requests</h1></center></body></html>"
+  "status": 429,
+  "response": {
+    "body": "<html><head><title>429 Too Many Requests</title></head><body><center><h1>429 Too Many Requests</h1></center></body></html>"
+  }
 }

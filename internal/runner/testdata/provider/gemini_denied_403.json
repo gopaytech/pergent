@@ -1,6 +1,8 @@
 {
-  "name": "APIError",
-  "statusCode": 403,
+  "type": "provider.auth",
   "message": "Permission denied.",
-  "responseBody": "{\"error\":{\"code\":403,\"message\":\"Method doesn't allow unregistered callers. Please use an API key.\",\"status\":\"PERMISSION_DENIED\"}}"
+  "status": 403,
+  "response": {
+    "body": "{\"error\":{\"code\":403,\"message\":\"Method doesn't allow unregistered callers. Please use an API key.\",\"status\":\"PERMISSION_DENIED\"}}"
+  }
 }

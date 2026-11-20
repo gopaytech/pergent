@@ -83,7 +83,7 @@ func TestProgressWriter_ErrorEvent(t *testing.T) {
 	var out bytes.Buffer
 	pw := &progressWriter{buf: &bytes.Buffer{}, w: &out}
 
-	event := `{"type":"error","error":{"name":"APIError","data":{"message":"Rate limit exceeded"}}}` + "\n"
+	event := `{"type":"error","error":{"type":"provider.rate-limit","message":"Rate limit exceeded","status":429}}` + "\n"
 	pw.Write([]byte(event))
 
 	if !strings.Contains(out.String(), "Error: Rate limit exceeded") {
@@ -155,7 +155,7 @@ func TestProgressWriter_ErrorRedacted(t *testing.T) {
 	var out bytes.Buffer
 	pw := &progressWriter{buf: &bytes.Buffer{}, w: &out}
 
-	pw.Write([]byte(`{"type":"error","error":{"name":"ProviderAuthError","data":{"message":"bad key sk-test-abcdef0123456789"}}}` + "\n"))
+	pw.Write([]byte(`{"type":"error","error":{"type":"provider.auth","message":"bad key sk-test-abcdef0123456789","status":401}}` + "\n"))
 
 	if strings.Contains(out.String(), "sk-test-abcdef0123456789") {
 		t.Errorf("output = %q, leaks the API key", out.String())
@@ -188,7 +188,7 @@ func TestProgressWriter_KeyStraddlingTheCutIsRedacted(t *testing.T) {
 
 	// The key starts 10 bytes before the 120-byte cut.
 	msg := strings.Repeat("x", 110) + key
-	pw.Write([]byte(`{"type":"error","error":{"name":"ProviderAuthError","data":{"message":"` + msg + `"}}}` + "\n"))
+	pw.Write([]byte(`{"type":"error","error":{"type":"provider.auth","message":"` + msg + `"}}` + "\n"))
 
 	if got := out.String(); strings.Contains(got, key[:10]) {
 		t.Errorf("output = %q, prints part of the API key", got)
@@ -215,7 +215,7 @@ func TestProgress_LogPrefix(t *testing.T) {
 	events := `{"type":"step_start","part":{"type":"step-start"}}` + "\n" +
 		`{"type":"tool_use","part":{"tool":"read","state":{"status":"success"}}}` + "\n" +
 		`{"type":"step_finish","part":{"type":"step-finish","tokens":{"output":4}}}` + "\n" +
-		`{"type":"error","error":{"name":"APIError","data":{"message":"boom"}}}` + "\n"
+		`{"type":"error","error":{"type":"provider.internal","message":"boom","status":500}}` + "\n"
 	pw.Write([]byte(events))
 
 	lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")

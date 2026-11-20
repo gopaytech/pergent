@@ -302,8 +302,8 @@ func TestRun_ExitErrorReportsStderr(t *testing.T) {
 func TestRun_RetriesTransientErrors(t *testing.T) {
 	shortBackoff(t)
 	count := fakeOpencode(t,
-		fakeAttempt{fixture: "rate_limited.ndjson", code: 1},
-		fakeAttempt{fixture: "rate_limited.ndjson", code: 1},
+		fakeAttempt{fixture: "fetch_failed.ndjson", code: 1},
+		fakeAttempt{fixture: "fetch_failed.ndjson", code: 1},
 		fakeAttempt{fixture: "completed.ndjson"},
 	)
 
@@ -318,18 +318,63 @@ func TestRun_RetriesTransientErrors(t *testing.T) {
 
 func TestRun_RetriesExhausted(t *testing.T) {
 	shortBackoff(t)
-	count := fakeOpencode(t, fakeAttempt{fixture: "rate_limited.ndjson", code: 1})
+	count := fakeOpencode(t, fakeAttempt{fixture: "fetch_failed.ndjson", code: 1})
+
+	got := Run(context.Background(), testOptions(time.Minute))
+	if got.Status != StatusFailed || got.Cause.Kind != CauseOpencodeError {
+		t.Fatalf("Run() = %+v, want the transient error", got)
+	}
+	if n := runCount(t, count); n != maxRetries+1 {
+		t.Errorf("opencode ran %d times, want %d", n, maxRetries+1)
+	}
+	want := "opencode reported unknown: fetch failed: ECONNRESET. Gave up after 4 attempts."
+	if msg := got.Cause.Message(); msg != want {
+		t.Errorf("message = %q, want %q", msg, want)
+	}
+}
+
+// opencode already retried a provider error before reporting it, so pergent
+// starts the run once more and no further.
+func TestRun_ProviderErrorRetriedOnce(t *testing.T) {
+	shortBackoff(t)
+	count := fakeOpencode(t, fakeAttempt{
+		stdout: `{"type":"error","error":{"type":"provider.internal","message":"mock internal error","status":500}}` + "\n", code: 1})
 
 	got := Run(context.Background(), testOptions(time.Minute))
 	if got.Status != StatusFailed || got.Cause.Kind != CauseOpencodeError {
 		t.Fatalf("Run() = %+v, want the provider error", got)
 	}
-	if n := runCount(t, count); n != maxRetries+1 {
-		t.Errorf("opencode ran %d times, want %d", n, maxRetries+1)
+	if got.Cause.Attempts != 2 || runCount(t, count) != 2 || maxProviderRetries != 1 {
+		t.Errorf("attempts = %d, runs = %d, want 2 and 2", got.Cause.Attempts, runCount(t, count))
 	}
-	want := "opencode reported APIError (HTTP 429): Rate limit exceeded: 429 Too Many Requests. Gave up after 4 attempts."
+	want := "opencode reported provider.internal (HTTP 500): mock internal error. Gave up after 2 attempts."
 	if msg := got.Cause.Message(); msg != want {
 		t.Errorf("message = %q, want %q", msg, want)
+	}
+}
+
+func TestRun_ProviderErrorRetrySucceeds(t *testing.T) {
+	shortBackoff(t)
+	fakeOpencode(t,
+		fakeAttempt{fixture: "rate_limited.ndjson", code: 1},
+		fakeAttempt{fixture: "completed.ndjson"},
+	)
+	if got := Run(context.Background(), testOptions(time.Minute)); got.Status != StatusCompleted {
+		t.Errorf("Run() = %+v, want the review from the second attempt", got)
+	}
+}
+
+func TestRun_NonProviderTransientRetriedThreeTimes(t *testing.T) {
+	shortBackoff(t)
+	count := fakeOpencode(t, fakeAttempt{
+		stdout: `{"type":"error","error":{"type":"unknown","message":"connection reset"}}` + "\n", code: 1})
+
+	got := Run(context.Background(), testOptions(time.Minute))
+	if got.Status != StatusFailed || got.Cause.Kind != CauseOpencodeError {
+		t.Fatalf("Run() = %+v, want the error", got)
+	}
+	if got.Cause.Attempts != 4 || runCount(t, count) != 4 {
+		t.Errorf("attempts = %d, runs = %d, want 4 and 4", got.Cause.Attempts, runCount(t, count))
 	}
 }
 
@@ -581,11 +626,11 @@ func TestRun_ExcludeEnv(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("PERGENT_RESULT_TOKEN", "x")
-	t.Setenv("PERGENT_KEEP_ME", "y")
+	t.Setenv("AWS_DROP_ME", "x")
+	t.Setenv("AWS_KEEP_ME", "y")
 
 	opts := testOptions(time.Minute)
-	opts.ExcludeEnv = []string{"PERGENT_RESULT_TOKEN"}
+	opts.ExcludeEnv = []string{"AWS_DROP_ME"}
 	if got := Run(context.Background(), opts); got.Status != StatusCompleted {
 		t.Fatalf("Run() = %+v, want completed", got)
 	}
@@ -593,10 +638,10 @@ func TestRun_ExcludeEnv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(data), "PERGENT_RESULT_TOKEN") {
-		t.Errorf("opencode's environment still has PERGENT_RESULT_TOKEN")
+	if strings.Contains(string(data), "AWS_DROP_ME") {
+		t.Errorf("opencode's environment still has AWS_DROP_ME")
 	}
-	if !strings.Contains(string(data), "PERGENT_KEEP_ME=y") {
+	if !strings.Contains(string(data), "AWS_KEEP_ME=y") {
 		t.Errorf("opencode's environment lost an unrelated variable")
 	}
 }
@@ -722,6 +767,230 @@ func TestStderrWriter(t *testing.T) {
 				t.Errorf("output = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestBuildCommand_Standalone(t *testing.T) {
+	for _, cfg := range []string{"/tmp/config.json", ""} {
+		cmd := BuildCommand(context.Background(), cfg, []string{"/tmp/d.patch"}, "m", ".")
+		want := []string{"run", "--standalone", "--format", "json"}
+		if len(cmd.Args) < 5 || !slices.Equal(cmd.Args[1:5], want) {
+			t.Errorf("config %q: args = %v, want them to start with %v", cfg, cmd.Args, want)
+		}
+	}
+}
+
+// opencode 2.3.2 reads OPENCODE_CONFIG_PROJECT_DISABLE first and the legacy
+// OPENCODE_DISABLE_PROJECT_CONFIG only when it is unset, so a caller's
+// "false" in the new name would turn the checkout's config back on. Both are
+// set, each exactly once. OPENCODE_CONFIG_CONTENT is merged over the config
+// file and OPENCODE_CLI_CONFIG_CONTENT is read too, so a caller's copy of
+// either is dropped. With opencode's own config all of them stay as they were.
+func TestBuildCommand_ProjectConfigAndInjectedConfig(t *testing.T) {
+	t.Setenv("OPENCODE_CONFIG_PROJECT_DISABLE", "false")
+	t.Setenv("OPENCODE_DISABLE_PROJECT_CONFIG", "false")
+	t.Setenv("OPENCODE_CONFIG_CONTENT", `{"permission":{"*":"allow"}}`)
+	t.Setenv("OPENCODE_CLI_CONFIG_CONTENT", `{"x":1}`)
+	values := func(env []string, name string) []string {
+		var out []string
+		for _, kv := range env {
+			if v, ok := strings.CutPrefix(kv, name+"="); ok {
+				out = append(out, v)
+			}
+		}
+		return out
+	}
+
+	generated := BuildCommand(context.Background(), "/tmp/config.json", nil, "m", ".").Env
+	for _, name := range []string{"OPENCODE_CONFIG_PROJECT_DISABLE", "OPENCODE_DISABLE_PROJECT_CONFIG"} {
+		if got := values(generated, name); !slices.Equal(got, []string{"true"}) {
+			t.Errorf("generated config: %s = %q, want exactly [true]", name, got)
+		}
+	}
+	for _, name := range []string{"OPENCODE_CONFIG_CONTENT", "OPENCODE_CLI_CONFIG_CONTENT"} {
+		if got := values(generated, name); len(got) != 0 {
+			t.Errorf("generated config: %s = %q, want it removed", name, got)
+		}
+	}
+
+	own := BuildCommand(context.Background(), "", nil, "m", ".").Env
+	for name, want := range map[string]string{
+		"OPENCODE_CONFIG_PROJECT_DISABLE": "false",
+		"OPENCODE_DISABLE_PROJECT_CONFIG": "false",
+		"OPENCODE_CONFIG_CONTENT":         `{"permission":{"*":"allow"}}`,
+		"OPENCODE_CLI_CONFIG_CONTENT":     `{"x":1}`,
+	} {
+		if got := values(own, name); !slices.Equal(got, []string{want}) {
+			t.Errorf("own config: %s = %q, want the caller's [%s]", name, got, want)
+		}
+	}
+}
+
+func TestBuildCommand_StripsRiskyInheritedEnv(t *testing.T) {
+	stripped := []string{"OPENCODE_CONFIG_DIR", "OPENCODE_FLAGS", "OPENCODE_DB", "OPENCODE_TEST_HOME", "OPENCODE_SIMULATE"}
+	for _, name := range stripped {
+		t.Setenv(name, "inherited")
+	}
+	t.Setenv("OPENCODE_DISABLE_AUTOUPDATE", "false")
+	values := func(env []string, name string) []string {
+		var out []string
+		for _, kv := range env {
+			if v, ok := strings.CutPrefix(kv, name+"="); ok {
+				out = append(out, v)
+			}
+		}
+		return out
+	}
+
+	generated := BuildCommand(context.Background(), "/tmp/config.json", nil, "m", ".").Env
+	for _, name := range stripped {
+		if got := values(generated, name); len(got) != 0 {
+			t.Errorf("generated config: %s = %q, want it removed", name, got)
+		}
+	}
+	if got := values(generated, "OPENCODE_DISABLE_AUTOUPDATE"); !slices.Equal(got, []string{"true"}) {
+		t.Errorf("generated config: OPENCODE_DISABLE_AUTOUPDATE = %q, want exactly [true]", got)
+	}
+
+	own := BuildCommand(context.Background(), "", nil, "m", ".").Env
+	for _, name := range stripped {
+		if got := values(own, name); !slices.Equal(got, []string{"inherited"}) {
+			t.Errorf("own config: %s = %q, want the caller's value", name, got)
+		}
+	}
+	if got := values(own, "OPENCODE_DISABLE_AUTOUPDATE"); !slices.Equal(got, []string{"false"}) {
+		t.Errorf("own config: OPENCODE_DISABLE_AUTOUPDATE = %q, want the caller's [false]", got)
+	}
+}
+
+func TestBuildCommand_DisablesClaudeCodeWithGeneratedConfigOnly(t *testing.T) {
+	const v = "OPENCODE_DISABLE_CLAUDE_CODE=true"
+	if cmd := BuildCommand(context.Background(), "/tmp/config.json", nil, "m", "."); !slices.Contains(cmd.Env, v) {
+		t.Errorf("generated config: %s not set", v)
+	}
+	if cmd := BuildCommand(context.Background(), "", nil, "m", "."); slices.Contains(cmd.Env, v) {
+		t.Errorf("own config: %s is set, want the user's setup untouched", v)
+	}
+}
+
+func TestRunAttempt_OwnStateDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake opencode is a shell script")
+	}
+	dir := t.TempDir()
+	seen := filepath.Join(dir, "seen")
+	script := fmt.Sprintf("#!/bin/sh\necho \"$XDG_STATE_HOME\" >> %q\ncat <<'EOF'\n%sEOF\n", seen,
+		`{"type":"step_start","part":{"type":"step-start"}}`+"\n"+
+			`{"type":"text","part":{"type":"text","text":"ok"}}`+"\n"+
+			`{"type":"step_finish","part":{"type":"step-finish","reason":"stop"}}`+"\n")
+	bin := filepath.Join(dir, "bin")
+	os.Mkdir(bin, 0755)
+	if err := os.WriteFile(filepath.Join(bin, "opencode"), []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	shared := filepath.Join(dir, "state")
+	t.Setenv("XDG_STATE_HOME", shared)
+
+	if got := Run(context.Background(), testOptions(time.Minute)); got.Status != StatusCompleted {
+		t.Fatalf("Run() = %+v, want completed", got)
+	}
+	data, err := os.ReadFile(seen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := strings.TrimSpace(string(data))
+	if d == "" || d == shared {
+		t.Fatalf("XDG_STATE_HOME = %q, want a directory of the run's own", d)
+	}
+	if filepath.Dir(d) != filepath.Clean(os.TempDir()) || !strings.HasPrefix(filepath.Base(d), config.StateDirPrefix) {
+		t.Errorf("state dir = %q, want %s%s*", d, os.TempDir(), config.StateDirPrefix)
+	}
+	if _, err := os.Stat(d); !os.IsNotExist(err) {
+		t.Errorf("state directory still exists after the run (err %v)", err)
+	}
+}
+
+// opencode 2 takes its project directory from $PWD, which the caller's
+// environment sets to the caller's own directory.
+func TestBuildCommandSetsPWDToTheRepo(t *testing.T) {
+	t.Setenv("PWD", "/somewhere/else")
+	repo := t.TempDir()
+	cmd := BuildCommand(context.Background(), "/tmp/config.json", nil, "m", repo)
+	var pwds []string
+	for _, kv := range cmd.Env {
+		if strings.HasPrefix(kv, "PWD=") {
+			pwds = append(pwds, kv)
+		}
+	}
+	if len(pwds) != 1 || pwds[0] != "PWD="+repo {
+		t.Errorf("PWD entries = %v, want exactly PWD=%s", pwds, repo)
+	}
+}
+
+func envValues(env []string, name string) []string {
+	var out []string
+	for _, kv := range env {
+		if v, ok := strings.CutPrefix(kv, name+"="); ok {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+func TestBuildCommand_AllowListWithGeneratedConfig(t *testing.T) {
+	t.Setenv("PERGENT_OPENCODE_ENV", "")
+	set := map[string]string{
+		"CI_DEPLOY_SECRET":               "s",
+		"OTEL_EXPORTER_OTLP_ENDPOINT":    "http://collector",
+		"OPENCODE_CONFIG_DIR":            "/evil",
+		"GITHUB_TOKEN":                   "gh",
+		"AWS_REGION":                     "eu-west-1",
+		"GOOGLE_APPLICATION_CREDENTIALS": "/c.json",
+		"LC_ALL":                         "C",
+		"HTTPS_PROXY":                    "http://proxy",
+		"OPENCODE_API_KEY":               "key",
+		"NODE_EXTRA_CA_CERTS":            "/ca.pem",
+	}
+	for k, v := range set {
+		t.Setenv(k, v)
+	}
+	env := BuildCommand(context.Background(), "/tmp/config.json", nil, "m", ".").Env
+	for _, gone := range []string{"CI_DEPLOY_SECRET", "OTEL_EXPORTER_OTLP_ENDPOINT", "OPENCODE_CONFIG_DIR", "GITHUB_TOKEN"} {
+		if got := envValues(env, gone); len(got) != 0 {
+			t.Errorf("%s = %q, want it absent", gone, got)
+		}
+	}
+	for _, kept := range []string{"AWS_REGION", "GOOGLE_APPLICATION_CREDENTIALS", "LC_ALL", "HTTPS_PROXY", "OPENCODE_API_KEY", "NODE_EXTRA_CA_CERTS", "PATH"} {
+		if got := envValues(env, kept); len(got) != 1 || (set[kept] != "" && got[0] != set[kept]) {
+			t.Errorf("%s = %q, want the inherited value once", kept, got)
+		}
+	}
+
+	t.Setenv("PERGENT_OPENCODE_ENV", " OTEL_EXPORTER_OTLP_ENDPOINT ")
+	env = BuildCommand(context.Background(), "/tmp/config.json", nil, "m", ".").Env
+	if got := envValues(env, "OTEL_EXPORTER_OTLP_ENDPOINT"); !slices.Equal(got, []string{"http://collector"}) {
+		t.Errorf("listed OTEL = %q, want it passed", got)
+	}
+	if got := envValues(env, "CI_DEPLOY_SECRET"); len(got) != 0 {
+		t.Errorf("CI_DEPLOY_SECRET = %q, want it still absent", got)
+	}
+
+	// A refused name in the hatch passes nothing extra.
+	t.Setenv("PERGENT_OPENCODE_ENV", "OPENCODE_CONFIG_DIR,OTEL_EXPORTER_OTLP_ENDPOINT")
+	env = BuildCommand(context.Background(), "/tmp/config.json", nil, "m", ".").Env
+	if got := envValues(env, "OPENCODE_CONFIG_DIR"); len(got) != 0 {
+		t.Errorf("OPENCODE_CONFIG_DIR = %q, want it absent", got)
+	}
+	if got := envValues(env, "OTEL_EXPORTER_OTLP_ENDPOINT"); len(got) != 0 {
+		t.Errorf("OTEL_EXPORTER_OTLP_ENDPOINT = %q, want a bad list to pass nothing at all", got)
+	}
+
+	own := BuildCommand(context.Background(), "", nil, "m", ".").Env
+	for k, v := range set {
+		if got := envValues(own, k); !slices.Equal(got, []string{v}) {
+			t.Errorf("own config: %s = %q, want the caller's %q", k, got, v)
+		}
 	}
 }
 
@@ -857,18 +1126,19 @@ func TestRun_NoRelaunchForFallbackErrors(t *testing.T) {
 	}
 }
 
+// A rate limit is not a fallback class, so it is started again like any
+// other provider error: once, since opencode 2 already retries it itself.
 func TestRun_RateLimitStillRelaunched(t *testing.T) {
 	shortBackoff(t)
 	count := fakeOpencode(t,
 		fakeAttempt{fixture: "rate_limited.ndjson", code: 1},
-		fakeAttempt{fixture: "rate_limited.ndjson", code: 1},
 		fakeAttempt{fixture: "completed.ndjson"},
 	)
 	if got := Run(context.Background(), testOptions(time.Minute)); got.Status != StatusCompleted {
-		t.Errorf("Run() = %+v, want the review from the third attempt", got)
+		t.Errorf("Run() = %+v, want the review from the second attempt", got)
 	}
-	if n := runCount(t, count); n != 3 {
-		t.Errorf("opencode ran %d times, want 3", n)
+	if n := runCount(t, count); n != 2 {
+		t.Errorf("opencode ran %d times, want 2", n)
 	}
 
 	count = fakeOpencode(t, fakeAttempt{fixture: "rate_limited.ndjson", code: 1})
@@ -876,8 +1146,8 @@ func TestRun_RateLimitStillRelaunched(t *testing.T) {
 	if got.Cause == nil || got.Cause.ProviderClass != ClassRateLimit || got.Cause.ProviderStatus != 429 {
 		t.Errorf("cause = %+v, want rate_limit with status 429", got.Cause)
 	}
-	if n := runCount(t, count); n != maxRetries+1 {
-		t.Errorf("opencode ran %d times, want %d", n, maxRetries+1)
+	if n := runCount(t, count); n != maxProviderRetries+1 {
+		t.Errorf("opencode ran %d times, want %d", n, maxProviderRetries+1)
 	}
 }
 

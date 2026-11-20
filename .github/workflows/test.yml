@@ -1,0 +1,78 @@
+name: test
+
+on:
+  pull_request:
+  push:
+    branches:
+    - master
+
+permissions:
+  contents: read
+
+env:
+  # Must match OPENCODE_VERSION and OPENCODE_SHA256_X64 in the Dockerfile.
+  OPENCODE_VERSION: 2.3.2
+  OPENCODE_SHA256_X64: 563b5d663637226b6e3bb4bb6803281bc39b0d2cd88db06d674b6420aab009b0
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Vet
+        run: make vet
+      - name: Test
+        run: make test
+      - name: gofmt
+        run: test -z "$(gofmt -l .)"
+
+  # Runs the agent-mode suite against the real opencode binary, with a fake
+  # model server, so a new opencode release can't break pergent unnoticed.
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Restore opencode
+        id: opencode-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pergent-opencode/${{ env.OPENCODE_VERSION }}/opencode
+          key: opencode-${{ env.OPENCODE_VERSION }}-linux-x64
+      - name: Download opencode
+        if: steps.opencode-cache.outputs.cache-hit != 'true'
+        run: |
+          dir="$HOME/.cache/pergent-opencode/${OPENCODE_VERSION}"
+          mkdir -p "$dir"
+          curl -fsSL -o "$RUNNER_TEMP/opencode.tar.gz" \
+            "https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-x64.tar.gz"
+          echo "${OPENCODE_SHA256_X64}  $RUNNER_TEMP/opencode.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/opencode.tar.gz" -C "$dir" opencode
+          chmod +x "$dir/opencode"
+      # opencode's grep and glob tools use rg from PATH.
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+      # Agent mode needs git >= 2.40 (GIT_ATTR_SOURCE).
+      - name: Show tool versions
+        run: |
+          git --version
+          "$HOME/.cache/pergent-opencode/${OPENCODE_VERSION}/opencode" --version
+          rg --version
+      - name: End-to-end tests
+        run: |
+          PERGENT_TEST_OPENCODE="$HOME/.cache/pergent-opencode/${OPENCODE_VERSION}/opencode" \
+            go test ./cmd/ -run OpencodeE2E -v -count=1

@@ -1,30 +1,26 @@
 package runner
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
-// loadProviderError reads one testdata/provider fixture: the fields of an
-// opencode error event, in the public shape each provider sends.
+// loadProviderError reads one testdata/provider fixture: the "error" value
+// of an opencode 2 error event, with each provider's public error body. The
+// type of a 4xx or 5xx is a stand-in where opencode's own choice is not
+// pinned: only "provider.auth" and a missing status change a class.
 func loadProviderError(t *testing.T, name string) EventError {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join("testdata", "provider", name))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var f struct {
-		Name         string `json:"name"`
-		StatusCode   int    `json:"statusCode"`
-		Message      string `json:"message"`
-		ResponseBody string `json:"responseBody"`
+	e := readError(data)
+	if e.Name == unreadableError {
+		t.Fatalf("%s: not an opencode error", name)
 	}
-	if err := json.Unmarshal(data, &f); err != nil {
-		t.Fatalf("%s: %v", name, err)
-	}
-	return EventError{Name: f.Name, StatusCode: f.StatusCode, Message: f.Message, ResponseBody: f.ResponseBody}
+	return e
 }
 
 func TestClassify(t *testing.T) {
@@ -71,9 +67,9 @@ func TestClassify(t *testing.T) {
 // fallback for auth marks the key until someone edits it.
 func TestClassify_RuleOrder(t *testing.T) {
 	e := loadProviderError(t, "openai_quota_429.json")
-	e.Name = "ProviderAuthError"
+	e.Name = "provider.auth"
 	if got := Classify(e); got != ClassAuth {
-		t.Errorf("ProviderAuthError with a 429 quota body: Classify = %q, want auth", got)
+		t.Errorf("provider.auth with a 429 quota body: Classify = %q, want auth", got)
 	}
 	e = loadProviderError(t, "openai_quota_429.json")
 	e.StatusCode = 401

@@ -261,11 +261,7 @@ func providerError(meta Meta, c *runner.Cause) *ProviderError {
 	if c.ProviderClass == runner.ClassNone {
 		return nil
 	}
-	pe := &ProviderError{Class: string(c.ProviderClass), Status: c.ProviderStatus, Provider: meta.Provider, Model: meta.Model}
-	if pe.Provider == "" {
-		pe.Provider = c.Provider
-	}
-	return pe
+	return &ProviderError{Class: string(c.ProviderClass), Status: c.ProviderStatus, Provider: meta.Provider, Model: meta.Model}
 }
 
 func baseResult(meta Meta, status string) Result {

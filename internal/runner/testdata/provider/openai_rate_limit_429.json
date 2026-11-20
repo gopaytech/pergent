@@ -1,6 +1,8 @@
 {
-  "name": "APIError",
-  "statusCode": 429,
+  "type": "provider.rate-limit",
   "message": "Rate limit reached for requests",
-  "responseBody": "{\"error\":{\"message\":\"Rate limit reached in organization org-example on requests per min (RPM): Limit 500, Used 500, Requested 1.\",\"type\":\"requests\",\"param\":null,\"code\":\"rate_limit_exceeded\"}}"
+  "status": 429,
+  "response": {
+    "body": "{\"error\":{\"message\":\"Rate limit reached in organization org-example on requests per min (RPM): Limit 500, Used 500, Requested 1.\",\"type\":\"requests\",\"param\":null,\"code\":\"rate_limit_exceeded\"}}"
+  }
 }

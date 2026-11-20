@@ -50,7 +50,7 @@ var creditTooLow = regexp.MustCompile(`(?i)credit balance is too low`)
 // fixture.
 var providerRules = []providerRule{
 	{"auth", ClassAuth, func(e EventError, _ providerBody) bool {
-		return e.Name == "ProviderAuthError" || e.StatusCode == 401 || e.StatusCode == 403
+		return e.Name == "provider.auth" || e.StatusCode == 401 || e.StatusCode == 403
 	}},
 	{"payment required", ClassBilling, func(e EventError, _ providerBody) bool {
 		return e.StatusCode == 402
@@ -72,10 +72,10 @@ var providerRules = []providerRule{
 		}
 		return false
 	}},
-	// opencode turns an insufficient_quota stream error into an APIError
-	// with no status code.
+	// An insufficient_quota stream error comes as a provider error with no
+	// status code.
 	{"insufficient quota in the stream", ClassQuota, func(e EventError, b providerBody) bool {
-		return e.StatusCode == 0 && e.Name == "APIError" && b.code == "insufficient_quota"
+		return e.StatusCode == 0 && strings.HasPrefix(e.Name, "provider.") && b.code == "insufficient_quota"
 	}},
 	{"rate limit", ClassRateLimit, func(e EventError, _ providerBody) bool {
 		return e.StatusCode == 429

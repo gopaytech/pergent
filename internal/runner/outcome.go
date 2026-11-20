@@ -52,11 +52,10 @@ type Cause struct {
 	// OtherErrors are further error events, as "Name: message".
 	OtherErrors []string
 	// ProviderClass sorts the error event (Classify; opencode_error only).
-	// ProviderStatus is its HTTP status, Provider the provider it names (set
-	// only on a ProviderAuthError). The provider's body is never kept here.
+	// ProviderStatus is its HTTP status. The provider's body is never kept
+	// here.
 	ProviderClass  ProviderClass
 	ProviderStatus int
-	Provider       string
 	// Attempts is how many times the run was started (more than 1 when
 	// transient provider errors were retried).
 	Attempts int
@@ -138,7 +137,11 @@ func (c Cause) Message() string {
 		if c.StatusCode != 0 {
 			name += fmt.Sprintf(" (HTTP %d)", c.StatusCode)
 		}
-		msg = fmt.Sprintf("opencode reported %s: %s", name, ensurePeriod(c.ErrorMessage))
+		if c.ErrorMessage == "" {
+			msg = fmt.Sprintf("opencode reported %s.", name)
+		} else {
+			msg = fmt.Sprintf("opencode reported %s: %s", name, ensurePeriod(c.ErrorMessage))
+		}
 		for _, other := range c.OtherErrors {
 			msg += fmt.Sprintf(" Then: %s", ensurePeriod(other))
 		}
@@ -202,23 +205,54 @@ func (c Cause) contextLimitText() string {
 // is deliberately not matched: it is not a provider failure.
 var transientPattern = regexp.MustCompile(`(?i)rate.?limit|too many requests|overloaded|service unavailable|bad gateway|gateway timeout|temporarily unavailable|fetch failed|network error|socket hang up|connection (reset|refused|closed|lost)|econnreset|econnrefused|etimedout|enotfound|eai_again|upstream connect|unable to connect`)
 
-// Transient reports whether an opencode error event is a transient provider
-// error (HTTP 429, 5xx, connection errors) that a new attempt may get past.
+// ProviderError reports whether the error came from the model provider
+// (a type such as provider.internal), as opposed to opencode itself.
+func (e EventError) ProviderError() bool {
+	return strings.HasPrefix(e.Name, "provider.")
+}
+
+// Transient reports whether an opencode error event is a transient failure
+// (HTTP 429, 5xx, connection errors) that a new attempt may get past.
 func (e EventError) Transient() bool {
 	switch e.Name {
-	case "ContextOverflowError", "ProviderAuthError", "MessageAbortedError", "ContentFilterError", "MessageOutputLengthError":
-		return false
+	case "provider.rate-limit", "provider.transport", "provider.internal", "provider.timeout":
+		return true
 	}
 	if e.StatusCode == 429 || e.StatusCode >= 500 {
 		return true
 	}
-	if e.Name == "APIError" && e.IsRetryable {
-		return true
+	// Only an error that is not the provider's, and has no status, is judged
+	// by its message (fetch failed, connection reset).
+	if e.StatusCode == 0 && !e.ProviderError() {
+		return transientPattern.MatchString(e.Message)
 	}
-	if e.StatusCode >= 400 {
-		return false
+	return false
+}
+
+// errorLabel is the error's type for display; an error with no type shows as
+// "error".
+func (e EventError) errorLabel() string {
+	if e.Name == "" {
+		return "error"
 	}
-	return transientPattern.MatchString(e.Message)
+	return e.Name
+}
+
+// errorText is the error's message, or "" when it has none.
+func (e EventError) errorText() string {
+	if strings.TrimSpace(e.Message) == "" {
+		return ""
+	}
+	return e.Message
+}
+
+// describe is the error's type and message, or its type alone when it has
+// no message.
+func (e EventError) describe() string {
+	if m := e.errorText(); m != "" {
+		return e.errorLabel() + ": " + m
+	}
+	return e.errorLabel()
 }
 
 // attempt is one opencode process run.
@@ -261,22 +295,21 @@ func classify(a attempt, opts Options, elapsed time.Duration) (Status, *Cause) {
 	// exits 1. They take precedence: the process exit adds nothing.
 	if e := t.RootError(); e != nil {
 		c := base
-		c.ErrorName = e.Name
-		c.ErrorMessage = e.Message
+		c.ErrorName = e.errorLabel()
+		c.ErrorMessage = e.errorText()
 		c.StatusCode = e.StatusCode
 		c.Kind = CauseOpencodeError
-		if e.Name == "ContextOverflowError" {
+		if e.ContextOverflow() {
 			c.Kind = CauseContextOverflow
 		} else {
 			// A stop on a fallback-class error (runAttempt) does not end the
 			// caller's context, so it lands here, never as cancelled.
 			c.ProviderClass = Classify(*e)
 			c.ProviderStatus = e.StatusCode
-			c.Provider = e.ProviderID
 		}
 		for _, other := range t.Errors {
 			if other != *e {
-				c.OtherErrors = append(c.OtherErrors, other.Name+": "+other.Message)
+				c.OtherErrors = append(c.OtherErrors, other.describe())
 			}
 		}
 		return StatusFailed, &c

@@ -843,14 +843,3 @@ func TestBuild_ProviderBodyNeverInResult(t *testing.T) {
 		t.Errorf("the provider's body reached the result:\n%s", b)
 	}
 }
-
-// The provider falls back to the one the error names when pergent's own
-// setting is unknown.
-func TestBuild_ProviderErrorProviderFromCause(t *testing.T) {
-	s := providerFailure("s", runner.ClassAuth, 0)
-	s.Failures[0].Cause.Provider = "anthropic"
-	r := Build(testMeta(), []review.SkillResult{s})
-	if r.ProviderError == nil || r.ProviderError.Provider != "anthropic" || r.ProviderError.Model != "" {
-		t.Errorf("top = %+v, want provider anthropic, no model", r.ProviderError)
-	}
-}

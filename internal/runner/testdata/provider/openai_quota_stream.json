@@ -1,6 +1,7 @@
 {
-  "name": "APIError",
-  "statusCode": 0,
+  "type": "provider.quota",
   "message": "Quota exceeded. Check your plan and billing details.",
-  "responseBody": "{\"type\":\"error\",\"error\":{\"code\":\"insufficient_quota\"}}"
+  "response": {
+    "body": "{\"type\":\"error\",\"error\":{\"code\":\"insufficient_quota\"}}"
+  }
 }

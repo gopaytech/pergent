@@ -233,6 +233,13 @@ func runAgent(ctx context.Context, args []string, getenv func(string) string, st
 	if e := prepareAgent(&in, logger); e != nil {
 		return failWith(e)
 	}
+	versionWarning, versionErr := checkOpencodeVersion(ctx)
+	if versionErr != nil {
+		return failWith(&result.Error{Code: result.CodeInternal, Message: versionErr.Error()})
+	}
+	if versionWarning != "" {
+		logger.Printf("warning: %s", versionWarning)
+	}
 
 	logger.Printf("Reviewing %d changed file(s) with %d skill(s), up to %d opencode runs at once, within %s",
 		len(in.Files), len(in.Skills), in.Review.Concurrency, in.Review.Timeout)
@@ -403,6 +410,9 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 	}
 	if getenv("OPENCODE_PROVIDER") == "" || getenv("OPENCODE_MODEL") == "" {
 		return usage("agent mode requires OPENCODE_PROVIDER and OPENCODE_MODEL")
+	}
+	if _, err := config.ExtraEnvNames(getenv(config.ExtraEnvVar)); err != nil {
+		return usage("%v", err)
 	}
 	if instructions != "" {
 		abs, err := filepath.Abs(instructions)

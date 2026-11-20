@@ -20,7 +20,7 @@ func stubOpencode(t *testing.T, stdout, stderr string) {
 	if err := os.WriteFile(filepath.Join(dir, "err"), []byte(stderr), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	script := "#!/bin/sh\ncat \"" + filepath.Join(dir, "out") + "\"\ncat \"" + filepath.Join(dir, "err") + "\" >&2\n"
+	script := "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'opencode v2.3.2'; exit 0; fi\ncat \"" + filepath.Join(dir, "out") + "\"\ncat \"" + filepath.Join(dir, "err") + "\" >&2\n"
 	bin := filepath.Join(dir, "bin")
 	if err := os.Mkdir(bin, 0o755); err != nil {
 		t.Fatal(err)

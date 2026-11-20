@@ -13,14 +13,16 @@ const maxOpened = 500
 // maxOutputLine is the longest line of opencode's output pergent parses.
 const maxOutputLine = 16 * 1024 * 1024
 
-// NDJSON event types from `opencode run --format json` (opencode 1.19.x).
+// NDJSON event types from `opencode run --format json` (opencode 2.x).
 // Each line is {"type", "timestamp", "sessionID", ...}; the event types are
 // step_start, step_finish, text, reasoning, tool_use (completed or failed tool
 // calls only) and error.
 type openCodeEvent struct {
-	Type  string         `json:"type"`
-	Part  *openCodePart  `json:"part,omitempty"`
-	Error *openCodeError `json:"error,omitempty"`
+	Type string        `json:"type"`
+	Part *openCodePart `json:"part,omitempty"`
+	// Error is decoded apart (readError), so a badly typed error value can't
+	// hide that the line is an error event.
+	Error json.RawMessage `json:"error,omitempty"`
 }
 
 type openCodePart struct {
@@ -66,44 +68,46 @@ func (t openCodeTokens) used() int {
 	return t.Input + t.Output + t.Cache.Read + t.Cache.Write
 }
 
-type openCodeError struct {
-	Name string           `json:"name"`
-	Data *openCodeErrData `json:"data,omitempty"`
-}
+// unreadableError names an error event pergent could not read. Its name is
+// fixed text: nothing of the line, which may hold provider text, is kept.
+const unreadableError = "unreadable"
 
-type openCodeErrData struct {
-	Message     string `json:"message"`
-	StatusCode  int    `json:"statusCode,omitempty"`
-	IsRetryable bool   `json:"isRetryable,omitempty"`
-	// ResponseBody is the provider's raw HTTP body; ProviderID is set only on
-	// a ProviderAuthError.
-	ResponseBody string `json:"responseBody,omitempty"`
-	ProviderID   string `json:"providerID,omitempty"`
-}
-
-// EventError is an error event reported by opencode (a session.error).
-// ResponseBody and ProviderID are kept to classify a provider error
-// (Classify) only: the body is the provider's own text and may echo the
-// request, so it never goes into a cause, a log line or the result.
-type EventError struct {
-	Name         string
-	Message      string
-	StatusCode   int
-	IsRetryable  bool
-	ResponseBody string
-	ProviderID   string
-}
-
-func eventError(oe *openCodeError) EventError {
-	e := EventError{Name: oe.Name}
-	if oe.Data != nil {
-		e.Message = oe.Data.Message
-		e.StatusCode = oe.Data.StatusCode
-		e.IsRetryable = oe.Data.IsRetryable
-		e.ResponseBody = oe.Data.ResponseBody
-		e.ProviderID = oe.Data.ProviderID
+// readError decodes the "error" value of an error event: opencode 2's
+// {type, message, status, retryAfterMs, response: {body}}. The 1.x shape
+// ({name, data}) is not read. A field of the wrong type is left out; an
+// error that is not an object at all is "unreadable", never dropped.
+func readError(raw json.RawMessage) EventError {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil || fields == nil {
+		return EventError{Name: unreadableError}
+	}
+	var e EventError
+	json.Unmarshal(fields["type"], &e.Name)
+	json.Unmarshal(fields["message"], &e.Message)
+	json.Unmarshal(fields["status"], &e.StatusCode)
+	var resp struct {
+		Body json.RawMessage `json:"body"`
+	}
+	if json.Unmarshal(fields["response"], &resp) == nil {
+		e.ResponseBody = bodyText(resp.Body)
+	}
+	if e.Name == "" && e.Message == "" && e.StatusCode == 0 && e.ResponseBody == "" {
+		e.Name = unreadableError
 	}
 	return e
+}
+
+// EventError is an error event reported by opencode.
+type EventError struct {
+	// Name is the error's type, e.g. "provider.internal" or "unknown".
+	Name       string
+	Message    string
+	StatusCode int
+	// ResponseBody is the provider's response body. It is read only to
+	// classify the error (Classify, and a context overflow that says so only
+	// there): it is the provider's own text and may echo the request, so it
+	// never goes into a cause, a log line or the result.
+	ResponseBody string
 }
 
 // Usage is the tokens a run consumed, summed over every finished step.
@@ -147,8 +151,9 @@ type Transcript struct {
 	// reported, e.g. "read" and a file path.
 	LastTool       string
 	LastToolTarget string
-	// Opened are the paths that a completed read, grep, glob or list call
-	// worked on (its filePath or path argument), in order, at most maxOpened.
+	// Opened are the paths that a completed read, grep or glob call worked on
+	// (its path argument, or filePath), in order, at most maxOpened. opencode
+	// 2 has no list tool: read lists a directory.
 	// A call opencode refused (a denied read) ended in the error state and is
 	// not counted. A call with no path argument is not counted either: it
 	// worked on the working directory.
@@ -183,7 +188,7 @@ func (t Transcript) LastError() *EventError {
 // the real error with a generic one ("Unexpected server error").
 func (t Transcript) RootError() *EventError {
 	for i := range t.Errors {
-		if t.Errors[i].Name == "ContextOverflowError" {
+		if t.Errors[i].ContextOverflow() {
 			return &t.Errors[i]
 		}
 	}
@@ -221,6 +226,14 @@ func ParseOutput(stdout []byte) Transcript {
 		}
 		var event openCodeEvent
 		if err := json.Unmarshal(line, &event); err != nil {
+			// A line that is not an event is skipped, but an error event
+			// that can't be read still fails the run.
+			var probe struct {
+				Type string `json:"type"`
+			}
+			if json.Unmarshal(line, &probe) == nil && probe.Type == "error" {
+				t.Errors = append(t.Errors, EventError{Name: unreadableError})
+			}
 			continue
 		}
 
@@ -303,7 +316,7 @@ func ParseOutput(stdout []byte) Transcript {
 				t.LastToolTarget = toolTarget(event.Part.State.Input)
 				if event.Part.State.Status == "completed" && len(t.Opened) < maxOpened {
 					switch event.Part.Tool {
-					case "read", "grep", "glob", "list":
+					case "read", "grep", "glob":
 						if p := openedPath(event.Part.State.Input); p != "" {
 							t.Opened = append(t.Opened, p)
 						}
@@ -312,10 +325,7 @@ func ParseOutput(stdout []byte) Transcript {
 			}
 
 		case "error":
-			if event.Error == nil {
-				continue
-			}
-			t.Errors = append(t.Errors, eventError(event.Error))
+			t.Errors = append(t.Errors, readError(event.Error))
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -339,8 +349,8 @@ func isFinalReason(reason string) bool {
 	return true
 }
 
-// openedPath is the file or directory a read, grep, glob or list call was
-// pointed at: its filePath or path argument, not its pattern.
+// openedPath is the file or directory a read, grep or glob call was
+// pointed at: its path or filePath argument, not its pattern.
 func openedPath(input map[string]any) string {
 	for _, key := range []string{"filePath", "path"} {
 		if v, ok := input[key].(string); ok && v != "" {
@@ -379,6 +389,16 @@ func stripThinkTags(s string) string {
 		}
 		s = after
 	}
+}
+
+// bodyText is a response body as text: a JSON string is unquoted, anything
+// else is kept as it is.
+func bodyText(raw json.RawMessage) string {
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	return string(raw)
 }
 
 // outputBytes is the length of a tool result: the decoded string when it is a

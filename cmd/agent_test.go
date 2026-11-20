@@ -1213,6 +1213,20 @@ func TestParseAgent_ChangeDescriptionFromEnv(t *testing.T) {
 	}
 }
 
+// A bad PERGENT_OPENCODE_ENV is a usage error: the hatch must not reopen
+// what pergent strips or sets.
+func TestRunAgent_BadExtraEnvIsUsage(t *testing.T) {
+	repo, base, head := agentRepo(t, nil)
+	var stdout, stderr bytes.Buffer
+	env := agentEnv(map[string]string{"PERGENT_OPENCODE_ENV": "OPENCODE_CONFIG_DIR"})
+	if code := runAgent(context.Background(), agentArgs(repo, base, head, oneSkill(t)), env, &stdout, &stderr, nil); code != 2 {
+		t.Fatalf("exit code = %d, want 2; stderr:\n%s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "PERGENT_OPENCODE_ENV") {
+		t.Errorf("stderr = %q, want the usage error naming PERGENT_OPENCODE_ENV", stderr.String())
+	}
+}
+
 func TestPrepareAgent_CIResults(t *testing.T) {
 	repo, base, head := agentRepo(t, nil)
 	dir := t.TempDir()

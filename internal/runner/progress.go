@@ -88,16 +88,18 @@ func (pw *progressWriter) formatEvent(event openCodeEvent) {
 			}
 		}
 	case "error":
-		if event.Error != nil {
-			msg := event.Error.Name
-			if event.Error.Data != nil && event.Error.Data.Message != "" {
-				// Redact before cutting, so a key across the cut can't print in part.
-				msg = truncate(redact.String(event.Error.Data.Message), 120)
-			}
-			pw.printf("  Error: %s\n", redact.String(msg))
-			if pw.onError != nil {
-				pw.onError(eventError(event.Error))
-			}
+		e := readError(event.Error)
+		msg := e.Name
+		if msg == "" {
+			msg = "error"
+		}
+		if e.Message != "" {
+			// Redact before cutting, so a key across the cut can't print in part.
+			msg = truncate(redact.String(e.Message), 120)
+		}
+		pw.printf("  Error: %s\n", redact.String(msg))
+		if pw.onError != nil {
+			pw.onError(e)
 		}
 	}
 }
