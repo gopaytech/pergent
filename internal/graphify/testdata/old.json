@@ -1,0 +1,11 @@
+{
+  "directed": false,
+  "multigraph": false,
+  "graph": {},
+  "built_at_commit": "0123456789abcdef0123456789abcdef01234567",
+  "nodes": [
+    {"id": "a_go", "label": "a.go", "file_type": "code", "source_file": "a.go", "source_location": "L1"}
+  ],
+  "links": [],
+  "hyperedges": []
+}
