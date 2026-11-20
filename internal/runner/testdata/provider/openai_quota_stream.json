@@ -1,0 +1,6 @@
+{
+  "name": "APIError",
+  "statusCode": 0,
+  "message": "Quota exceeded. Check your plan and billing details.",
+  "responseBody": "{\"type\":\"error\",\"error\":{\"code\":\"insufficient_quota\"}}"
+}

@@ -1,0 +1,6 @@
+{
+  "name": "APIError",
+  "statusCode": 429,
+  "message": "Too Many Requests",
+  "responseBody": "<html><head><title>429 Too Many Requests</title></head><body><center><h1>429 Too Many Requests</h1></center></body></html>"
+}

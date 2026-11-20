@@ -428,3 +428,15 @@ func TestParseOutput_NonStringOutputKeepsEvent(t *testing.T) {
 		}
 	}
 }
+
+func TestParseOutput_ErrorKeepsBodyAndProvider(t *testing.T) {
+	tr := ParseOutput(readFixture(t, "quota_openai.ndjson"))
+	e := tr.RootError()
+	if e == nil || e.StatusCode != 429 || !strings.Contains(e.ResponseBody, `"insufficient_quota"`) {
+		t.Fatalf("got %+v", e)
+	}
+	tr = ParseOutput(readFixture(t, "auth_error.ndjson"))
+	if e := tr.RootError(); e == nil || e.ProviderID != "anthropic" {
+		t.Fatalf("got %+v", e)
+	}
+}

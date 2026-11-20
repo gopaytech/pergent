@@ -1,0 +1,6 @@
+{
+  "name": "APIError",
+  "statusCode": 402,
+  "message": "Insufficient Balance",
+  "responseBody": "{\"error\":{\"message\":\"Insufficient Balance\",\"type\":\"unknown_error\",\"param\":null,\"code\":\"invalid_request_error\"}}"
+}

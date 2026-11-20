@@ -1,0 +1,6 @@
+{
+  "name": "APIError",
+  "statusCode": 401,
+  "message": "Incorrect API key provided.",
+  "responseBody": "{\"error\":{\"message\":\"Incorrect API key provided: sk-test-****0000.\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":\"invalid_api_key\"}}"
+}

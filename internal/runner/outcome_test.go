@@ -333,3 +333,22 @@ func TestCauseMessage_TimeoutBetweenSteps(t *testing.T) {
 		}
 	}
 }
+
+func TestClassify_ProviderClassFromRootError(t *testing.T) {
+	// opencode follows the real error with its own generic one.
+	stdout := string(readFixture(t, "quota_openai.ndjson")) +
+		`{"type":"error","error":{"name":"UnknownError","data":{"message":"Unexpected server error. Check server logs for details."}}}` + "\n"
+	a := attempt{transcript: ParseOutput([]byte(stdout)), runErr: errors.New("exit status 1"), exitCode: 1}
+	_, cause := classify(a, Options{Timeout: time.Minute}, 0)
+	if cause.Kind != CauseOpencodeError || cause.ProviderClass != ClassQuota || cause.ProviderStatus != 429 {
+		t.Errorf("cause = %+v, want quota from the first error", cause)
+	}
+	if cause.Provider != "" {
+		t.Errorf("Provider = %q, want empty: an APIError names no provider", cause.Provider)
+	}
+
+	a = attempt{transcript: ParseOutput(readFixture(t, "auth_error.ndjson")), runErr: errors.New("exit status 1"), exitCode: 1}
+	if _, cause := classify(a, Options{Timeout: time.Minute}, 0); cause.ProviderClass != ClassAuth || cause.Provider != "anthropic" {
+		t.Errorf("cause = %+v, want auth from anthropic", cause)
+	}
+}

@@ -1,0 +1,5 @@
+{
+  "name": "ProviderAuthError",
+  "statusCode": 0,
+  "message": "invalid x-api-key"
+}

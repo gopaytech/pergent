@@ -18,6 +18,7 @@ import (
 	"github.com/gopaytech/pergent/internal/finding"
 	"github.com/gopaytech/pergent/internal/platform"
 	"github.com/gopaytech/pergent/internal/result"
+	"github.com/gopaytech/pergent/internal/runner"
 )
 
 // gitIn runs git in dir with a fixed identity and no user or system config.
@@ -1263,5 +1264,24 @@ func TestParseAgent_CIResultsFromEnv(t *testing.T) {
 	}
 	if in.ciPath != "/flag/ci.md" {
 		t.Errorf("ciPath = %q, want the flag to win", in.ciPath)
+	}
+}
+
+func TestAgent_MetaProviderAndModel(t *testing.T) {
+	sandboxEnv(t)
+	dir, base, head := agentRepo(t, nil)
+	run := func(context.Context, runner.Options) runner.RunResult {
+		return runner.RunResult{Status: runner.StatusFailed, Cause: &runner.Cause{
+			Kind: runner.CauseOpencodeError, ErrorName: "APIError", ErrorMessage: "quota", StatusCode: 429,
+			ProviderClass: runner.ClassQuota, ProviderStatus: 429}}
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runAgent(context.Background(), agentArgs(dir, base, head, oneSkill(t)), agentEnv(nil), &stdout, &stderr, run); code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr:\n%s", code, stderr.String())
+	}
+	r := decodeOnly(t, stdout.Bytes())
+	want := result.ProviderError{Class: "quota", Status: 429, Provider: "anthropic", Model: "some-model"}
+	if r.ProviderError == nil || *r.ProviderError != want {
+		t.Errorf("provider_error = %+v, want %+v", r.ProviderError, want)
 	}
 }
