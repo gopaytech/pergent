@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"sort"
 	"strings"
@@ -92,4 +93,24 @@ func writeFileAtomic(name string, b []byte) error {
 		return err
 	}
 	return nil
+}
+
+// readGraph reads a pergent-graph/v1 file. "" gives nil and logs nothing. A
+// file that cannot be used logs "graph: skipped: <reason>" and gives nil: the
+// review then runs as if no graph was given.
+func readGraph(path string, logger *log.Logger) *graph.File {
+	if path == "" {
+		return nil
+	}
+	f, err := graph.ReadFile(path)
+	if err != nil {
+		logger.Printf("graph: skipped: %s", strings.TrimPrefix(err.Error(), "graph: "))
+		return nil
+	}
+	short := f.Commit
+	if len(short) > 12 {
+		short = short[:12]
+	}
+	logger.Printf("graph: commit %s, %d nodes, %d edges", short, len(f.Nodes), len(f.Edges))
+	return f
 }

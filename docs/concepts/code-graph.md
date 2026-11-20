@@ -53,6 +53,30 @@ The rules that keep it safe:
 - **pergent's own ids.** Nodes are numbered `n1`, `n2`, ... in a fixed order, so no graphify id is copied, and the same input gives the same file.
 - **Calls graphify is sure of, or nearly sure.** graphify marks each call `EXTRACTED`, `INFERRED` or `AMBIGUOUS`. pergent keeps the first two and drops `AMBIGUOUS`. graphify can still miss a call (a method called on a value, for example), so the graph never proves that code has no callers.
 
+## Use it
+
+```bash
+pergent --local --skill code-review --graph graph.json
+```
+
+`--graph` works in local mode and in CI mode. Use it only when the change targets the default branch the graph was built from: on another branch the line numbers can be far off. A missing or bad file is skipped with one log line, `graph: skipped: <reason>`, and the review is the same as without the flag. A good file logs `graph: commit <sha>, <n> nodes, <m> edges`.
+
+## The hint
+
+Each batch run gets one more file, `graph-context.md`, last among its files, and one more sentence in its message. The file lists, for each changed file:
+
+- the files that import it,
+- for each symbol the change touches (found from the old-side lines of each hunk): its callers, and the functions it calls, as `name  file:line`. A method shows as `Type.Method`.
+
+The rules:
+
+- At most 10 callers and 10 callees per symbol, and about 2,000 tokens per file. Callers are kept first, then the importing files, then the callees, because the diff already shows part of what the changed code calls. When something is left out, the last line says how many entries were left out.
+- A symbol with nothing to list is left out, and a batch with nothing to list gets no file. The hint never says that code has no callers, because the graph can miss a call.
+- Entries in files the read rules deny are left out. In agent mode that is the hardened set.
+- A renamed file is looked up under its old path, because the graph is from the default branch.
+- Only batch runs get the hint. The repair, cross-batch, verification and impact runs do not.
+- The hint never changes a verdict or the batches. If it cannot be written, the run goes on without it, a warning goes to the log, and the skill gets the note `The code graph hint could not be attached to every run.`
+
 ## Limits
 
 A `pergent-graph/v1` file is at most 64 MiB, when it is written and when it is read. graphify's `graph.json` is read up to 512 MiB.
