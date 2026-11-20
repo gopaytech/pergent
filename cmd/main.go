@@ -36,6 +36,9 @@ func main() {
 		agentMain(os.Args[2:])
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "graph" {
+		os.Exit(graphMain(os.Args[2:], os.Stderr))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "--version" {
 		fmt.Println("pergent", version)
 		return
