@@ -259,12 +259,15 @@ func TestMain_GraphFlagInLocalMode(t *testing.T) {
 	if err := os.Mkdir(bin, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// pergent clears the environment for opencode, so the capture folder is
+	// written into the stub, not passed as a variable.
+	capDir := t.TempDir()
 	// The stub keeps its arguments, a copy of the config and the last file.
 	script := "#!/bin/sh\n" +
-		"for a in \"$@\"; do printf '%s\\n' \"$a\"; done > \"$PERGENT_TEST_CAPTURE/args\"\n" +
-		"cp \"$OPENCODE_CONFIG\" \"$PERGENT_TEST_CAPTURE/config\"\n" +
+		"for a in \"$@\"; do printf '%s\\n' \"$a\"; done > \"" + capDir + "/args\"\n" +
+		"cp \"$OPENCODE_CONFIG\" \"" + capDir + "/config\"\n" +
 		"last=''; prev=''; for a in \"$@\"; do if [ \"$prev\" = --file ]; then last=$a; fi; prev=$a; done\n" +
-		"cp \"$last\" \"$PERGENT_TEST_CAPTURE/last\"\n" +
+		"cp \"$last\" \"" + capDir + "/last\"\n" +
 		"cat <<'EOF'\n" + ndjson + "EOF\n"
 	if err := os.WriteFile(filepath.Join(bin, "opencode"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
@@ -277,13 +280,14 @@ func TestMain_GraphFlagInLocalMode(t *testing.T) {
 	}
 	run := func(t *testing.T, flags string) capture {
 		t.Helper()
-		capDir := t.TempDir()
+		for _, f := range []string{"args", "config", "last"} {
+			os.Remove(filepath.Join(capDir, f))
+		}
 		cmd := exec.Command(os.Args[0], "-test.run=^TestMain_GraphFlagInLocalMode$")
 		cmd.Env = append(os.Environ(),
 			"PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
 			"PERGENT_TEST_GRAPH_REPO="+repo,
 			"PERGENT_TEST_GRAPH_FLAGS="+flags,
-			"PERGENT_TEST_CAPTURE="+capDir,
 			"OPENCODE_PROVIDER=anthropic",
 			"OPENCODE_MODEL=claude-sonnet-4",
 		)
