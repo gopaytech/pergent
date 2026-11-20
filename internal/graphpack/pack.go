@@ -3,9 +3,14 @@
 // import the changed files, from a pergent-graph/v1 file of the default
 // branch.
 //
+// Callers in test files (isTestFile) are listed after the others, so tests
+// do not take the slots of the callers that run in production.
+//
 // The hint never says that code has no callers: a graph can miss a call, and
 // a claim of none could make the model skip a check. A symbol with nothing
-// to list is left out, and a batch with nothing to list gets no hint.
+// to list is left out, and a batch with nothing to list gets no hint. When
+// the cap leaves callers out, the list says how many, and how many of them
+// are in test files.
 package graphpack
 
 import (
@@ -143,6 +148,7 @@ type fileSection struct {
 type symSection struct {
 	heading          string
 	callers, callees []string // entry texts, sorted and capped
+	callerNote       string   // the line after the callers when the cap cut some, or ""
 }
 
 // entry is one line the fill may keep; parts are the headings it opens.
@@ -186,14 +192,14 @@ func (ix *Index) Build(changes []Change, hardened bool) Pack {
 		}
 		sort.Strings(fs.importers)
 		for _, n := range ix.touched(p, lines[p]) {
-			callers, cutA := ix.list(ix.callers[n.ID], denied)
-			callees, cutB := ix.list(ix.callees[n.ID], denied)
+			callers, cutA, cutTests := ix.list(ix.callers[n.ID], denied, true)
+			callees, cutB, _ := ix.list(ix.callees[n.ID], denied, false)
 			pack.Cut += cutA + cutB
 			if len(callers) == 0 && len(callees) == 0 {
 				continue
 			}
 			heading := fmt.Sprintf("%s (%s, line %d)", ix.display(n), n.Kind, n.Line)
-			fs.symbols = append(fs.symbols, symSection{heading: heading, callers: callers, callees: callees})
+			fs.symbols = append(fs.symbols, symSection{heading: heading, callers: callers, callees: callees, callerNote: callerNote(cutA, cutTests)})
 		}
 		if len(fs.importers) > 0 || len(fs.symbols) > 0 {
 			files = append(files, fs)
@@ -201,10 +207,15 @@ func (ix *Index) Build(changes []Change, hardened bool) Pack {
 	}
 
 	// Fill in priority order: callers, then importers, then callees. The
-	// first entry that does not fit ends the fill.
+	// first entry that does not fit ends the fill. A caller note costs as
+	// part of the "Called by:" heading, so it is kept with the first caller.
 	var queue []entry
+	notes := map[string]string{}
 	for _, f := range files {
 		for _, s := range f.symbols {
+			if s.callerNote != "" {
+				notes["a:"+f.path+"\x00"+s.heading] = s.callerNote
+			}
 			for _, c := range s.callers {
 				queue = append(queue, entry{c, []string{"f:" + f.path, "s:" + f.path + "\x00" + s.heading, "a:" + f.path + "\x00" + s.heading}})
 			}
@@ -229,7 +240,7 @@ func (ix *Index) Build(changes []Change, hardened bool) Pack {
 		cost := len("- " + e.text + "\n")
 		for _, part := range e.parts {
 			if !opened[part] {
-				cost += partBytes(part)
+				cost += partBytes(part) + noteBytes(notes[part])
 			}
 		}
 		if used+cost > maxBytes {
@@ -269,8 +280,8 @@ func (ix *Index) Build(changes []Change, hardened bool) Pack {
 			}
 			pack.Symbols++
 			b.WriteString("\n### " + s.heading + "\n")
-			writeList(&b, "Called by:", "a:"+key, s.callers, opened, kept)
-			writeList(&b, "Calls:", "b:"+key, s.callees, opened, kept)
+			writeList(&b, "Called by:", "a:"+key, s.callers, s.callerNote, opened, kept)
+			writeList(&b, "Calls:", "b:"+key, s.callees, "", opened, kept)
 		}
 	}
 	if pack.Cut > 0 {
@@ -280,7 +291,7 @@ func (ix *Index) Build(changes []Change, hardened bool) Pack {
 	return pack
 }
 
-func writeList(b *strings.Builder, title, part string, items []string, opened, kept map[string]bool) {
+func writeList(b *strings.Builder, title, part string, items []string, note string, opened, kept map[string]bool) {
 	if !opened[part] {
 		return
 	}
@@ -290,6 +301,33 @@ func writeList(b *strings.Builder, title, part string, items []string, opened, k
 			b.WriteString("- " + it + "\n")
 		}
 	}
+	if note != "" {
+		b.WriteString("\n" + note + "\n")
+	}
+}
+
+// noteBytes is the size of a note as writeList writes it.
+func noteBytes(note string) int {
+	if note == "" {
+		return 0
+	}
+	return len("\n" + note + "\n")
+}
+
+// callerNote says how many callers the cap left out, and how many of them
+// are in test files. It is "" when the cap left none out.
+func callerNote(cut, tests int) string {
+	if cut == 0 {
+		return ""
+	}
+	s := strconv.Itoa(cut) + " more callers were left out"
+	if cut == 1 {
+		s = "1 more caller was left out"
+	}
+	if tests > 0 {
+		s += " (" + strconv.Itoa(tests) + " in test files)"
+	}
+	return s + "."
 }
 
 // partBytes is the size of the heading a part opens, as Build writes it.
@@ -384,9 +422,11 @@ func rank(kind string) int {
 }
 
 // list returns the entry texts of ids, in files the rules allow, sorted by
-// (file, line, name), each node once, capped at MaxPerSymbol, and how many
-// the cap left out.
-func (ix *Index) list(ids []string, denied func(string) bool) ([]string, int) {
+// (file, line, name), each node once, capped at MaxPerSymbol, how many
+// the cap left out and how many of those are in test files. With
+// testsLast, nodes in test files come after the others, each group still in
+// that order.
+func (ix *Index) list(ids []string, denied func(string) bool, testsLast bool) ([]string, int, int) {
 	seen := map[string]bool{}
 	var nodes []graph.Node
 	for _, id := range ids {
@@ -397,17 +437,29 @@ func (ix *Index) list(ids []string, denied func(string) bool) ([]string, int) {
 		seen[id] = true
 		nodes = append(nodes, n)
 	}
-	sort.Slice(nodes, func(i, j int) bool { return nodeLess(nodes[i], nodes[j]) })
-	cut := 0
+	sort.Slice(nodes, func(i, j int) bool {
+		if testsLast {
+			if ti, tj := isTestFile(nodes[i].File), isTestFile(nodes[j].File); ti != tj {
+				return tj
+			}
+		}
+		return nodeLess(nodes[i], nodes[j])
+	})
+	cut, cutTests := 0, 0
 	if len(nodes) > MaxPerSymbol {
 		cut = len(nodes) - MaxPerSymbol
+		for _, n := range nodes[MaxPerSymbol:] {
+			if isTestFile(n.File) {
+				cutTests++
+			}
+		}
 		nodes = nodes[:MaxPerSymbol]
 	}
 	out := make([]string, len(nodes))
 	for i, n := range nodes {
 		out[i] = fmt.Sprintf("%s  %s:%d", ix.display(n), n.File, n.Line)
 	}
-	return out, cut
+	return out, cut, cutTests
 }
 
 // display names a node: Type.Method for a method a type contains.

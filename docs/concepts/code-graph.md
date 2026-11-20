@@ -71,6 +71,18 @@ Each batch run gets one more file, `graph-context.md`, last among its files, and
 The rules:
 
 - At most 10 callers and 10 callees per symbol, and about 2,000 tokens per file. Callers are kept first, then the importing files, then the callees, because the diff already shows part of what the changed code calls. When something is left out, the last line says how many entries were left out.
+- Callers in test files come after the other callers, so tests do not take the 10 slots from the code that calls the symbol in production. Each group is in file, line and name order. Callees keep that order only, because code outside the tests rarely calls into test files.
+- When a symbol has more than 10 callers, a line after its callers says how many were left out and how many of them are in test files, for example `5 more callers were left out (5 in test files).`
+- A file is a test file by its path alone:
+
+  | Language | Test file |
+  | --- | --- |
+  | Go | `*_test.go` |
+  | Python | `test_*.py`, `*_test.py` |
+  | JavaScript, TypeScript | `*.test.js`, `*.spec.js`, and the same for `.jsx`, `.ts` and `.tsx` |
+  | Any | a file under a folder named `test`, `tests` or `__tests__` |
+
+  Names match as written, so `Test/` and `testdata/` are not test folders.
 - A symbol with nothing to list is left out, and a batch with nothing to list gets no file. The hint never says that code has no callers, because the graph can miss a call.
 - Entries in files the read rules deny are left out. In agent mode that is the hardened set.
 - A renamed file is looked up under its old path, because the graph is from the default branch.

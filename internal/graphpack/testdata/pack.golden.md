@@ -12,6 +12,7 @@ Imported by:
 Called by:
 - Call  client.go:5
 - Server.Run  server.go:20
+- BenchmarkDispatch  bench_test.go:8
 
 Calls:
 - m1  many.go:10

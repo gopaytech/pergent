@@ -63,21 +63,24 @@ func (b *builder) index(t *testing.T) *Index {
 }
 
 // goldenGraph: server.go holds Server (type), Dispatch and Server.Run;
-// client.go imports server.go and Call calls Dispatch; Dispatch calls
-// helper in util.go and 5 functions in many.go.
+// client.go imports server.go and Call calls Dispatch, and so does
+// BenchmarkDispatch in bench_test.go; Dispatch calls helper in util.go and
+// 5 functions in many.go.
 func goldenGraph() *builder {
 	b := newBuilder().
-		file("server.go").file("client.go").file("util.go").file("many.go").
+		file("server.go").file("client.go").file("util.go").file("many.go").file("bench_test.go").
 		node("Server", graph.KindType, "Server", "server.go", 3, 0).
 		node("Dispatch", graph.KindFunction, "Dispatch", "server.go", 10, 0).
 		node("Run", graph.KindMethod, "Run", "server.go", 20, 0).
 		node("Call", graph.KindFunction, "Call", "client.go", 5, 0).
 		node("helper", graph.KindFunction, "helper", "util.go", 3, 0).
+		node("BenchmarkDispatch", graph.KindFunction, "BenchmarkDispatch", "bench_test.go", 8, 0).
 		edge("server.go", graph.EdgeContains, "Server").
 		edge("server.go", graph.EdgeContains, "Dispatch").
 		edge("Server", graph.EdgeContains, "Run").
 		edge("Run", graph.EdgeCalls, "Dispatch").
 		edge("Call", graph.EdgeCalls, "Dispatch").
+		edge("BenchmarkDispatch", graph.EdgeCalls, "Dispatch").
 		edge("client.go", graph.EdgeImports, "server.go").
 		edge("Dispatch", graph.EdgeCalls, "helper")
 	for i := 1; i <= 5; i++ {
@@ -100,6 +103,7 @@ func TestBuild_Golden(t *testing.T) {
 	maxBytes = len(headerText(commit)) + len(cutReserve) +
 		len("\n## server.go\n") + len("\n### Dispatch (function, line 10)\n") +
 		len("\nCalled by:\n") + len("- Call  client.go:5\n") + len("- Server.Run  server.go:20\n") +
+		len("- BenchmarkDispatch  bench_test.go:8\n") +
 		len("\nImported by:\n") + len("- client.go\n") +
 		len("\nCalls:\n") + len("- m1  many.go:10\n")
 	defer func() { maxBytes = old }()
@@ -118,8 +122,8 @@ func TestBuild_Golden(t *testing.T) {
 	if p.Text != string(want) {
 		t.Errorf("pack differs from %s:\n%s", golden, p.Text)
 	}
-	if p.Symbols != 1 || p.Entries != 4 || p.Cut != 5 {
-		t.Errorf("Pack = %d symbols, %d entries, %d cut; want 1, 4, 5", p.Symbols, p.Entries, p.Cut)
+	if p.Symbols != 1 || p.Entries != 5 || p.Cut != 5 {
+		t.Errorf("Pack = %d symbols, %d entries, %d cut; want 1, 5, 5", p.Symbols, p.Entries, p.Cut)
 	}
 }
 
@@ -224,6 +228,104 @@ func TestBuild_Caps(t *testing.T) {
 	}
 	if !strings.HasSuffix(p.Text, "\n10 more entries were left out to keep this file short.\n") || p.Cut != 10 {
 		t.Errorf("Cut = %d, text ends:\n%s", p.Cut, p.Text[len(p.Text)-80:])
+	}
+	if !strings.Contains(p.Text, "- in10  b.go:10\n\n5 more callers were left out.\n\nCalls:\n") {
+		t.Errorf("no caller note after the 10th caller:\n%s", p.Text)
+	}
+	if strings.Contains(p.Text, "more callees") || strings.Count(p.Text, "callers were left out") != 1 {
+		t.Errorf("a note for the callees, or more than one note:\n%s", p.Text)
+	}
+}
+
+// testCallers gives F in a.go real callers in b.go and test callers in
+// a_test.go, which sorts before b.go.
+func testCallers(t *testing.T, real, tests int) *Index {
+	t.Helper()
+	b := newBuilder().file("a.go").file("a_test.go").file("b.go").
+		node("F", graph.KindFunction, "F", "a.go", 1, 0)
+	for i := 1; i <= tests; i++ {
+		k := fmt.Sprintf("TestF%02d", i)
+		b.node(k, graph.KindFunction, k, "a_test.go", i, 0).edge(k, graph.EdgeCalls, "F")
+	}
+	for i := 1; i <= real; i++ {
+		k := fmt.Sprintf("use%02d", i)
+		b.node(k, graph.KindFunction, k, "b.go", i, 0).edge(k, graph.EdgeCalls, "F")
+	}
+	return b.index(t)
+}
+
+func TestBuild_TestCallersLast(t *testing.T) {
+	// 12 test callers sort first by file: before, they took all 10 slots
+	// and no real caller was listed.
+	p := testCallers(t, 3, 12).Build([]Change{{Path: "a.go", Patch: patchAt(1)}}, false)
+	var want strings.Builder
+	want.WriteString("\nCalled by:\n- use01  b.go:1\n- use02  b.go:2\n- use03  b.go:3\n")
+	for i := 1; i <= 7; i++ {
+		fmt.Fprintf(&want, "- TestF%02d  a_test.go:%d\n", i, i)
+	}
+	want.WriteString("\n5 more callers were left out (5 in test files).\n")
+	if !strings.Contains(p.Text, want.String()) {
+		t.Errorf("real callers are not first, or the note is wrong:\n%s\nwant a part:\n%s", p.Text, want.String())
+	}
+	if p.Entries != 10 || p.Cut != 5 {
+		t.Errorf("Entries %d, Cut %d; want 10, 5", p.Entries, p.Cut)
+	}
+}
+
+func TestBuild_CallerNote(t *testing.T) {
+	cases := []struct {
+		real, tests int
+		note        string // "" for none
+	}{
+		{12, 2, "4 more callers were left out (2 in test files)."},
+		{12, 0, "2 more callers were left out."},
+		{0, 11, "1 more caller was left out (1 in test files)."},
+		{1, 10, "1 more caller was left out (1 in test files)."},
+		{4, 6, ""},
+		{0, 3, ""},
+	}
+	for _, c := range cases {
+		p := testCallers(t, c.real, c.tests).Build([]Change{{Path: "a.go", Patch: patchAt(1)}}, false)
+		got := regexp.MustCompile(`(?m)^\d+ more caller.*$`).FindAllString(p.Text, -1)
+		if c.note == "" && len(got) != 0 || c.note != "" && (len(got) != 1 || got[0] != c.note) {
+			t.Errorf("%d real, %d tests: notes %q, want %q:\n%s", c.real, c.tests, got, c.note, p.Text)
+		}
+		if n := strings.Count(p.Text, "\n- "); n != min(c.real+c.tests, MaxPerSymbol) {
+			t.Errorf("%d real, %d tests: %d callers listed", c.real, c.tests, n)
+		}
+	}
+}
+
+func TestBuild_CallerNoteFitsBudget(t *testing.T) {
+	b := newBuilder().file("a.go").file("a_test.go").file("c.go")
+	var patch strings.Builder
+	for s := 1; s <= 5; s++ {
+		k := fmt.Sprintf("S%d", s)
+		b.node(k, graph.KindFunction, k, "a.go", s*10, 0)
+		for c := 1; c <= 12; c++ {
+			ck, file := fmt.Sprintf("%s_c%02d", k, c), "c.go"
+			if c > 8 {
+				file = "a_test.go"
+			}
+			b.node(ck, graph.KindFunction, ck, file, s*100+c, 0).edge(ck, graph.EdgeCalls, k)
+		}
+		fmt.Fprintf(&patch, "@@ -%d,1 +%d,0 @@\n-x\n", s*10, s*10)
+	}
+	ix := b.index(t)
+	changes := []Change{{Path: "a.go", Patch: patch.String()}}
+	old := maxBytes
+	defer func() { maxBytes = old }()
+	full := len(ix.Build(changes, false).Text)
+	notes := 0
+	for maxBytes = len(headerText(commit)) + len(cutReserve); maxBytes <= full+len(cutReserve); maxBytes++ {
+		p := ix.Build(changes, false)
+		if len(p.Text) > maxBytes {
+			t.Fatalf("maxBytes %d: the hint is %d bytes:\n%s", maxBytes, len(p.Text), p.Text)
+		}
+		notes += strings.Count(p.Text, "callers were left out")
+	}
+	if notes == 0 {
+		t.Fatal("no budget kept a caller note")
 	}
 }
 
