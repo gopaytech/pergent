@@ -51,6 +51,11 @@ type Cause struct {
 	StatusCode   int
 	// OtherErrors are further error events, as "Name: message".
 	OtherErrors []string
+	// ProviderClass sorts the error event (Classify; opencode_error only).
+	// ProviderStatus is its HTTP status. The provider's body is never kept
+	// here.
+	ProviderClass  ProviderClass
+	ProviderStatus int
 	// Attempts is how many times the run was started (more than 1 when
 	// transient provider errors were retried).
 	Attempts int
@@ -296,6 +301,11 @@ func classify(a attempt, opts Options, elapsed time.Duration) (Status, *Cause) {
 		c.Kind = CauseOpencodeError
 		if e.ContextOverflow() {
 			c.Kind = CauseContextOverflow
+		} else {
+			// A stop on a fallback-class error (runAttempt) does not end the
+			// caller's context, so it lands here, never as cancelled.
+			c.ProviderClass = Classify(*e)
+			c.ProviderStatus = e.StatusCode
 		}
 		for _, other := range t.Errors {
 			if other != *e {

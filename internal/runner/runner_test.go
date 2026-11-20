@@ -1097,3 +1097,92 @@ func TestRun_FailedRunKeepsSteps(t *testing.T) {
 		t.Errorf("failed run lost its steps: Steps %d, ToolTotals %+v", len(got.Steps), got.ToolTotals)
 	}
 }
+
+// A quota, billing or auth error is not started again: pergent.sh moves the
+// review to another model, and opencode already waited out its own retries.
+func TestRun_NoRelaunchForFallbackErrors(t *testing.T) {
+	shortBackoff(t)
+	for fixture, class := range map[string]ProviderClass{
+		"quota_openai.ndjson":      ClassQuota,
+		"billing_anthropic.ndjson": ClassBilling,
+		"auth_error.ndjson":        ClassAuth,
+	} {
+		t.Run(fixture, func(t *testing.T) {
+			count := fakeOpencode(t,
+				fakeAttempt{fixture: fixture, code: 1},
+				fakeAttempt{fixture: "completed.ndjson"},
+			)
+			got := Run(context.Background(), testOptions(time.Minute))
+			if got.Status != StatusFailed || got.Cause == nil {
+				t.Fatalf("Run() = %+v, want failed", got)
+			}
+			if got.Cause.ProviderClass != class || got.Cause.Attempts != 1 {
+				t.Errorf("cause = %+v, want class %q after 1 attempt", got.Cause, class)
+			}
+			if n := runCount(t, count); n != 1 {
+				t.Errorf("opencode ran %d times, want 1", n)
+			}
+		})
+	}
+}
+
+// A rate limit is not a fallback class, so it is started again like any
+// other provider error: once, since opencode 2 already retries it itself.
+func TestRun_RateLimitStillRelaunched(t *testing.T) {
+	shortBackoff(t)
+	count := fakeOpencode(t,
+		fakeAttempt{fixture: "rate_limited.ndjson", code: 1},
+		fakeAttempt{fixture: "completed.ndjson"},
+	)
+	if got := Run(context.Background(), testOptions(time.Minute)); got.Status != StatusCompleted {
+		t.Errorf("Run() = %+v, want the review from the second attempt", got)
+	}
+	if n := runCount(t, count); n != 2 {
+		t.Errorf("opencode ran %d times, want 2", n)
+	}
+
+	count = fakeOpencode(t, fakeAttempt{fixture: "rate_limited.ndjson", code: 1})
+	got := Run(context.Background(), testOptions(time.Minute))
+	if got.Cause == nil || got.Cause.ProviderClass != ClassRateLimit || got.Cause.ProviderStatus != 429 {
+		t.Errorf("cause = %+v, want rate_limit with status 429", got.Cause)
+	}
+	if n := runCount(t, count); n != maxProviderRetries+1 {
+		t.Errorf("opencode ran %d times, want %d", n, maxProviderRetries+1)
+	}
+}
+
+func TestRun_StopsOnQuotaError(t *testing.T) {
+	// The fake prints the quota error, then hangs as if opencode kept waiting.
+	count := fakeOpencode(t, fakeAttempt{fixture: "quota_openai.ndjson", sleep: "60"})
+	start := time.Now()
+	got := Run(context.Background(), testOptions(2*time.Minute))
+	if time.Since(start) > 20*time.Second {
+		t.Fatalf("took %s, want an early stop", time.Since(start))
+	}
+	if got.Cause == nil || got.Cause.Kind != CauseOpencodeError || got.Cause.ProviderClass != ClassQuota {
+		t.Fatalf("%+v", got.Cause)
+	}
+	if n := runCount(t, count); n != 1 {
+		t.Fatalf("ran %d times", n)
+	}
+}
+
+// A rate limit is no reason to stop opencode: it may still be retrying.
+func TestRun_NoStopOnRateLimit(t *testing.T) {
+	shortBackoff(t)
+	count := fakeOpencode(t,
+		fakeAttempt{fixture: "rate_limited.ndjson", sleep: "3"},
+		fakeAttempt{fixture: "completed.ndjson"},
+	)
+	start := time.Now()
+	got := Run(context.Background(), testOptions(time.Minute))
+	if time.Since(start) < 2*time.Second {
+		t.Errorf("took %s, want opencode left to exit on its own", time.Since(start))
+	}
+	if got.Status != StatusCompleted {
+		t.Errorf("Run() = %+v, want the review from the second attempt", got)
+	}
+	if n := runCount(t, count); n != 2 {
+		t.Errorf("opencode ran %d times, want 2", n)
+	}
+}

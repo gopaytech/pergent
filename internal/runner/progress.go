@@ -17,6 +17,8 @@ type progressWriter struct {
 	w    io.Writer
 	// onStep, if set, is called with the step number at each step_start.
 	onStep func(step int)
+	// onError, if set, is called with each error event.
+	onError func(e EventError)
 	// prefix is written before every progress line; empty for none.
 	prefix string
 	// partial holds a line split across writes.
@@ -96,6 +98,9 @@ func (pw *progressWriter) formatEvent(event openCodeEvent) {
 			msg = truncate(redact.String(e.Message), 120)
 		}
 		pw.printf("  Error: %s\n", redact.String(msg))
+		if pw.onError != nil {
+			pw.onError(e)
+		}
 	}
 }
 

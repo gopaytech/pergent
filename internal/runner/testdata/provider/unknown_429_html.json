@@ -1,0 +1,8 @@
+{
+  "type": "provider.rate-limit",
+  "message": "Too Many Requests",
+  "status": 429,
+  "response": {
+    "body": "<html><head><title>429 Too Many Requests</title></head><body><center><h1>429 Too Many Requests</h1></center></body></html>"
+  }
+}

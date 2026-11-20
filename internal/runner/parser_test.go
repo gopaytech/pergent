@@ -175,7 +175,7 @@ func TestParseOutput_V2Error(t *testing.T) {
 	if e == nil {
 		t.Fatal("LastError() = nil, want the error")
 	}
-	if e.Name != "provider.internal" || e.StatusCode != 500 || e.Message != "mock internal error" || e.Body == "" {
+	if e.Name != "provider.internal" || e.StatusCode != 500 || e.Message != "mock internal error" || e.ResponseBody == "" {
 		t.Errorf("error = %+v, want provider.internal, 500, the message and a body", *e)
 	}
 }
@@ -468,5 +468,13 @@ func TestParseOutput_NonStringOutputKeepsEvent(t *testing.T) {
 		if got.ToolTotals.Read.Calls != 1 || got.ToolTotals.Read.Bytes != len(out) {
 			t.Errorf("output %s: Read = %+v, want 1 call of %d bytes", out, got.ToolTotals.Read, len(out))
 		}
+	}
+}
+
+func TestParseOutput_ErrorKeepsBody(t *testing.T) {
+	tr := ParseOutput(readFixture(t, "quota_openai.ndjson"))
+	e := tr.RootError()
+	if e == nil || e.StatusCode != 429 || !strings.Contains(e.ResponseBody, `"insufficient_quota"`) {
+		t.Fatalf("got %+v", e)
 	}
 }

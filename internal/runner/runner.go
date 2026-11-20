@@ -267,7 +267,10 @@ func Run(ctx context.Context, opts Options) RunResult {
 		if e != nil && e.ProviderError() {
 			limit = maxProviderRetries
 		}
-		retry := cause.Kind == CauseOpencodeError && e != nil && e.Transient() && n <= limit
+		// A quota, billing or auth error is not started again: opencode
+		// already waited out its own retries, and pergent.sh moves the review
+		// to another model for these.
+		retry := cause.Kind == CauseOpencodeError && e != nil && e.Transient() && !Classify(*e).Fallback() && n <= limit
 		if retry {
 			if deadline, _ := ctx.Deadline(); time.Until(deadline) <= backoff {
 				fmt.Fprintf(os.Stderr, prefix+"  Transient error, but not enough time left to retry: %s\n", redact.String(cause.Message()))
@@ -322,6 +325,15 @@ func runAttempt(ctx context.Context, opts Options) attempt {
 				fmt.Fprintf(os.Stderr, opts.logPrefix()+"  Stopping opencode: step %d is past the %d-step limit\n", step, opts.StepLimit)
 				stop()
 			}
+		}
+	}
+	// opencode prints a provider error after its own retries; one waiting
+	// will not fix (quota, billing, auth) ends the run, whatever opencode
+	// does next. The log names the class only, never the provider's text.
+	pw.onError = func(e EventError) {
+		if c := Classify(e); c.Fallback() {
+			fmt.Fprintf(os.Stderr, opts.logPrefix()+"  Stopping opencode: the provider reported a %s error\n", c)
+			stop()
 		}
 	}
 	// opencode's stderr reaches pergent's redacted and prefixed per line; the

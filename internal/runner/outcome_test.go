@@ -326,7 +326,7 @@ func TestEventError_ContextOverflow(t *testing.T) {
 		want bool
 	}{
 		{"message", EventError{Name: "provider.invalid-request", StatusCode: 400, Message: "This model's maximum context length is 1000 tokens. However, your messages resulted in 5000 tokens."}, true},
-		{"body only", EventError{Name: "provider.invalid-request", StatusCode: 400, Body: `{"error":{"code":"context_length_exceeded"}}`}, true},
+		{"body only", EventError{Name: "provider.invalid-request", StatusCode: 400, ResponseBody: `{"error":{"code":"context_length_exceeded"}}`}, true},
 		{"no status", EventError{Name: "provider.invalid-request", Message: "prompt is too long"}, true},
 		{"413", EventError{Name: "provider.invalid-request", StatusCode: 413, Message: "prompt is too long"}, true},
 		{"429 is never overflow", EventError{Name: "provider.rate-limit", StatusCode: 429, Message: "too many tokens"}, false},
@@ -456,5 +456,21 @@ func TestCause_MessagelessErrorNamesTypeOnce(t *testing.T) {
 	}
 	if strings.Contains(msg, "something.new: something.new") || strings.Contains(msg, "other.kind: other.kind") {
 		t.Errorf("Message() = %q, names a type twice", msg)
+	}
+}
+
+func TestClassify_ProviderClassFromRootError(t *testing.T) {
+	// opencode follows the real error with its own generic one.
+	stdout := string(readFixture(t, "quota_openai.ndjson")) +
+		`{"type":"error","error":{"type":"unknown","message":"Unexpected server error. Check server logs for details."}}` + "\n"
+	a := attempt{transcript: ParseOutput([]byte(stdout)), runErr: errors.New("exit status 1"), exitCode: 1}
+	_, cause := classify(a, Options{Timeout: time.Minute}, 0)
+	if cause.Kind != CauseOpencodeError || cause.ProviderClass != ClassQuota || cause.ProviderStatus != 429 {
+		t.Errorf("cause = %+v, want quota from the first error", cause)
+	}
+
+	a = attempt{transcript: ParseOutput(readFixture(t, "auth_error.ndjson")), runErr: errors.New("exit status 1"), exitCode: 1}
+	if _, cause := classify(a, Options{Timeout: time.Minute}, 0); cause.ProviderClass != ClassAuth {
+		t.Errorf("cause = %+v, want auth", cause)
 	}
 }

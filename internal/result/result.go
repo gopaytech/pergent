@@ -10,6 +10,7 @@ import (
 	"github.com/gopaytech/pergent/internal/finding"
 	"github.com/gopaytech/pergent/internal/redact"
 	"github.com/gopaytech/pergent/internal/review"
+	"github.com/gopaytech/pergent/internal/runner"
 	"github.com/gopaytech/pergent/render"
 )
 
@@ -49,7 +50,11 @@ type Result struct {
 	BudgetSeconds  int     `json:"budget_seconds,omitempty"`
 	Skills         []Skill `json:"skills,omitempty"`
 	Error          *Error  `json:"error,omitempty"`
-	Comment        Comment `json:"comment"`
+	// ProviderError is the most severe provider error in any failure (auth,
+	// billing, quota, then rate_limit), for a caller that moves the review to
+	// another model. Absent when no failure has one.
+	ProviderError *ProviderError `json:"provider_error,omitempty"`
+	Comment       Comment        `json:"comment"`
 }
 
 // Skill is one skill's review.
@@ -150,8 +155,20 @@ type Failure struct {
 
 // Cause is why a run failed.
 type Cause struct {
-	Kind    string `json:"kind"`
-	Message string `json:"message"`
+	Kind          string         `json:"kind"`
+	Message       string         `json:"message"`
+	ProviderError *ProviderError `json:"provider_error,omitempty"`
+}
+
+// ProviderError is a classified provider error: Class is quota, billing,
+// auth or rate_limit. Status is the HTTP status (0 when opencode gave none).
+// Provider and Model are pergent's own settings, or the provider the error
+// names when pergent has none. The provider's own text is never in it.
+type ProviderError struct {
+	Class    string `json:"class"`
+	Status   int    `json:"status,omitempty"`
+	Provider string `json:"provider,omitempty"`
+	Model    string `json:"model,omitempty"`
 }
 
 // Tokens is the model usage of a skill's runs. Input and Output keep their
@@ -182,6 +199,9 @@ type Meta struct {
 	PergentVersion, Base, Head string
 	Started, Finished          time.Time
 	Budget                     time.Duration
+	// Provider and Model are the run's OPENCODE_PROVIDER and OPENCODE_MODEL,
+	// used only in a ProviderError.
+	Provider, Model string
 }
 
 // Build converts the skills' results into a completed Result with finding
@@ -204,9 +224,44 @@ func Build(meta Meta, skills []review.SkillResult) Result {
 	r := baseResult(meta, StatusCompleted)
 	r.Skills = make([]Skill, 0, len(skills))
 	for _, s := range skills {
-		r.Skills = append(r.Skills, buildSkill(s, ids, deleted))
+		r.Skills = append(r.Skills, buildSkill(meta, s, ids, deleted))
 	}
+	r.ProviderError = topProviderError(r.Skills)
 	return r
+}
+
+// providerSeverity orders the provider error classes, most severe first:
+// waiting fixes none of the first three, and a refused key fixes nothing.
+var providerSeverity = map[string]int{"auth": 4, "billing": 3, "quota": 2, "rate_limit": 1}
+
+// topProviderError is the most severe provider error in the skills'
+// failures, the first in skill and batch order on a tie; nil when none has
+// one.
+func topProviderError(skills []Skill) *ProviderError {
+	var top *ProviderError
+	for _, s := range skills {
+		for _, f := range s.Failures {
+			if f.Cause == nil || f.Cause.ProviderError == nil {
+				continue
+			}
+			if top == nil || providerSeverity[f.Cause.ProviderError.Class] > providerSeverity[top.Class] {
+				top = f.Cause.ProviderError
+			}
+		}
+	}
+	if top == nil {
+		return nil
+	}
+	pe := *top
+	return &pe
+}
+
+// providerError is the classified provider error of a failed run, or nil.
+func providerError(meta Meta, c *runner.Cause) *ProviderError {
+	if c.ProviderClass == runner.ClassNone {
+		return nil
+	}
+	return &ProviderError{Class: string(c.ProviderClass), Status: c.ProviderStatus, Provider: meta.Provider, Model: meta.Model}
 }
 
 func baseResult(meta Meta, status string) Result {
@@ -230,7 +285,7 @@ func baseResult(meta Meta, status string) Result {
 // buildSkill converts one skill. deleted holds every path any skill reviewed as
 // deleted: a finding on one carries no suggestion, as exact replacement text for
 // a removed line has nothing to replace.
-func buildSkill(s review.SkillResult, ids map[string]string, deleted map[string]bool) Skill {
+func buildSkill(meta Meta, s review.SkillResult, ids map[string]string, deleted map[string]bool) Skill {
 	out := Skill{
 		Name:             s.Skill,
 		Verdict:          string(s.Verdict),
@@ -273,7 +328,7 @@ func buildSkill(s review.SkillResult, ids map[string]string, deleted map[string]
 		text := failureText(f)
 		fail := Failure{Files: nonNil(f.Files), Message: text}
 		if f.Cause != nil {
-			fail.Cause = &Cause{Kind: string(f.Cause.Kind), Message: plainText(f.Cause.Message())}
+			fail.Cause = &Cause{Kind: string(f.Cause.Kind), Message: plainText(f.Cause.Message()), ProviderError: providerError(meta, f.Cause)}
 		}
 		out.Failures = append(out.Failures, fail)
 		for _, path := range f.Files {
@@ -389,6 +444,7 @@ func redactResult(r Result) Result {
 		e.Message = redact.String(e.Message)
 		r.Error = &e
 	}
+	r.ProviderError = redactProviderError(r.ProviderError)
 	if r.Skills != nil {
 		skills := make([]Skill, len(r.Skills))
 		for i, s := range r.Skills {
@@ -474,7 +530,9 @@ func redactSkill(s Skill) Skill {
 		f.Files = redactStrings(f.Files)
 		f.Message = redact.String(f.Message)
 		if f.Cause != nil {
-			c := Cause{Kind: f.Cause.Kind, Message: redact.String(f.Cause.Message)}
+			c := *f.Cause
+			c.Message = redact.String(c.Message)
+			c.ProviderError = redactProviderError(c.ProviderError)
 			f.Cause = &c
 		}
 		failures[i] = f
@@ -482,6 +540,16 @@ func redactSkill(s Skill) Skill {
 	s.Failures = failures
 	s.Notes = redactStrings(s.Notes)
 	return s
+}
+
+func redactProviderError(pe *ProviderError) *ProviderError {
+	if pe == nil {
+		return nil
+	}
+	c := *pe
+	c.Provider = redact.String(c.Provider)
+	c.Model = redact.String(c.Model)
+	return &c
 }
 
 func redactStrings(in []string) []string {

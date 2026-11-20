@@ -89,24 +89,25 @@ func readError(raw json.RawMessage) EventError {
 		Body json.RawMessage `json:"body"`
 	}
 	if json.Unmarshal(fields["response"], &resp) == nil {
-		e.Body = bodyText(resp.Body)
+		e.ResponseBody = bodyText(resp.Body)
 	}
-	if e.Name == "" && e.Message == "" && e.StatusCode == 0 && e.Body == "" {
+	if e.Name == "" && e.Message == "" && e.StatusCode == 0 && e.ResponseBody == "" {
 		e.Name = unreadableError
 	}
 	return e
 }
 
-// EventError is an error event reported by opencode (a session.error).
+// EventError is an error event reported by opencode.
 type EventError struct {
 	// Name is the error's type, e.g. "provider.internal" or "unknown".
 	Name       string
 	Message    string
 	StatusCode int
-	// Body is the provider's response body. It is read only to classify the
-	// error (a context overflow can say so only there) and is never printed
-	// or logged: it is provider text.
-	Body string
+	// ResponseBody is the provider's response body. It is read only to
+	// classify the error (Classify, and a context overflow that says so only
+	// there): it is the provider's own text and may echo the request, so it
+	// never goes into a cause, a log line or the result.
+	ResponseBody string
 }
 
 // Usage is the tokens a run consumed, summed over every finished step.

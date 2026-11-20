@@ -59,7 +59,7 @@ func newFakeModelFor(t *testing.T, only string, turns [][]fakeCall) *fakeModel {
 	return m
 }
 
-// newFakeModel starts the server. mode is "", "error500", "overflow" or
+// newFakeModel starts the server. mode is "", "error500", "overflow", "quota" or
 // "hang" (never answers until the request's context ends).
 func newFakeModel(t *testing.T, turns [][]fakeCall, mode string) *fakeModel {
 	t.Helper()
@@ -165,6 +165,11 @@ func (m *fakeModel) handle(w http.ResponseWriter, r *http.Request, turns [][]fak
 		w.Header().Set("content-type", "application/json")
 		w.WriteHeader(400)
 		io.WriteString(w, `{"error":{"message":"This model's maximum context length is 1000 tokens. However, your messages resulted in 5000 tokens.","type":"invalid_request_error","code":"context_length_exceeded"}}`)
+		return
+	case "quota":
+		w.Header().Set("content-type", "application/json")
+		w.WriteHeader(429)
+		io.WriteString(w, `{"error":{"message":"You exceeded your current quota, please check your plan and billing details.","type":"insufficient_quota","param":null,"code":"insufficient_quota"}}`)
 		return
 	case "hang":
 		<-r.Context().Done()

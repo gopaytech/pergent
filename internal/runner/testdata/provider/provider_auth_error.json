@@ -1,0 +1,4 @@
+{
+  "type": "provider.auth",
+  "message": "invalid x-api-key"
+}

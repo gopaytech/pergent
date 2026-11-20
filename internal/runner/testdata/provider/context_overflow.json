@@ -1,0 +1,5 @@
+{
+  "type": "provider.invalid-request",
+  "message": "prompt is too long",
+  "status": 413
+}

@@ -83,7 +83,7 @@ func (e EventError) ContextOverflow() bool {
 	if e.StatusCode == 429 || (e.StatusCode != 0 && (e.StatusCode < 400 || e.StatusCode > 499)) {
 		return false
 	}
-	text := e.Message + "\n" + e.Body
+	text := e.Message + "\n" + e.ResponseBody
 	for _, p := range overflowExclusions {
 		if p.MatchString(text) {
 			return false

@@ -487,6 +487,32 @@ func TestOpencodeE2E_ProviderErrors(t *testing.T) {
 	}
 }
 
+// A used-up quota reaches the result as provider_error quota, and pergent
+// stops opencode on it and never starts the run again.
+func TestOpencodeE2E_QuotaErrorIsClassified(t *testing.T) {
+	requireOpencode(t)
+	start := time.Now()
+	m := newFakeModel(t, nil, "quota")
+	useFakeModel(t, m)
+	repo, base, head := e2eRepo(t, map[string]string{"b.go": "package a\n"})
+	res, stderr := runAgentE2E(t, repo, base, head, "--timeout", "5m")
+	t.Logf("took %s, %d model requests", time.Since(start).Round(time.Second), len(m.Requests()))
+
+	if len(res.Skills) != 1 || res.Skills[0].Verdict != "failed" || len(res.Skills[0].Failures) == 0 {
+		t.Fatalf("result = %+v, want one failed skill\nstderr:\n%s", res.Skills, stderr)
+	}
+	c := res.Skills[0].Failures[0].Cause
+	if c == nil || c.ProviderError == nil || c.ProviderError.Class != "quota" || c.ProviderError.Status != 429 {
+		t.Errorf("cause = %+v, want provider_error quota with status 429\nstderr:\n%s", c, stderr)
+	}
+	if res.ProviderError == nil || res.ProviderError.Class != "quota" {
+		t.Errorf("provider_error = %+v, want quota at the top", res.ProviderError)
+	}
+	if strings.Contains(stderr, "Retrying") || strings.Contains(stderr, "retrying") {
+		t.Errorf("stderr shows a relaunch:\n%s", stderr)
+	}
+}
+
 // The impact run proves it looked inside a clone by the paths of its completed
 // read, grep and glob calls (Transcript.Opened). The skill run of the same
 // review gets no tool calls: only the run whose prompt is the impact prompt

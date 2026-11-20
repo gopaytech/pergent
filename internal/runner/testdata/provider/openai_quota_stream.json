@@ -1,0 +1,7 @@
+{
+  "type": "provider.quota",
+  "message": "Quota exceeded. Check your plan and billing details.",
+  "response": {
+    "body": "{\"type\":\"error\",\"error\":{\"code\":\"insufficient_quota\"}}"
+  }
+}

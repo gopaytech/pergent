@@ -718,3 +718,128 @@ func TestBuildClearsSuggestionOnDeletedFile(t *testing.T) {
 		t.Error("Build changed the input finding")
 	}
 }
+
+// providerFailure is a skill whose one batch failed on a classified
+// provider error.
+func providerFailure(skill string, class runner.ProviderClass, status int) review.SkillResult {
+	return review.SkillResult{Skill: skill, Verdict: review.Failed,
+		Failures: []review.BatchFailure{{Files: []string{"a.go"}, Message: "Batch 1 of 1 failed.",
+			Cause: &runner.Cause{Kind: runner.CauseOpencodeError, ErrorName: "APIError", ErrorMessage: "provider error",
+				StatusCode: status, ProviderClass: class, ProviderStatus: status}}}}
+}
+
+func providerMeta() Meta {
+	m := testMeta()
+	m.Provider, m.Model = "openai", "gpt-x"
+	return m
+}
+
+// encodeDecode runs r through Encode, so redaction is part of what a test
+// sees, and decodes it back.
+func encodeDecode(t *testing.T, r Result) (Result, []byte) {
+	t.Helper()
+	b, err := Encode(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out Result
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatal(err)
+	}
+	return out, b
+}
+
+func TestBuild_ProviderErrorOnFailureAndTop(t *testing.T) {
+	r, _ := encodeDecode(t, Build(providerMeta(), []review.SkillResult{providerFailure("s", runner.ClassQuota, 429)}))
+	want := ProviderError{Class: "quota", Status: 429, Provider: "openai", Model: "gpt-x"}
+	if r.ProviderError == nil || *r.ProviderError != want {
+		t.Errorf("top provider_error = %+v, want %+v", r.ProviderError, want)
+	}
+	c := r.Skills[0].Failures[0].Cause
+	if c == nil || c.ProviderError == nil || *c.ProviderError != want {
+		t.Errorf("failures[0].cause = %+v, want provider_error %+v", c, want)
+	}
+}
+
+func TestBuild_ProviderErrorPriority(t *testing.T) {
+	a := providerFailure("a", runner.ClassRateLimit, 429)
+	a.Failures = append(a.Failures, providerFailure("a", runner.ClassQuota, 429).Failures[0])
+	b := providerFailure("b", runner.ClassAuth, 401)
+	b.Failures = append(b.Failures, providerFailure("b", runner.ClassBilling, 402).Failures[0])
+	r := Build(providerMeta(), []review.SkillResult{a, b})
+	if r.ProviderError == nil || r.ProviderError.Class != "auth" || r.ProviderError.Status != 401 {
+		t.Errorf("top = %+v, want auth", r.ProviderError)
+	}
+	for _, tt := range []struct {
+		classes []runner.ProviderClass
+		want    string
+	}{
+		{[]runner.ProviderClass{runner.ClassRateLimit, runner.ClassQuota, runner.ClassBilling}, "billing"},
+		{[]runner.ProviderClass{runner.ClassRateLimit, runner.ClassQuota}, "quota"},
+		{[]runner.ProviderClass{runner.ClassBilling, runner.ClassAuth}, "auth"},
+	} {
+		s := review.SkillResult{Skill: "s", Verdict: review.Failed}
+		for _, c := range tt.classes {
+			s.Failures = append(s.Failures, providerFailure("s", c, 429).Failures[0])
+		}
+		if r := Build(providerMeta(), []review.SkillResult{s}); r.ProviderError == nil || r.ProviderError.Class != tt.want {
+			t.Errorf("%v: top = %+v, want %s", tt.classes, r.ProviderError, tt.want)
+		}
+	}
+	// A tie keeps the first in skill and batch order.
+	first := providerFailure("a", runner.ClassQuota, 429)
+	second := providerFailure("b", runner.ClassQuota, 0)
+	if r := Build(providerMeta(), []review.SkillResult{first, second}); r.ProviderError == nil || r.ProviderError.Status != 429 {
+		t.Errorf("tie: top = %+v, want the first skill's", r.ProviderError)
+	}
+}
+
+func TestBuild_ProviderErrorRateLimitOnly(t *testing.T) {
+	r := Build(providerMeta(), []review.SkillResult{providerFailure("s", runner.ClassRateLimit, 429)})
+	if r.ProviderError == nil || r.ProviderError.Class != "rate_limit" {
+		t.Errorf("top = %+v, want rate_limit", r.ProviderError)
+	}
+}
+
+func TestBuild_NoProviderError(t *testing.T) {
+	plain := providerFailure("s", runner.ClassNone, 503)
+	_, b := encodeDecode(t, Build(providerMeta(), []review.SkillResult{plain, {Skill: "ok", Verdict: review.NoBlockingIssues}}))
+	if bytes.Contains(b, []byte("provider_error")) {
+		t.Errorf("result has provider_error without a classified error:\n%s", b)
+	}
+	if bytes.Contains(b, []byte("gpt-x")) || bytes.Contains(b, []byte(`"openai"`)) {
+		t.Errorf("result names the provider or model without a provider error:\n%s", b)
+	}
+	e, err := Encode(ErrorResult(providerMeta(), CodeInternal, "boom"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(e, []byte("provider_error")) {
+		t.Errorf("error result has provider_error:\n%s", e)
+	}
+}
+
+// A partial review is never approved anyway; the top-level field still
+// tells pergent.sh to move to another model.
+func TestBuild_ProviderErrorAmidPasses(t *testing.T) {
+	pass := review.SkillResult{Skill: "a", Verdict: review.NoBlockingIssues, Batches: 1, BatchesFinished: 1}
+	r := Build(providerMeta(), []review.SkillResult{pass, providerFailure("b", runner.ClassQuota, 429)})
+	if r.ProviderError == nil || r.ProviderError.Class != "quota" {
+		t.Errorf("top = %+v, want quota", r.ProviderError)
+	}
+}
+
+func TestBuild_ProviderBodyNeverInResult(t *testing.T) {
+	const marker = "BODY-MARKER-123"
+	e := runner.EventError{Name: "APIError", Message: "You exceeded your current quota.", StatusCode: 429,
+		ResponseBody: `{"error":{"code":"insufficient_quota","message":"` + marker + ` sk-echoed-key"}}`}
+	s := providerFailure("s", runner.Classify(e), e.StatusCode)
+	s.Failures[0].Cause.ErrorMessage = e.Message
+	_, b := encodeDecode(t, Build(providerMeta(), []review.SkillResult{s}))
+	if !bytes.Contains(b, []byte(`"class":"quota"`)) {
+		t.Fatalf("want the quota class:\n%s", b)
+	}
+	if bytes.Contains(b, []byte(marker)) {
+		t.Errorf("the provider's body reached the result:\n%s", b)
+	}
+}

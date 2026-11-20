@@ -1,0 +1,8 @@
+{
+  "type": "provider.auth",
+  "message": "Incorrect API key provided.",
+  "status": 401,
+  "response": {
+    "body": "{\"error\":{\"message\":\"Incorrect API key provided: sk-test-****0000.\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":\"invalid_api_key\"}}"
+  }
+}
