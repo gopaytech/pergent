@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -177,6 +178,35 @@ func TestParseOutput_V2Error(t *testing.T) {
 	}
 	if e.Name != "provider.internal" || e.StatusCode != 500 || e.Message != "mock internal error" || e.ResponseBody == "" {
 		t.Errorf("error = %+v, want provider.internal, 500, the message and a body", *e)
+	}
+}
+
+// opencode 2.3.2 prints a "retry" event, holding the error, before each of
+// its own retries (packages/cli/src/run/noninteractive.ts), and one "error"
+// event after the last. Only that one is the run's error: a retry line is
+// skipped, so an earlier quota-typed retry neither classifies the run nor
+// stops it. (opencode does not retry a quota error; the line is there to
+// show a retry line's error is never read.)
+func TestParseOutput_RetryEventsSkipped(t *testing.T) {
+	stream := readFixture(t, "retry_then_error.ndjson")
+	got := ParseOutput(stream)
+	if len(got.Errors) != 1 {
+		t.Fatalf("Errors = %+v, want only the final error", got.Errors)
+	}
+	root := got.RootError()
+	if root == nil || root.Name != "provider.rate-limit" || root.StatusCode != 429 {
+		t.Errorf("RootError() = %+v, want the final provider.rate-limit 429", root)
+	}
+	if c := Classify(*root); c != ClassRateLimit {
+		t.Errorf("Classify(RootError()) = %q, want rate_limit", c)
+	}
+
+	var seen []EventError
+	var out strings.Builder
+	pw := &progressWriter{buf: &bytes.Buffer{}, w: &out, onError: func(e EventError) { seen = append(seen, e) }}
+	pw.Write(stream)
+	if len(seen) != 1 || seen[0].Name != "provider.rate-limit" {
+		t.Errorf("onError saw %+v, want only the final provider.rate-limit error", seen)
 	}
 }
 

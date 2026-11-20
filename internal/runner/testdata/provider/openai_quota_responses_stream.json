@@ -1,0 +1,7 @@
+{
+  "type": "provider.quota",
+  "message": "insufficient_quota: You exceeded your current quota, please check your plan and billing details.",
+  "response": {
+    "body": "{\"type\":\"response.failed\",\"sequence_number\":3,\"response\":{\"id\":\"resp_0001\",\"object\":\"response\",\"status\":\"failed\",\"error\":{\"code\":\"insufficient_quota\",\"message\":\"You exceeded your current quota, please check your plan and billing details.\"}}}"
+  }
+}

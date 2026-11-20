@@ -1,5 +1,5 @@
 {
-  "type": "provider.internal",
+  "type": "provider.quota",
   "message": "Internal server error",
   "status": 500,
   "response": {

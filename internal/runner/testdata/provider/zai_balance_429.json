@@ -1,0 +1,8 @@
+{
+  "type": "provider.quota",
+  "message": "Insufficient balance or no resource package. Please recharge.",
+  "status": 429,
+  "response": {
+    "body": "{\"error\":{\"code\":\"1113\",\"message\":\"Insufficient balance or no resource package. Please recharge.\"}}"
+  }
+}
