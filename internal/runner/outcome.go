@@ -132,7 +132,11 @@ func (c Cause) Message() string {
 		if c.StatusCode != 0 {
 			name += fmt.Sprintf(" (HTTP %d)", c.StatusCode)
 		}
-		msg = fmt.Sprintf("opencode reported %s: %s", name, ensurePeriod(c.ErrorMessage))
+		if c.ErrorMessage == "" {
+			msg = fmt.Sprintf("opencode reported %s.", name)
+		} else {
+			msg = fmt.Sprintf("opencode reported %s: %s", name, ensurePeriod(c.ErrorMessage))
+		}
 		for _, other := range c.OtherErrors {
 			msg += fmt.Sprintf(" Then: %s", ensurePeriod(other))
 		}
@@ -229,12 +233,21 @@ func (e EventError) errorLabel() string {
 	return e.Name
 }
 
-// errorText is the error's message, or its type when it has none.
+// errorText is the error's message, or "" when it has none.
 func (e EventError) errorText() string {
 	if strings.TrimSpace(e.Message) == "" {
-		return e.errorLabel()
+		return ""
 	}
 	return e.Message
+}
+
+// describe is the error's type and message, or its type alone when it has
+// no message.
+func (e EventError) describe() string {
+	if m := e.errorText(); m != "" {
+		return e.errorLabel() + ": " + m
+	}
+	return e.errorLabel()
 }
 
 // attempt is one opencode process run.
@@ -286,7 +299,7 @@ func classify(a attempt, opts Options, elapsed time.Duration) (Status, *Cause) {
 		}
 		for _, other := range t.Errors {
 			if other != *e {
-				c.OtherErrors = append(c.OtherErrors, other.errorLabel()+": "+other.errorText())
+				c.OtherErrors = append(c.OtherErrors, other.describe())
 			}
 		}
 		return StatusFailed, &c

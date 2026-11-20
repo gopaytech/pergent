@@ -43,10 +43,10 @@ func CheckOpencodeVersion(ctx context.Context) (warning string, err error) {
 		if errors.Is(runErr, exec.ErrNotFound) {
 			return "", fmt.Errorf("opencode was not found on PATH; pergent needs opencode %s or later", MinOpencodeVersion)
 		}
-		if len(versionRE.Find(out)) == 0 {
-			return "", fmt.Errorf("could not read the opencode version: opencode --version failed: %s%s",
-				redact.String(runErr.Error()), versionSample(string(out)))
-		}
+		// A failed run is refused even if it printed a version: a broken
+		// binary must not pass the check before any review.
+		return "", fmt.Errorf("could not read the opencode version: opencode --version failed: %s%s",
+			redact.String(runErr.Error()), versionSample(string(out)))
 	}
 	return checkVersionOutput(string(out))
 }

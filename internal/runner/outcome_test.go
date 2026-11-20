@@ -441,3 +441,20 @@ func TestParseOutput_NonErrorBadLineIsSkipped(t *testing.T) {
 		t.Errorf("Errors = %+v, want none: only an unreadable error event fails a run", got.Errors)
 	}
 }
+
+// An error with a type and no message names the type once, not "X: X".
+func TestCause_MessagelessErrorNamesTypeOnce(t *testing.T) {
+	a := attempt{
+		transcript: ParseOutput([]byte(`{"type":"error","error":{"type":"something.new"}}` + "\n" +
+			`{"type":"error","error":{"type":"other.kind"}}` + "\n")),
+		runErr: errors.New("exit status 1"), exitCode: 1,
+	}
+	_, cause := classify(a, Options{Timeout: time.Minute}, 0)
+	msg := cause.Message()
+	if !strings.HasPrefix(msg, "opencode reported something.new. Then: other.kind.") {
+		t.Errorf("Message() = %q, want each type named once", msg)
+	}
+	if strings.Contains(msg, "something.new: something.new") || strings.Contains(msg, "other.kind: other.kind") {
+		t.Errorf("Message() = %q, names a type twice", msg)
+	}
+}

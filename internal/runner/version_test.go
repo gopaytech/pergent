@@ -1,6 +1,10 @@
 package runner
 
 import (
+	"context"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -59,5 +63,22 @@ func TestCheckVersionOutput_SampleIsRedactedAndShort(t *testing.T) {
 	_, err := checkVersionOutput("Bearer abcdefghijklmnopqrstuvwxyz0123456789 " + strings.Repeat("x", 500))
 	if err == nil || strings.Contains(err.Error(), "abcdefghijklmnopqrstuvwxyz") || len(err.Error()) > 300 {
 		t.Errorf("error = %v, want a short redacted sample", err)
+	}
+}
+
+// A failing `opencode --version` is refused even when its output holds a
+// version: a broken binary must not pass the check before any review.
+func TestCheckOpencodeVersion_FailingRunIsRefused(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake opencode is a shell script")
+	}
+	bin := t.TempDir()
+	script := "#!/bin/sh\necho 'opencode 2.3.2'\necho 'error: please update to 2.5.0' >&2\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(bin, "opencode"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	if _, err := CheckOpencodeVersion(context.Background()); err == nil || !strings.Contains(err.Error(), "opencode --version failed") {
+		t.Errorf("CheckOpencodeVersion() error = %v, want the failed run refused", err)
 	}
 }
