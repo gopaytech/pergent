@@ -36,7 +36,7 @@ func graphMain(args []string, stderr io.Writer) int {
 	fs := flag.NewFlagSet("pergent graph convert", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	provider := fs.String("provider", graphify.Provider, "The graph provider")
-	in := fs.String("in", "", "The provider's output folder (graphify: the folder that holds graph.json, graphify-out by default)")
+	in := fs.String("in", "", "The provider's output folder (graphify: the folder that holds graph.json, or the one given to graphify extract --out)")
 	out := fs.String("out", "", "The pergent-graph/v1 file to write")
 	commit := fs.String("commit", "", "The full commit SHA the graph was built from (needed when the provider did not record it)")
 	if err := fs.Parse(args[1:]); err != nil {

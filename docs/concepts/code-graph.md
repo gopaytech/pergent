@@ -26,7 +26,7 @@ pergent does not build the graph. A provider does, and `pergent graph convert` t
      --commit "$(git -C <repo> rev-parse HEAD)"
    ```
 
-`--in` is the folder that holds graphify's `graph.json`. `--provider` is `graphify` by default.
+`--in` is the folder that holds graphify's `graph.json`, or the folder you gave to graphify's `--out` (pergent then reads `graphify-out/graph.json` in it). `--provider` is `graphify` by default.
 
 `--commit` is the full commit SHA the graph was built from. graphify records the commit of the git repository that holds its output folder, and records none when that folder is not in a git repository. So pass `--commit` when the checkout has no `.git` or when `--out` is outside the checkout. Without it and without a recorded commit, the convert fails with `no commit: pass --commit`.
 

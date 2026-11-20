@@ -12,8 +12,10 @@ package graphify
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -131,11 +133,18 @@ func fail(format string, a ...any) error {
 	return fmt.Errorf("graphify: graph.json: "+format, a...)
 }
 
-// Convert reads dir/graph.json (graphify's output folder, graphify-out by
-// default) and returns it as a pergent-graph/v1 file.
+// Convert reads dir/graph.json and returns it as a pergent-graph/v1 file.
+// dir is the folder that holds graph.json (graphify-out), or the folder
+// given to graphify extract --out, which holds graphify-out/graph.json.
 func Convert(dir string, opts Options) (*graph.File, Stats, error) {
 	var st Stats
-	in, err := read(filepath.Join(dir, "graph.json"))
+	name := filepath.Join(dir, "graph.json")
+	if _, err := os.Stat(name); errors.Is(err, fs.ErrNotExist) {
+		if _, err := os.Stat(filepath.Join(dir, "graphify-out", "graph.json")); err == nil {
+			name = filepath.Join(dir, "graphify-out", "graph.json")
+		}
+	}
+	in, err := read(name)
 	if err != nil {
 		return nil, st, err
 	}

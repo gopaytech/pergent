@@ -460,3 +460,27 @@ func TestConvert_RealGraphify(t *testing.T) {
 		t.Errorf("Stats = %+v, want some dropped", st)
 	}
 }
+
+// TestConvert_OutFolder: graphify extract --out <dir> writes
+// <dir>/graphify-out/graph.json, so --in may be graphify's --out folder too.
+func TestConvert_OutFolder(t *testing.T) {
+	m, _ := fixture(t)
+	inner := writeDir(t, m)
+	out := t.TempDir()
+	if err := os.Rename(inner, filepath.Join(out, "graphify-out")); err != nil {
+		t.Fatal(err)
+	}
+	f, _, err := Convert(out, Options{Now: fixedNow})
+	if err != nil || len(f.Nodes) == 0 {
+		t.Fatalf("Convert(<out>) = %v, %v", f, err)
+	}
+	g, _, err := Convert(filepath.Join(out, "graphify-out"), Options{Now: fixedNow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, _ := f.Encode()
+	b, _ := g.Encode()
+	if string(a) != string(b) {
+		t.Error("the two folders gave different graphs")
+	}
+}
