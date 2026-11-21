@@ -19,6 +19,12 @@
 
 The spec names the package `internal/rule` and the folder `internal/rule/builtin/`. Go does not let pergent.sh import an `internal/` package of another module, and pergent.sh must check rule sets with the same loader. So the package is the public `rule/` and the folder `rule/builtin/`. Like `scope/`, it imports no pergent `internal/` package, and its error strings are a contract.
 
+## Owner decisions (2026-11-21)
+
+- The result shape is `files.rules: [{path, rule}]` (Task 8).
+- `rule.Hash` covers the entries only. pergent.sh hashes it with the built-in switch in PR 1, and adds the image in PR 2.
+- API reviews in pergent.sh use the admin defaults. Nothing changes here: agent mode takes whatever list it is given.
+
 ## Checked facts (origin/master `28037b6`, 2026-11-21)
 
 | Question | Answer | Where |
@@ -243,7 +249,7 @@ The spec names the package `internal/rule` and the folder `internal/rule/builtin
 - Consumes: `review.SkillResult.FileRules`.
 - Produces: `type FileRule struct{ Path string \`json:"path"\`; Rule string \`json:"rule"\` }`; `Files.Rules []FileRule \`json:"rules,omitempty"\``; `type Rules struct{ BuiltIn bool \`json:"built_in"\`; Entries int \`json:"entries"\` }`; `Result.Rules *Rules \`json:"rules,omitempty"\``; `Meta.Rules *Rules` (Build copies it). `schema_version` stays 1.
 
-The spec says "each file entry of a skill gets `rule`", but `files.reviewed` is a list of strings. Adding `files.rules` (path and rule, only files that had one) keeps schema 1 and every reader working, the same way `files.renamed` was added. The owner confirms this shape when reviewing the plan.
+The spec says "each file entry of a skill gets `rule`", but `files.reviewed` is a list of strings. Owner decision (2026-11-21): add `files.rules: [{path, rule}]` next to `files.reviewed`, only for files that had a rule; `schema_version` stays 1, the same way `files.renamed` was added.
 
 - [ ] **Step 1: Write the failing tests:** `TestFileRulesSurviveEncode` (`Build` then `Encode` then decode: `files.rules == [{"path":"a.go","rule":"repo:**/*.go"}]`); `TestFileRulesRedacted` (a token in a path and in a glob is `[REDACTED]` in both fields); `TestRulesObject` (`Meta.Rules{BuiltIn: true, Entries: 7}` gives `"rules":{"built_in":true,"entries":7}`; `Meta.Rules == nil` gives no key; an `ErrorResult` has no key); `TestNoFileRulesNoKey` (no `rules` key under `files`).
 - [ ] **Step 2: Run** — `go test ./internal/result/ -count=1`. Expected: FAIL.
