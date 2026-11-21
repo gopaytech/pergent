@@ -131,8 +131,10 @@ func (r *reviewer) verify(ctx context.Context, s skill.Skill, res *SkillResult) 
 	r.verifyWith(ctx, s, res, runMode{})
 }
 
-// verifyWith is verify with a run mode: a panel member's model and key.
-func (r *reviewer) verifyWith(ctx context.Context, s skill.Skill, res *SkillResult, mode runMode) {
+// verifyWith is verify with a run mode: a panel member's model and key. It
+// reports whether the run started and failed, with the run's cause (nil when
+// none was reported), so a panel can carry a provider error with its role.
+func (r *reviewer) verifyWith(ctx context.Context, s skill.Skill, res *SkillResult, mode runMode) (failed bool, cause *runner.Cause) {
 	var blocking []verifyFinding
 	for _, f := range res.Findings {
 		if f.Severity == finding.Blocking {
@@ -142,11 +144,11 @@ func (r *reviewer) verifyWith(ctx context.Context, s skill.Skill, res *SkillResu
 		}
 	}
 	if len(blocking) == 0 {
-		return
+		return false, nil
 	}
 	if time.Until(r.deadline) < verifyMinRemaining {
 		res.Notes = append(res.Notes, fmt.Sprintf("Verification skipped: less than %s of the review budget was left; blocking findings are unverified.", verifyMinRemaining))
-		return
+		return false, nil
 	}
 	fail := func(format string, args ...any) {
 		res.Notes = append(res.Notes, "Verification failed: "+fmt.Sprintf(format, args...))
@@ -155,18 +157,18 @@ func (r *reviewer) verifyWith(ctx context.Context, s skill.Skill, res *SkillResu
 	data, err := json.MarshalIndent(map[string][]verifyFinding{"findings": blocking}, "", "  ")
 	if err != nil {
 		fail("could not encode the findings: %v", err)
-		return
+		return false, nil
 	}
 	dir, err := os.MkdirTemp("", "pergent-verify-*")
 	if err != nil {
 		fail("could not write the findings file: %v", err)
-		return
+		return false, nil
 	}
 	defer os.RemoveAll(dir)
 	path := filepath.Join(dir, "blocking-findings.json")
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		fail("could not write the findings file: %v", err)
-		return
+		return false, nil
 	}
 
 	files, message := r.attachContext(dir, s, res, []string{path}, verifyMessage, rejectedVerifyMessage)
@@ -174,24 +176,24 @@ func (r *reviewer) verifyWith(ctx context.Context, s skill.Skill, res *SkillResu
 	res.Usage = res.Usage.Add(out.Usage)
 	if errors.Is(err, errNotStarted) {
 		res.Notes = append(res.Notes, fmt.Sprintf("Verification skipped: %s before it could start; blocking findings are unverified.", r.stopReason(ctx)))
-		return
+		return false, nil
 	}
 	if err != nil {
 		fail("could not generate the opencode config: %v", err)
-		return
+		return false, nil
 	}
 	if out.Status != runner.StatusCompleted {
 		if out.Cause == nil {
 			fail("the run failed without a reported cause.")
-			return
+			return true, nil
 		}
 		fail("%s", out.Cause.Message())
-		return
+		return true, out.Cause
 	}
 	notReal, err := parseVerifyAnswer(out.Output)
 	if err != nil {
 		res.Notes = append(res.Notes, verifyBadFormat)
-		return
+		return false, nil
 	}
 
 	// Blocking findings are numbered in res.Findings order, as sent.
@@ -221,6 +223,7 @@ func (r *reviewer) verifyWith(ctx context.Context, s skill.Skill, res *SkillResu
 		res.Notes = append(res.Notes, fmt.Sprintf("Verification dropped %d of %d blocking %s: %s",
 			len(dropped), len(blocking), noun, strings.Join(dropped, "; ")))
 	}
+	return false, nil
 }
 
 // attachContext adds to a run that checks findings (verification or a panel

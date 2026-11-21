@@ -112,8 +112,10 @@ type panelRuns struct {
 	t      *testing.T
 	judge  map[string]string
 	verify string
-	mu     sync.Mutex
-	calls  []panelRunCall
+	// verifyCause, when set, makes each verification run fail with it.
+	verifyCause *runner.Cause
+	mu          sync.Mutex
+	calls       []panelRunCall
 }
 
 func (p *panelRuns) run(_ context.Context, o runner.Options) runner.RunResult {
@@ -135,6 +137,8 @@ func (p *panelRuns) run(_ context.Context, o runner.Options) runner.RunResult {
 	out := p.verify
 	if slices.Contains(call.files, "their-findings.json") {
 		out = p.judge[c.Model]
+	} else if p.verifyCause != nil {
+		return runner.RunResult{Status: runner.StatusFailed, Cause: p.verifyCause}
 	}
 	return runner.RunResult{Status: runner.StatusCompleted, Output: out, Usage: runner.Usage{Input: 5, Output: 1}}
 }
@@ -275,6 +279,37 @@ func TestRunAgentPanelBOnly(t *testing.T) {
 	checkOneMember(t, code, srv, stderr, runs, "b_only", panelModelB, "panel: member a can't be used: ")
 	if !strings.Contains(stderr, "no such file or directory") {
 		t.Errorf("stderr lacks why a can't be read:\n%s", stderr)
+	}
+}
+
+// TestRunAgentPanelOneMemberVerifyProviderError: the one usable member's
+// verification fails on a provider error. The result's provider_error names
+// that member's role and model, so the caller can fall back along its chain.
+func TestRunAgentPanelOneMemberVerifyProviderError(t *testing.T) {
+	quota := &runner.Cause{Kind: runner.CauseOpencodeError, ProviderClass: runner.ClassQuota, ProviderStatus: 429}
+	runs := &panelRuns{t: t, verifyCause: quota}
+	a := missingMember
+	b := member("b.json", memberCompleted(reviewSkill(panelFindB)))
+
+	code, srv, stderr := runPanelAgent(t, a, b, runs)
+	if code != 0 {
+		t.Fatalf("exit code = %d; stderr:\n%s", code, stderr)
+	}
+	r := srv.only(t)
+	pe := r.ProviderError
+	if pe == nil || pe.Role != "b" || pe.Class != string(runner.ClassQuota) || pe.Status != 429 || pe.Model != "model-b" {
+		t.Errorf("provider_error = %+v, want b's quota error", pe)
+	}
+	s, ok := skillNamed(r, "review")
+	if !ok || s.Panel == nil || s.Panel.Mode != "b_only" || len(s.Panel.Judges) != 1 {
+		t.Fatalf("skill panel = %+v", s.Panel)
+	}
+	if j := s.Panel.Judges[0]; j.Role != "b" || j.Status != "failed" || j.Cause == nil || j.Cause.ProviderError == nil {
+		t.Errorf("judge = %+v", j)
+	}
+	// A failed verification keeps the finding blocking.
+	if s.Verdict != "has_blocking_issues" || len(s.Findings) != 1 {
+		t.Errorf("skill = %+v", s)
 	}
 }
 

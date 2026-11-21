@@ -358,7 +358,12 @@ func (r *reviewer) panelOne(ctx context.Context, s skill.Skill, req PanelRequest
 	if req.NoJudge {
 		p.Exact = true
 	} else {
-		r.verifyWith(ctx, s, &res, runMode{member: m})
+		// The verification run is the member's one run here: a failure is
+		// carried as a judge run of its role, so its provider error reaches
+		// the result with the role.
+		if failed, cause := r.verifyWith(ctx, s, &res, runMode{member: m}); failed {
+			p.Judges = []JudgeRun{{Role: m.Role, Status: JudgeFailed, Cause: cause}}
+		}
 		if res.Usage != (runner.Usage{}) {
 			p.UsageByRole = map[string]runner.Usage{m.Role: res.Usage}
 		}
