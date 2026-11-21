@@ -554,11 +554,20 @@ func panelNotes(s Skill, o Options) []string {
 	}
 	a, b := wrappedText(o.Panel.A), wrappedText(o.Panel.B)
 	var notes []string
+	// only is the note of a skill one model reviewed. With Exact, no run
+	// checked that model's blocking findings.
+	only := func(one, other string) string {
+		n := "Panel: only " + one + " reviewed this; " + other + "'s review failed."
+		if !s.Panel.Exact {
+			n += " " + one + " checked its own blocking findings."
+		}
+		return n
+	}
 	switch s.Panel.Mode {
 	case "a_only":
-		notes = append(notes, "Panel: only "+a+" reviewed this; "+b+"'s review failed. "+a+" checked its own blocking findings.")
+		notes = append(notes, only(a, b))
 	case "b_only":
-		notes = append(notes, "Panel: only "+b+" reviewed this; "+a+"'s review failed. "+b+" checked its own blocking findings.")
+		notes = append(notes, only(b, a))
 	case "none":
 		notes = append(notes, "Panel: neither model could review this.")
 	case "both":

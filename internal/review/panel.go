@@ -126,20 +126,31 @@ type PanelRequest struct {
 }
 
 // RunPanel returns one result per skill a member reviewed, in req.Skills
-// order, then the impact check when a member has one.
+// order, then the impact check when a member has one and no loaded skill
+// has its name. A skill both members can be used for is merged with a judge
+// run on each model (none with NoJudge). A skill only one member can be used
+// for is that member's review, its blocking findings verified on that
+// member's model (not with NoJudge). A skill neither can be used for fails.
+// The impact check is merged by file, line and title, with no run: each
+// member verified its own.
 func RunPanel(ctx context.Context, req PanelRequest) []SkillResult {
 	ctx, cancel, r := newReviewer(ctx, req.Request)
 	defer cancel()
 	r.writeDiffs()
 	defer r.removeDiffs()
 	var skills []skill.Skill
+	impact := true
 	for _, s := range r.req.Skills {
 		_, inA := req.A.Skills[s.Name]
 		_, inB := req.B.Skills[s.Name]
 		if inA || inB {
 			skills = append(skills, s)
 		}
+		impact = impact && s.Name != ImpactSkill
 	}
+	_, inA := req.A.Skills[ImpactSkill]
+	_, inB := req.B.Skills[ImpactSkill]
+	impact = impact && (inA || inB)
 	results := make([]SkillResult, len(skills))
 	var wg sync.WaitGroup
 	for i, s := range skills {
@@ -151,6 +162,9 @@ func RunPanel(ctx context.Context, req PanelRequest) []SkillResult {
 		}()
 	}
 	wg.Wait()
+	if impact {
+		results = append(results, panelImpact(req))
+	}
 	return results
 }
 
@@ -165,24 +179,12 @@ func (r *reviewer) panelSkill(ctx context.Context, s skill.Skill, req PanelReque
 	a, aok := usable(req.A, s.Name)
 	b, bok := usable(req.B, s.Name)
 	if !aok || !bok {
-		return single(s.Name, req)
+		return r.panelOne(ctx, s, req)
 	}
 	start := time.Now()
 	ctx, runs := withRunLog(ctx)
 	itemsA, itemsB := panel.IDs(panel.A, a.Findings), panel.IDs(panel.B, b.Findings)
-
-	// The base: A's files, batches, summaries and checks, with B's notes A
-	// does not hold.
-	res := a
-	res.Notes = append([]string(nil), a.Notes...)
-	for _, n := range b.Notes {
-		if !slices.Contains(res.Notes, n) {
-			res.Notes = append(res.Notes, n)
-		}
-	}
-	// The tokens and runs are the merge's own; each member reports its own.
-	res.Usage, res.Runs = runner.Usage{}, nil
-	res.Confidence, res.ConfidenceReason = lowerConfidence(a, b)
+	res := mergeBase(a, b)
 	p := &SkillPanel{Mode: PanelBoth}
 
 	// Run 1 on model B judges A's findings; run 2 on model A judges B's.
@@ -236,35 +238,110 @@ func (r *reviewer) panelSkill(ctx context.Context, s skill.Skill, req PanelReque
 	return res
 }
 
+// mergeBase is the base of a merge of a and b: A's files, batches,
+// summaries and checks, with B's notes A does not hold, and the lower
+// confidence. The tokens and runs are the merge's own, none yet: each member
+// reports its own.
+func mergeBase(a, b SkillResult) SkillResult {
+	res := a
+	res.Notes = slices.Clone(a.Notes)
+	for _, n := range b.Notes {
+		if !slices.Contains(res.Notes, n) {
+			res.Notes = append(res.Notes, n)
+		}
+	}
+	res.Usage, res.Runs, res.Duration = runner.Usage{}, nil, 0
+	res.Confidence, res.ConfidenceReason = lowerConfidence(a, b)
+	return res
+}
+
 // single is a skill only one member, or neither, can be used for: that
-// member's review as it is, every finding with its own severity. With
-// neither, the skill fails with A's failures, B's when A has none.
-func single(name string, req PanelRequest) SkillResult {
+// member's review as it is, every finding with its own severity, and the
+// member. With neither, the skill fails with A's failures, B's when A has
+// none, and the member is nil. The tokens and runs are the merge's own, none
+// yet.
+func single(name string, req PanelRequest) (SkillResult, *Member, *SkillPanel) {
 	a, aok := usable(req.A, name)
 	b, bok := usable(req.B, name)
 	var res SkillResult
-	var role, mode string
+	var m *Member
+	p := &SkillPanel{}
 	switch {
 	case aok:
-		res, role, mode = a, panel.A, PanelAOnly
+		res, m, p.Mode = a, &req.A, PanelAOnly
 	case bok:
-		res, role, mode = b, panel.B, PanelBOnly
+		res, m, p.Mode = b, &req.B, PanelBOnly
 	default:
-		res, mode = a, PanelNone
+		res, p.Mode = a, PanelNone
 		if len(a.Failures) == 0 {
 			res = b
 		}
 		res.Skill, res.Verdict = name, Failed
 	}
-	// The tokens and runs are the merge's own: it started none.
+	res.Notes = slices.Clone(res.Notes)
 	res.Usage, res.Runs, res.Duration = runner.Usage{}, nil, 0
-	p := &SkillPanel{Mode: mode}
-	if role != "" {
-		for range res.Findings {
-			p.Tags = append(p.Tags, panel.Tag{FoundBy: role})
+	return res, m, p
+}
+
+// tagAll tags each of res's findings as found by role.
+func tagAll(res *SkillResult, role string) {
+	res.Panel.Tags = nil
+	for range res.Findings {
+		res.Panel.Tags = append(res.Panel.Tags, panel.Tag{FoundBy: role})
+	}
+}
+
+// panelOne is skill s when only one member, or neither, can be used for it.
+// The one member's blocking findings are verified on its model, with its key
+// only, as a review on one model verifies them. NoJudge runs nothing: the
+// findings stay as the member reported them, and the panel is marked exact.
+func (r *reviewer) panelOne(ctx context.Context, s skill.Skill, req PanelRequest) SkillResult {
+	res, m, p := single(s.Name, req)
+	res.Panel = p
+	if m == nil {
+		return res
+	}
+	start := time.Now()
+	ctx, runs := withRunLog(ctx)
+	if req.NoJudge {
+		p.Exact = true
+	} else {
+		r.verifyWith(ctx, s, &res, runMode{member: m})
+		if res.Usage != (runner.Usage{}) {
+			p.UsageByRole = map[string]runner.Usage{m.Role: res.Usage}
 		}
 	}
+	tagAll(&res, m.Role)
+	res.Verdict = verdict(res)
+	res.Runs = runs.sorted()
+	res.Duration = time.Since(start)
+	return res
+}
+
+// panelImpact is the impact check: both members' findings merged by file,
+// line and title, with no judge and no verification run, since each member
+// verified its own. With one usable member it is that member's check; with
+// neither it fails.
+func panelImpact(req PanelRequest) SkillResult {
+	a, aok := usable(req.A, ImpactSkill)
+	b, bok := usable(req.B, ImpactSkill)
+	if !aok || !bok {
+		res, m, p := single(ImpactSkill, req)
+		res.Panel = p
+		if m != nil {
+			tagAll(&res, m.Role)
+		}
+		return res
+	}
+	res := mergeBase(a, b)
+	merged := panel.Exact(panel.IDs(panel.A, a.Findings), panel.IDs(panel.B, b.Findings))
+	p := &SkillPanel{Mode: PanelBoth, Tags: make([]panel.Tag, len(merged))}
+	res.Findings = make([]finding.Finding, len(merged))
+	for i, m := range merged {
+		res.Findings[i], p.Tags[i] = m.Finding, m.Tag
+	}
 	res.Panel = p
+	res.Verdict = verdict(res)
 	return res
 }
 

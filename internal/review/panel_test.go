@@ -15,6 +15,7 @@ import (
 	"github.com/gopaytech/pergent/internal/finding"
 	"github.com/gopaytech/pergent/internal/panel"
 	"github.com/gopaytech/pergent/internal/runner"
+	"github.com/gopaytech/pergent/internal/skill"
 )
 
 func TestParseJudgeAnswer(t *testing.T) {
@@ -63,6 +64,7 @@ func TestParseJudgeAnswerNoResults(t *testing.T) {
 // panelCall is what the fake runner saw in one judge run.
 type panelCall struct {
 	model    string // provider/model of the run's config
+	prompt   string // the agent prompt the config names
 	opts     runner.Options
 	contents map[string]string // attached files by base name
 }
@@ -84,7 +86,8 @@ func (f *panelFake) run(_ context.Context, o runner.Options) runner.RunResult {
 		Model string `json:"model"`
 	}
 	_ = json.Unmarshal(cfg, &c)
-	pc := panelCall{model: c.Model, opts: o, contents: map[string]string{}}
+	prompt, _ := os.ReadFile(filepath.Join(filepath.Dir(o.ConfigPath), config.PromptFileName))
+	pc := panelCall{model: c.Model, prompt: string(prompt), opts: o, contents: map[string]string{}}
 	for _, p := range o.Files {
 		data, err := os.ReadFile(p)
 		if err != nil {
@@ -234,6 +237,13 @@ func TestRunPanelBothJudges(t *testing.T) {
 		}
 		if c.opts.Message != judgeMessage {
 			t.Errorf("%s message = %q", model, c.opts.Message)
+		}
+		// A hardened judge run sees neither key in the environment it passes
+		// on: its own is set in Env.
+		for _, name := range []string{"OPENCODE_API_KEY", "PERGENT_PANEL_B_API_KEY"} {
+			if !slices.Contains(c.opts.ExcludeEnv, name) {
+				t.Errorf("%s ExcludeEnv = %v, want %s", model, c.opts.ExcludeEnv, name)
+			}
 		}
 	}
 	// B judges A's findings: theirs are A's, by id, with no fingerprint.
@@ -464,5 +474,269 @@ func TestRunPanelRejectedAttached(t *testing.T) {
 func TestJudgeRejectedMessageNamesTheFile(t *testing.T) {
 	if !strings.Contains(judgeRejectedMessage, rejectedFile+" is context") {
 		t.Errorf("judgeRejectedMessage = %q", judgeRejectedMessage)
+	}
+}
+
+// checkOneMemberVerify checks that a panel with one usable member, m, ran one
+// verification on m's model with m's key, and dropped the finding it judged
+// not real.
+func checkOneMemberVerify(t *testing.T, f *panelFake, res SkillResult, m Member, model, mode string) {
+	t.Helper()
+	if len(f.calls) != 1 {
+		t.Fatalf("%d runs, want 1", len(f.calls))
+	}
+	c := f.calls[0]
+	if c.model != model {
+		t.Errorf("run on %s, want %s", c.model, model)
+	}
+	if !slices.Equal(c.opts.Env, []string{"OPENCODE_API_KEY=" + m.Key}) {
+		t.Errorf("Env = %v", c.opts.Env)
+	}
+	if !strings.HasPrefix(c.opts.Message, verifyMessage) || !strings.HasPrefix(c.prompt, verifyPrompt) {
+		t.Errorf("not a verification run: message %q", c.opts.Message)
+	}
+	if _, ok := c.contents["blocking-findings.json"]; !ok {
+		t.Errorf("no blocking-findings.json in %v", c.opts.Files)
+	}
+	if len(res.Findings) != 0 || len(res.Panel.Tags) != 0 {
+		t.Errorf("findings %+v, tags %+v", res.Findings, res.Panel.Tags)
+	}
+	want := "Verification dropped 1 of 1 blocking finding: " + findA1.Title + " (guarded)"
+	if !slices.Contains(res.Notes, want) {
+		t.Errorf("notes = %q, want %q", res.Notes, want)
+	}
+	if res.Panel.Mode != mode || res.Panel.Exact || res.Panel.Judges != nil {
+		t.Errorf("panel = %+v", res.Panel)
+	}
+	if res.Verdict != NoBlockingIssues {
+		t.Errorf("verdict = %s", res.Verdict)
+	}
+	if u := res.Panel.UsageByRole[m.Role]; u.Input != 7 || res.Usage.Input != 7 || len(res.Panel.UsageByRole) != 1 {
+		t.Errorf("usage %+v, by role %+v", res.Usage, res.Panel.UsageByRole)
+	}
+	if len(res.Runs) != 1 || res.Runs[0].Label != "verify" || res.Runs[0].Role != m.Role {
+		t.Errorf("runs = %+v", res.Runs)
+	}
+}
+
+func dropFirst(t *testing.T) func(panelCall) runner.RunResult {
+	return func(panelCall) runner.RunResult {
+		r := completed(verifyAnswer(t, map[string]any{"id": "1", "real": false, "reason": "guarded"}))
+		r.Usage = runner.Usage{Input: 7}
+		return r
+	}
+}
+
+func failedResult() SkillResult {
+	return SkillResult{Skill: "s", Verdict: Failed, Failures: []BatchFailure{{Message: "b broke"}}}
+}
+
+func TestRunPanelAOnlyVerifiesWithA(t *testing.T) {
+	f := &panelFake{t: t, respond: dropFirst(t)}
+	req := panelRequest(t, f, memberResult(findA1), failedResult())
+	res := runPanel(t, req)
+	checkOneMemberVerify(t, f, res, req.A, modelA, PanelAOnly)
+}
+
+func TestRunPanelBOnlyVerifiesWithB(t *testing.T) {
+	f := &panelFake{t: t, respond: dropFirst(t)}
+	req := panelRequest(t, f, failedResult(), memberResult(findA1))
+	res := runPanel(t, req)
+	checkOneMemberVerify(t, f, res, req.B, modelB, PanelBOnly)
+}
+
+func TestRunPanelOneMemberTagsWhatIsKept(t *testing.T) {
+	f := &panelFake{t: t, respond: byModel(verifyAnswer(t), "unused")}
+	req := panelRequest(t, f, memberResult(findA1, findA2), failedResult())
+	res := runPanel(t, req)
+	if len(res.Findings) != 2 || len(res.Panel.Tags) != 2 {
+		t.Fatalf("findings %+v, tags %+v", res.Findings, res.Panel.Tags)
+	}
+	for _, tag := range res.Panel.Tags {
+		if tag.FoundBy != panel.A {
+			t.Errorf("tag = %+v", tag)
+		}
+	}
+	if res.Verdict != HasBlockingIssues {
+		t.Errorf("verdict = %s", res.Verdict)
+	}
+}
+
+func TestRunPanelNoneFails(t *testing.T) {
+	f := &panelFake{t: t, respond: byModel("unused", "unused")}
+	a := failedResult()
+	a.Failures = []BatchFailure{{Message: "a broke"}}
+	res := runPanel(t, panelRequest(t, f, a, failedResult()))
+	if len(f.calls) != 0 {
+		t.Errorf("%d runs started", len(f.calls))
+	}
+	if res.Verdict != Failed || len(res.Failures) != 1 || res.Failures[0].Message != "a broke" {
+		t.Errorf("verdict %s, failures %+v", res.Verdict, res.Failures)
+	}
+	if res.Panel.Mode != PanelNone {
+		t.Errorf("panel = %+v", res.Panel)
+	}
+}
+
+func TestRunPanelNoneFailsWithBsFailures(t *testing.T) {
+	f := &panelFake{t: t, respond: byModel("unused", "unused")}
+	req := panelRequest(t, f, SkillResult{}, failedResult())
+	delete(req.A.Skills, "s")
+	res := runPanel(t, req)
+	if res.Verdict != Failed || len(res.Failures) != 1 || res.Failures[0].Message != "b broke" || res.Panel.Mode != PanelNone {
+		t.Errorf("verdict %s, failures %+v, panel %+v", res.Verdict, res.Failures, res.Panel)
+	}
+}
+
+func TestRunPanelMissingMemberIsAOnly(t *testing.T) {
+	f := &panelFake{t: t, respond: byModel(verifyAnswer(t), "unused")}
+	req := panelRequest(t, f, memberResult(findA1), SkillResult{})
+	req.Skills = append(req.Skills, skill.Skill{Name: "t", Body: "Review it."})
+	t2 := memberResult(findA2)
+	t2.Skill = "t"
+	req.A.Skills["t"] = t2
+	req.B.Skills = nil
+	rs := RunPanel(context.Background(), req)
+	if len(rs) != 2 {
+		t.Fatalf("%d results", len(rs))
+	}
+	for _, res := range rs {
+		if res.Panel == nil || res.Panel.Mode != PanelAOnly {
+			t.Errorf("%s: panel = %+v", res.Skill, res.Panel)
+		}
+	}
+	if len(f.on(modelB)) != 0 {
+		t.Error("a run started on model B")
+	}
+}
+
+func TestRunPanelNoJudgeRunsNothing(t *testing.T) {
+	f := &panelFake{t: t, respond: byModel("unused", "unused")}
+	req := panelRequest(t, f, memberResult(findA1), memberResult(findB1))
+	req.NoJudge = true
+	res := runPanel(t, req)
+	if len(f.calls) != 0 {
+		t.Errorf("%d runs started", len(f.calls))
+	}
+	if !res.Panel.Exact || res.Panel.Mode != PanelBoth {
+		t.Errorf("panel = %+v", res.Panel)
+	}
+	if j := res.Panel.Judges; len(j) != 2 || j[0].Status != JudgeSkipped || j[1].Status != JudgeSkipped {
+		t.Errorf("judges = %+v", j)
+	}
+	if res.Verdict != HasBlockingIssues || len(res.Findings) != 2 {
+		t.Errorf("verdict %s, findings %+v", res.Verdict, res.Findings)
+	}
+}
+
+func TestRunPanelNoJudgeOneMemberRunsNothing(t *testing.T) {
+	f := &panelFake{t: t, respond: byModel("unused", "unused")}
+	req := panelRequest(t, f, memberResult(findA1), failedResult())
+	req.NoJudge = true
+	res := runPanel(t, req)
+	if len(f.calls) != 0 {
+		t.Errorf("%d runs started", len(f.calls))
+	}
+	if !res.Panel.Exact || res.Panel.Mode != PanelAOnly {
+		t.Errorf("panel = %+v", res.Panel)
+	}
+	for _, n := range res.Notes {
+		if strings.HasPrefix(n, "Verification") {
+			t.Errorf("note %q", n)
+		}
+	}
+	if res.Verdict != HasBlockingIssues || len(res.Findings) != 1 || res.Panel.Tags[0].FoundBy != panel.A {
+		t.Errorf("verdict %s, findings %+v, tags %+v", res.Verdict, res.Findings, res.Panel.Tags)
+	}
+}
+
+// impactResult is a member's impact check with the given findings.
+func impactResult(fs ...finding.Finding) SkillResult {
+	res := memberResult(fs...)
+	res.Skill = ImpactSkill
+	res.Verdict = verdict(res)
+	return res
+}
+
+func TestRunPanelImpactIsExactMerged(t *testing.T) {
+	same := findA1
+	same.Explanation, same.Fingerprint = "other words", "fb1"
+	f := &panelFake{t: t, respond: byModel("unused", "unused")}
+	req := panelRequest(t, f, memberResult(), memberResult())
+	req.A.Skills[ImpactSkill] = impactResult(findA1, findA2)
+	req.B.Skills[ImpactSkill] = impactResult(same, findB1)
+	rs := RunPanel(context.Background(), req)
+	if len(rs) != 2 || rs[0].Skill != "s" || rs[1].Skill != ImpactSkill {
+		t.Fatalf("results = %+v", rs)
+	}
+	res := rs[1]
+	if len(f.calls) != 0 {
+		t.Errorf("%d runs started", len(f.calls))
+	}
+	if res.Panel == nil || res.Panel.Mode != PanelBoth || res.Panel.Exact || res.Panel.Judges != nil {
+		t.Fatalf("panel = %+v", res.Panel)
+	}
+	if got := titles(res.Findings); !slices.Equal(got, []string{findA1.Title, findA2.Title, findB1.Title}) {
+		t.Fatalf("titles = %v", got)
+	}
+	if tags := res.Panel.Tags; len(tags) != 3 || tags[0].FoundBy != panel.Both || tags[1].FoundBy != panel.A || tags[2].FoundBy != panel.B {
+		t.Errorf("tags = %+v", tags)
+	}
+	if res.Verdict != HasBlockingIssues || res.Findings[0].Severity != finding.Blocking {
+		t.Errorf("verdict %s, findings %+v", res.Verdict, res.Findings)
+	}
+}
+
+func TestRunPanelImpactOneMemberIsNotVerified(t *testing.T) {
+	f := &panelFake{t: t, respond: byModel("unused", "unused")}
+	req := panelRequest(t, f, memberResult(), memberResult())
+	req.B.Skills[ImpactSkill] = impactResult(findB1)
+	fail := failedResult()
+	fail.Skill = ImpactSkill
+	req.A.Skills[ImpactSkill] = fail
+	rs := RunPanel(context.Background(), req)
+	if len(rs) != 2 {
+		t.Fatalf("results = %+v", rs)
+	}
+	res := rs[1]
+	if len(f.calls) != 0 {
+		t.Errorf("%d runs started", len(f.calls))
+	}
+	if res.Skill != ImpactSkill || res.Panel == nil || res.Panel.Mode != PanelBOnly || res.Panel.Exact {
+		t.Fatalf("result %+v", res)
+	}
+	if res.Verdict != HasBlockingIssues || len(res.Panel.Tags) != 1 || res.Panel.Tags[0].FoundBy != panel.B {
+		t.Errorf("verdict %s, tags %+v", res.Verdict, res.Panel.Tags)
+	}
+}
+
+func TestRunPanelImpactBothFailed(t *testing.T) {
+	f := &panelFake{t: t, respond: byModel("unused", "unused")}
+	req := panelRequest(t, f, memberResult(), memberResult())
+	a, b := failedResult(), failedResult()
+	a.Skill, b.Skill = ImpactSkill, ImpactSkill
+	a.Failures = []BatchFailure{{Message: "a broke"}}
+	req.A.Skills[ImpactSkill], req.B.Skills[ImpactSkill] = a, b
+	rs := RunPanel(context.Background(), req)
+	if len(rs) != 2 {
+		t.Fatalf("results = %+v", rs)
+	}
+	res := rs[1]
+	if res.Skill != ImpactSkill || res.Verdict != Failed || len(res.Failures) != 1 || res.Failures[0].Message != "a broke" || res.Panel.Mode != PanelNone {
+		t.Errorf("result %+v", res)
+	}
+}
+
+// A loaded skill named impact is a normal panel skill: it is judged, and no
+// second impact result is added.
+func TestRunPanelLoadedImpactSkillIsJudged(t *testing.T) {
+	f := &panelFake{t: t, respond: byModel(judgeAnswer(t), judgeAnswer(t))}
+	req := panelRequest(t, f, memberResult(), memberResult())
+	req.Skills = []skill.Skill{{Name: ImpactSkill, Body: "Review it."}}
+	req.A.Skills = map[string]SkillResult{ImpactSkill: impactResult(findA1)}
+	req.B.Skills = map[string]SkillResult{ImpactSkill: impactResult(findB1)}
+	res := runPanel(t, req)
+	if len(f.calls) != 2 || len(res.Panel.Judges) != 2 {
+		t.Errorf("%d runs, panel %+v", len(f.calls), res.Panel)
 	}
 }

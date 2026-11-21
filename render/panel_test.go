@@ -103,3 +103,22 @@ func TestPanelReasonIsOneLineAndCapped(t *testing.T) {
 		t.Errorf("reason split across lines")
 	}
 }
+
+// With no judge run, the one model did not check its own findings: the note
+// does not say it did.
+func TestCommentPanelOneModelExactSaysNoCheck(t *testing.T) {
+	for _, mode := range []string{"a_only", "b_only"} {
+		s := panelAOnlySkill()
+		s[0].Panel = &render.SkillPanel{Mode: mode, Exact: true}
+		got := render.Comment(s, render.Options{Panel: panelNames})
+		if strings.Contains(got, "checked its own") {
+			t.Errorf("%s: says it checked its own findings:\n%s", mode, got)
+		}
+		if !strings.Contains(got, "Panel: only ") || !strings.Contains(got, "Panel: the cross-check did not run.") {
+			t.Errorf("%s: notes missing:\n%s", mode, got)
+		}
+	}
+	if got := render.Comment(panelAOnlySkill(), render.Options{Panel: panelNames}); !strings.Contains(got, "checked its own blocking findings.") {
+		t.Errorf("a_only without Exact lost its note:\n%s", got)
+	}
+}
