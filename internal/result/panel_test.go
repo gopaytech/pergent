@@ -1,7 +1,6 @@
 package result
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 
@@ -140,20 +139,42 @@ func TestRedactKeepsPanelFields(t *testing.T) {
 	}
 }
 
+func TestRedactPanelNamesAndJudgeCause(t *testing.T) {
+	key := "pk-test-0123456789abcdef"
+	t.Setenv("PERGENT_PANEL_B_API_KEY", key)
+	sr := panelSkill()
+	sr.Panel.Judges = []review.JudgeRun{{Role: "b", Status: "failed", Cause: &runner.Cause{
+		Kind: runner.CauseOpencodeError, ErrorName: "APIError", ErrorMessage: "bad key " + key,
+		ProviderClass: runner.ClassAuth, ProviderStatus: 401}}}
+	p := testPanel()
+	p.A.Model = "model-" + key
+	p.B.Provider = "prov-" + key
+	p.B.Model = "model-" + key
+	b, err := Encode(BuildPanel(testMeta(), p, []review.SkillResult{sr}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), key) {
+		t.Fatalf("key in result: %s", b)
+	}
+	if !strings.Contains(string(b), "[REDACTED]") || !strings.Contains(string(b), `"tokens_by_model"`) {
+		t.Fatalf("unexpected result: %s", b)
+	}
+}
+
+// noPanelGolden is Build's output for the fixed input below, taken from the
+// code before the panel fields. A non-panel result must stay byte for byte.
+const noPanelGolden = `{"schema_version":1,"status":"completed","pergent_version":"0.1.0","base":"base111","head":"head222","started_at":"2026-01-02T03:04:05Z","finished_at":"2026-01-02T03:06:05Z","budget_seconds":600,"skills":[{"name":"review","verdict":"no_blocking_issues","findings":[{"id":"aaaaaa","fingerprint":"aaaaaaaaaaaa","file":"x.go","line":1,"severity":"blocking","title":"t","explanation":"e"}],"files":{"reviewed":[],"skipped":[],"not_reviewed":[{"path":"x.go","cause":"opencode reported error."}]},"failures":[{"files":["x.go"],"message":"opencode reported error.","cause":{"kind":"opencode_error","message":"opencode reported error.","provider_error":{"class":"quota","status":429}}}],"notes":[],"batches":0,"batches_finished":0,"duration_seconds":0,"tokens":{"input":0,"output":0,"reasoning":0,"cache_read":0,"cache_write":0}}],"provider_error":{"class":"quota","status":429},"comment":{"markdown":""}}`
+
 func TestBuildWithoutPanelIsUnchanged(t *testing.T) {
 	sr := review.SkillResult{Skill: "review", Verdict: review.NoBlockingIssues, Findings: []finding.Finding{
-		{File: "x.go", Line: 1, Severity: finding.Blocking, Title: "t", Explanation: "e", Fingerprint: "aaaaaaaaaaaa"}}}
-	b, _ := Encode(Build(testMeta(), []review.SkillResult{sr}))
-	for _, k := range []string{`"panel"`, `"tokens_by_model"`, `"role"`} {
-		if strings.Contains(string(b), k) {
-			t.Fatalf("%s in a non-panel result: %s", k, b)
-		}
+		{File: "x.go", Line: 1, Severity: finding.Blocking, Title: "t", Explanation: "e", Fingerprint: "aaaaaaaaaaaa"}},
+		Failures: []review.BatchFailure{{Files: []string{"x.go"}, Cause: &runner.Cause{Kind: runner.CauseOpencodeError, ProviderClass: runner.ClassQuota, ProviderStatus: 429}}}}
+	b, err := Encode(Build(testMeta(), []review.SkillResult{sr}))
+	if err != nil {
+		t.Fatal(err)
 	}
-	// BuildPanel with no skill panel adds only the top-level panel.
-	var m map[string]json.RawMessage
-	b2, _ := Encode(BuildPanel(testMeta(), testPanel(), []review.SkillResult{sr}))
-	_ = json.Unmarshal(b2, &m)
-	if _, ok := m["panel"]; !ok {
-		t.Fatal("top-level panel missing")
+	if got := string(b); got != noPanelGolden {
+		t.Fatalf("non-panel bytes changed:\n%s", got)
 	}
 }
