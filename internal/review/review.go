@@ -26,6 +26,7 @@ import (
 	"github.com/gopaytech/pergent/internal/redact"
 	"github.com/gopaytech/pergent/internal/runner"
 	"github.com/gopaytech/pergent/internal/skill"
+	"github.com/gopaytech/pergent/rule"
 )
 
 // Verdict is a skill's overall outcome. Failed never counts as a pass.
@@ -84,6 +85,12 @@ type Request struct {
 	// Error fails that check and is never read. A skill named ImpactSkill is
 	// refused while Linked is not empty. Nil changes nothing.
 	Linked []LinkedRepo
+	// Rules gives each file its path rule. A skill's batch runs get the rules
+	// of their files (file-rules.md), its verification run those of its
+	// findings' files, and rule text counts in batch sizing; a skill with
+	// NoRules gets none. Rules never change what is blocking. Nil changes
+	// nothing.
+	Rules *rule.Resolver
 	// Graph is a code graph of the default branch. Each batch run with a diff
 	// gets a hint built from it (graph-context.md), last among its files. Other
 	// runs never get it. Nil changes nothing.
@@ -453,13 +460,14 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillRes
 	if t := diff.EstimateTokens(r.req.CIResults); t > 0 {
 		packBudget = max(budget-t, budget/2)
 	}
-	batches, oversize := diff.Batch(reviewable, packBudget)
+	// A file's rule rides along with its diff, once per batch.
+	batches, oversize := diff.BatchWith(reviewable, packBudget, r.ruleExtra(s))
 	if packBudget < budget {
 		// A file over the reduced budget that fits the full one gets a batch
 		// of its own.
 		var over []diff.FileDiff
 		for _, f := range oversize {
-			if diff.EstimateTokens(f.Patch) <= budget {
+			if n, _ := r.fileSize(s, f); n <= budget {
 				batches = append(batches, []diff.FileDiff{f})
 			} else {
 				over = append(over, f)
@@ -469,10 +477,15 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillRes
 	}
 	res.Batches = len(batches)
 	for _, f := range oversize {
+		what := "its diff is"
+		n, withRule := r.fileSize(s, f)
+		if withRule {
+			what = "its diff and rule are"
+		}
 		res.Failures = append(res.Failures, BatchFailure{
 			Files: []string{f.Path},
-			Message: fmt.Sprintf("Not reviewed: `%s` \u2014 its diff is about %s tokens, larger than the per-batch limit of %s.",
-				f.Path, runner.FormatInt(diff.EstimateTokens(f.Patch)), runner.FormatInt(budget)),
+			Message: fmt.Sprintf("Not reviewed: `%s` \u2014 %s about %s tokens, larger than the per-batch limit of %s.",
+				f.Path, what, runner.FormatInt(n), runner.FormatInt(budget)),
 		})
 	}
 
