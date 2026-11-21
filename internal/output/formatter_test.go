@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -621,6 +622,31 @@ func TestToRender_DeletedAndRenamedRedacted(t *testing.T) {
 	}
 }
 
+// TestFormatPanelSkippedJudge: a judge skipped for budget gets the note a
+// failed one gets, unless the merge is exact, whose own note says no
+// cross-check ran (--panel-no-judge skips both judges).
+func TestFormatPanelSkippedJudge(t *testing.T) {
+	for _, exact := range []bool{false, true} {
+		results := []review.SkillResult{{
+			Skill: "code-review", Verdict: review.NoBlockingIssues, Findings: []finding.Finding{},
+			Panel: &review.SkillPanel{Mode: "both", Exact: exact,
+				Judges: []review.JudgeRun{{Role: "b", Status: review.JudgeSkipped}, {Role: "a", Status: review.JudgeOK}}},
+		}}
+		sk := toRender(results, nil)[0]
+		var want []string
+		if !exact {
+			want = []string{"b"}
+		}
+		if !slices.Equal(sk.Panel.JudgeFailed, want) {
+			t.Errorf("exact %v: JudgeFailed = %v, want %v", exact, sk.Panel.JudgeFailed, want)
+		}
+		got := FormatReviewWithinOptions(results, nil, 0, Options{Panel: &render.PanelNames{A: "model-a", B: "model-b"}})
+		if note := "model-b could not check model-a's blocking findings"; strings.Contains(got, note) == exact {
+			t.Errorf("exact %v: note %q shown = %v, want %v:\n%s", exact, note, exact, !exact, got)
+		}
+	}
+}
+
 func TestFormatPanelPassesFields(t *testing.T) {
 	key := "sk-panel-b-0123456789"
 	t.Setenv("PERGENT_PANEL_B_API_KEY", key)
@@ -651,8 +677,8 @@ func TestFormatPanelPassesFields(t *testing.T) {
 		t.Errorf("a key reached the comment:\n%s", got)
 	}
 	sk := toRender(results, nil)[0]
-	if sk.Panel == nil || len(sk.Panel.JudgeFailed) != 1 || sk.Panel.JudgeFailed[0] != "a" {
-		t.Errorf("JudgeFailed = %+v, want only the failed judge a", sk.Panel)
+	if sk.Panel == nil || !slices.Equal(sk.Panel.JudgeFailed, []string{"a", "b"}) {
+		t.Errorf("JudgeFailed = %+v, want the failed judge a and the skipped judge b", sk.Panel)
 	}
 	if p := sk.Findings[1].Panel; p == nil || strings.Contains(p.Reason+p.Also[0], key) || p.DisagreedBy != "b" {
 		t.Errorf("finding panel = %+v", p)

@@ -60,7 +60,7 @@ A judge can lower a finding to a suggestion. It cannot drop one. A `same_as` tha
 | Only A usable (B's skill is missing or `failed`) | Takes A's review. A's blocking findings are checked on A's model | `a_only` |
 | Only B usable | The same, with B | `b_only` |
 | Neither usable | The skill is `failed`. It never drops out, because that would read as a pass | `none` |
-| One judge run fails or gives no usable answer | Findings it would have judged stay blocking. A note says so | `both` |
+| One judge run fails, is skipped (the budget was short) or gives no usable answer | Findings it would have judged stay blocking. A note says so | `both` |
 | Both judge runs fail, or `--panel-no-judge` | Exact merge: findings are joined by file, line and title. Every blocking finding stays blocking | `both`, `exact_merge` |
 | A skill is loaded but neither member reviewed it | The skill is `failed` | `none` |
 | A member's file is missing, unreadable, not schema 1 or not `completed` | The member is not used. The reason goes to the log only | top-level `panel.mode` is `a_only` or `b_only` |
@@ -83,7 +83,7 @@ The CLI names a model as `provider/model`. A caller can pass its own names to `r
 | Row lead, no answer | `_<X> could not check this finding; it stays blocking._` |
 | Note, `a_only` or `b_only` | `Panel: only <X> reviewed this; <Y>'s review failed. <X> checked its own blocking findings.` |
 | Note, `none` | `Panel: neither model could review this.` |
-| Note, a judge run failed | `Panel: <X> could not check <Y>'s blocking findings; they stay blocking.` |
+| Note, a judge run failed or was skipped | `Panel: <X> could not check <Y>'s blocking findings; they stay blocking.` |
 | Note, exact merge | `Panel: the cross-check did not run. Findings were merged by file, line and title, and every blocking finding stays blocking.` |
 
 A reason is cut to 300 bytes and made safe, so it cannot ping a user.

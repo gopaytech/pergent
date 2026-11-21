@@ -153,8 +153,10 @@ func toRender(results []review.SkillResult, ids map[string]string) []render.Skil
 		}
 		if r.Panel != nil {
 			s.Panel = &render.SkillPanel{Mode: r.Panel.Mode, Exact: r.Panel.Exact}
+			// A judge skipped for budget checked nothing either. An exact merge
+			// has its own note: no cross-check ran.
 			for _, j := range r.Panel.Judges {
-				if j.Status == review.JudgeFailed {
+				if j.Status == review.JudgeFailed || (j.Status == review.JudgeSkipped && !r.Panel.Exact) {
 					s.Panel.JudgeFailed = append(s.Panel.JudgeFailed, j.Role)
 				}
 			}

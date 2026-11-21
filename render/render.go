@@ -79,7 +79,8 @@ type FindingPanel struct {
 
 // SkillPanel is how a review panel merged a skill: Mode is "both",
 // "a_only", "b_only" or "none"; JudgeFailed lists the models whose judge run
-// failed; Exact says the findings were merged by file, line and title.
+// failed or was skipped, so it checked nothing; Exact says the findings were
+// merged by file, line and title.
 type SkillPanel struct {
 	Mode        string
 	JudgeFailed []string `json:",omitempty"`
