@@ -99,6 +99,8 @@ type Options struct {
 	FileURL func(path string, line, endLine int) string
 	// Version is shown in the footer, e.g. "v0.3.0".
 	Version string
+	// Panel names the two models of a review panel; nil writes no panel text.
+	Panel *render.PanelNames
 }
 
 // FormatReview renders the results as one markdown comment: a headline with
@@ -125,7 +127,7 @@ func FormatReviewWithinOptions(results []review.SkillResult, changedFiles []stri
 	for i, f := range changedFiles {
 		files[i] = redact.String(f)
 	}
-	return render.Comment(toRender(results, o.IDs), render.Options{MaxLen: maxLen, ChangedFiles: files, Commit: o.Commit, FileURL: o.FileURL, Version: o.Version})
+	return render.Comment(toRender(results, o.IDs), render.Options{MaxLen: maxLen, ChangedFiles: files, Commit: o.Commit, FileURL: o.FileURL, Version: o.Version, Panel: o.Panel})
 }
 
 // FindingsBlock returns the hidden line that carries the findings to the next
@@ -149,11 +151,20 @@ func toRender(results []review.SkillResult, ids map[string]string) []render.Skil
 			Confidence:       r.Confidence,
 			ConfidenceReason: redact.String(r.ConfidenceReason),
 		}
-		for _, f := range redactFindings(r.Findings) {
+		if r.Panel != nil {
+			s.Panel = &render.SkillPanel{Mode: r.Panel.Mode, Exact: r.Panel.Exact}
+			for _, j := range r.Panel.Judges {
+				if j.Status == review.JudgeFailed {
+					s.Panel.JudgeFailed = append(s.Panel.JudgeFailed, j.Role)
+				}
+			}
+		}
+		for i, f := range redactFindings(r.Findings) {
 			s.Findings = append(s.Findings, render.Finding{
 				ID: ids[f.Fingerprint], Fingerprint: f.Fingerprint, File: f.File, Line: f.Line, EndLine: f.EndLine,
 				Severity: render.Severity(f.Severity), Title: f.Title, Explanation: f.Explanation, SuggestedFix: f.SuggestedFix,
 				Suggestion: f.Suggestion,
+				Panel:      findingPanel(r.Panel, i),
 			})
 		}
 		if s.Findings == nil {
@@ -193,6 +204,24 @@ func toRender(results []review.SkillResult, ids map[string]string) []render.Skil
 		skills[i] = s
 	}
 	return skills
+}
+
+// findingPanel converts the panel tag of the finding at index i; nil when
+// the skill has no panel or no tag for it. The reason and the merged
+// fingerprints are model text, so they are redacted.
+func findingPanel(p *review.SkillPanel, i int) *render.FindingPanel {
+	if p == nil || i >= len(p.Tags) {
+		return nil
+	}
+	t := p.Tags[i]
+	fp := &render.FindingPanel{
+		FoundBy: t.FoundBy, DisagreedBy: t.DisagreedBy, Reason: redact.String(t.Reason),
+		RatedSuggestionBy: t.RatedSuggestionBy, UnjudgedBy: t.UnjudgedBy,
+	}
+	for _, a := range t.Also {
+		fp.Also = append(fp.Also, redact.String(a))
+	}
+	return fp
 }
 
 func skipped(s diff.Skip) render.Skipped {

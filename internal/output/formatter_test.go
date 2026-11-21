@@ -10,6 +10,7 @@ import (
 
 	"github.com/gopaytech/pergent/internal/diff"
 	"github.com/gopaytech/pergent/internal/finding"
+	"github.com/gopaytech/pergent/internal/panel"
 	"github.com/gopaytech/pergent/internal/review"
 	"github.com/gopaytech/pergent/internal/runner"
 	"github.com/gopaytech/pergent/render"
@@ -617,5 +618,46 @@ func TestToRender_DeletedAndRenamedRedacted(t *testing.T) {
 		if strings.Contains(p, secret) {
 			t.Errorf("path %q holds the token", p)
 		}
+	}
+}
+
+func TestFormatPanelPassesFields(t *testing.T) {
+	key := "sk-panel-b-0123456789"
+	t.Setenv("PERGENT_PANEL_B_API_KEY", key)
+	results := []review.SkillResult{{
+		Skill:   "code-review",
+		Verdict: review.NoBlockingIssues,
+		Findings: []finding.Finding{
+			{File: "main.go", Line: 3, Severity: finding.Blocking, Title: "Nil dereference", Explanation: "p can be nil."},
+			{File: "util.go", Line: 7, Severity: finding.Suggestion, Title: "Leak", Explanation: "Never closed."},
+		},
+		Panel: &review.SkillPanel{
+			Mode:   "both",
+			Judges: []review.JudgeRun{{Role: "a", Status: review.JudgeFailed}, {Role: "b", Status: review.JudgeSkipped}},
+			Tags: []panel.Tag{
+				{FoundBy: "both"},
+				{FoundBy: "a", DisagreedBy: "b", Reason: "not real, key " + key, Also: []string{"fp-" + key}},
+			},
+		},
+	}}
+	names := &render.PanelNames{A: "anthropic/model-a", B: "openai/model-b"}
+	got := FormatReviewWithinOptions(results, nil, 0, Options{Panel: names})
+	for _, want := range []string{"found by both", "anthropic/model-a", "openai/model-b", "could not check"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("comment lacks %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, key) {
+		t.Errorf("a key reached the comment:\n%s", got)
+	}
+	sk := toRender(results, nil)[0]
+	if sk.Panel == nil || len(sk.Panel.JudgeFailed) != 1 || sk.Panel.JudgeFailed[0] != "a" {
+		t.Errorf("JudgeFailed = %+v, want only the failed judge a", sk.Panel)
+	}
+	if p := sk.Findings[1].Panel; p == nil || strings.Contains(p.Reason+p.Also[0], key) || p.DisagreedBy != "b" {
+		t.Errorf("finding panel = %+v", p)
+	}
+	if plain := FormatReview(results, nil); strings.Contains(plain, "found by") {
+		t.Errorf("a comment without Options.Panel shows panel text:\n%s", plain)
 	}
 }
