@@ -135,9 +135,12 @@ func TestAgentNoRulesFlag(t *testing.T) {
 	if res.Rules == nil || !res.Rules.BuiltIn || res.Rules.Entries != len(builtinNames()) {
 		t.Errorf("rules = %+v, want built-ins on and no team entries", res.Rules)
 	}
+	// With no --rules, a run's file-rules.md holds built-in rules only.
 	for _, got := range rr.rules {
-		if got != "" {
-			t.Errorf("a run got file-rules.md with no rules: %q", got)
+		for _, line := range strings.Split(got, "\n") {
+			if strings.HasPrefix(line, "## Rule: ") && !strings.HasPrefix(line, "## Rule: built-in:") {
+				t.Errorf("a run got a team rule with no --rules: %q", line)
+			}
 		}
 	}
 }

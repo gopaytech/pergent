@@ -202,3 +202,5 @@ See [Code graph](docs/concepts/code-graph.md).
 ## 📄 License
 
 MIT. See [LICENSE](LICENSE).
+
+The built-in rule texts in [`rule/builtin/`](rule/builtin/) are adapted from [alibaba/open-code-review](https://github.com/alibaba/open-code-review) and are Apache-2.0. See [`rule/builtin/LICENSE`](rule/builtin/LICENSE) and [`rule/builtin/NOTICE`](rule/builtin/NOTICE). The rest of pergent is MIT.

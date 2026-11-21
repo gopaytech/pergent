@@ -35,7 +35,13 @@ For each changed file in a skill's batch, pergent walks one ordered list and tak
 
 A file that matches nothing, or matches an `off` entry, gets no rule. The skill still reviews it with its own text.
 
-**The built-in list is empty for now.** The first built-in texts come in a later change, once the quality harness shows they help. `--no-built-in-rules` (or `PERGENT_NO_BUILT_IN_RULES=true`) turns them off.
+**Built-in rules.** pergent ships 67, adapted from [alibaba/open-code-review](https://github.com/alibaba/open-code-review) (Apache-2.0, see `rule/builtin/NOTICE`): all of its rule texts but `scala.md` and `objc.md`, which are over the 16,000-character limit, and not its `default.md` for files that match nothing. They cover common languages (Go, TS/JS, Python, Java, Kotlin, Rust, C and C++, C#, PHP, Ruby, Swift and more), config files (YAML, JSON, `package.json`, `Cargo.toml`, `pom.xml`, Terraform, Bicep, Nix), schemas (SQL, Protobuf, GraphQL, Prisma, Thrift) and templates.
+
+`rule/builtin/builtin.yaml` has open-code-review's globs in its order, and the first match wins, so a GitHub workflow gets `built-in:github_workflows`, not the YAML rule. A `{a,b}` glob there is split into one glob per choice when it loads; a repository or rule-set file has no braces. Matching is case-sensitive, so `**/*.R` does not match `model.r`. A Scala or Objective-C file gets no built-in rule, and a `.m` file always gets the MATLAB rule.
+
+The texts are in `rule/builtin/*.md`. The changes from open-code-review: its tool names became opencode's (`read`, `grep`, `glob`), the sentences that say which findings block were removed, because a rule never blocks, and one Go line about open-code-review's own test-file filter was dropped. Words like "blocking I/O" stay, because they describe the code. A repository or rule-set entry for the same file wins over a built-in. `--no-built-in-rules` (or `PERGENT_NO_BUILT_IN_RULES=true`) turns them all off, and `rules: false` in a skill's frontmatter turns every rule off for that skill.
+
+Each rule adds its text to every batch run that has a matching file, and rule text counts in batch sizing, so built-ins make each run longer and can split a change into more batches.
 
 ## Where the rules come from
 

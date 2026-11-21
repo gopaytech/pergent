@@ -1,0 +1,11 @@
+The rule texts in this folder (*.md) and the globs in builtin.yaml are adapted
+for pergent from alibaba/open-code-review (https://github.com/alibaba/open-code-review),
+commit 39515dc, internal/config/rules/.
+
+Copyright 2026 alibaba/open-code-review Contributors
+
+Licensed under the Apache License, Version 2.0 (see LICENSE in this folder).
+Changes for pergent: open-code-review's tool names became opencode's (read,
+grep, glob), the sentences that say which findings block were removed, one Go
+line about open-code-review's own test-file filter was dropped, and scala.md,
+objc.md and default.md are not included.
