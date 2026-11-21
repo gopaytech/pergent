@@ -145,6 +145,9 @@ type SkillResult struct {
 	// Reviewed lists the files of the batches that finished, in batch order,
 	// then the paths of the pure renames in Renamed.
 	Reviewed []string
+	// FileRules is the rule of each file in Reviewed that had one, in
+	// Reviewed order.
+	FileRules []FileRule
 	// Carried lists the files left out because the request carried them, in
 	// diff order.
 	Carried []string
@@ -591,6 +594,9 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillRes
 				}
 				reviewed[f.Path] = true
 				res.Reviewed = append(res.Reviewed, f.Path)
+				if e, ok := r.ruleFor(s, f.Path); ok {
+					res.FileRules = append(res.FileRules, FileRule{Path: f.Path, Rule: e.Label()})
+				}
 				if r.gone(f) {
 					res.Deleted = append(res.Deleted, f.Path)
 				}
@@ -852,6 +858,16 @@ func (r *reviewer) reviewBatch(ctx context.Context, s skill.Skill, batch []diff.
 	if deletedPath != "" {
 		message += " " + deletedMessage
 	}
+	// The rules of the batch's files, after changed-files.md. A batch with
+	// no rule gets no file and no sentence.
+	var rulesPath string
+	if text, _ := r.rulesOf(s, paths); text != "" {
+		rulesPath = filepath.Join(dir, rulesFile)
+		if err := writeRules(rulesPath, []byte(text), 0600); err != nil {
+			return notReviewed("could not write the file rules: %v", err)
+		}
+		message += " " + rulesMessage
+	}
 	if hasPrev {
 		if prev == nil {
 			prev = []finding.Finding{}
@@ -878,6 +894,9 @@ func (r *reviewer) reviewBatch(ctx context.Context, s skill.Skill, batch []diff.
 			return notReviewed("could not write the batch files: %v", err)
 		}
 		files = append(files, p)
+		if a.name == "changed-files.md" && rulesPath != "" {
+			files = append(files, rulesPath)
+		}
 	}
 	if deletedPath != "" {
 		files = append(files, deletedPath)
