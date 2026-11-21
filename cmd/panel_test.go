@@ -10,7 +10,9 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/gopaytech/pergent/internal/result"
 	"github.com/gopaytech/pergent/internal/review"
@@ -65,6 +67,31 @@ func writeMember(t *testing.T, name string, r result.Result) string {
 		t.Fatal(err)
 	}
 	return p
+}
+
+// memberFile writes a member's result for the checkout's base and head,
+// and returns its path.
+type memberFile func(t *testing.T, base, head string) string
+
+// member is r as a member's review of the checkout's change.
+func member(name string, r result.Result) memberFile {
+	return func(t *testing.T, base, head string) string {
+		r.Base, r.Head = base, head
+		return writeMember(t, name, r)
+	}
+}
+
+// staleMember is r as a member's review of another head.
+func staleMember(name string, r result.Result) memberFile {
+	return func(t *testing.T, base, _ string) string {
+		r.Base, r.Head = base, strings.Repeat("f", 40)
+		return writeMember(t, name, r)
+	}
+}
+
+// missingMember is a member file that does not exist.
+func missingMember(t *testing.T, _, _ string) string {
+	return filepath.Join(t.TempDir(), "missing.json")
 }
 
 var (
@@ -127,13 +154,13 @@ func checkAnswer(t *testing.T, results ...map[string]any) string {
 
 // runPanelAgent runs `pergent agent --panel` against a result server and
 // returns the exit code, the delivered result and stderr.
-func runPanelAgent(t *testing.T, a, b string, runs *panelRuns, extra ...string) (int, *resultServer, string) {
+func runPanelAgent(t *testing.T, a, b memberFile, runs *panelRuns, extra ...string) (int, *resultServer, string) {
 	t.Helper()
 	env := panelRunEnv(t)
 	dir, base, head := agentRepo(t, nil)
 	srv := newResultServer(t, http.StatusOK)
 	args := append([]string{"--repo-path", dir, "--base", base, "--head", head, "--skills-dir", oneSkill(t),
-		"--result-url", srv.URL, "--panel", "--panel-a", a, "--panel-b", b}, extra...)
+		"--result-url", srv.URL, "--panel", "--panel-a", a(t, base, head), "--panel-b", b(t, base, head)}, extra...)
 	var stdout, stderr bytes.Buffer
 	code := runAgent(context.Background(), args, env, &stdout, &stderr, runs.run)
 	return code, srv, stderr.String()
@@ -163,8 +190,8 @@ func TestRunAgentPanelBoth(t *testing.T) {
 		panelModelB: checkAnswer(t, map[string]any{"id": "a1", "real": true, "reason": "yes", "same_as": "b1"}),
 		panelModelA: checkAnswer(t, map[string]any{"id": "b1", "real": true, "reason": "yes", "same_as": "a1"}),
 	}}
-	a := writeMember(t, "a.json", memberCompleted(reviewSkill(panelFindA)))
-	b := writeMember(t, "b.json", memberCompleted(reviewSkill(panelFindB)))
+	a := member("a.json", memberCompleted(reviewSkill(panelFindA)))
+	b := member("b.json", memberCompleted(reviewSkill(panelFindB)))
 
 	code, srv, stderr := runPanelAgent(t, a, b, runs)
 	if code != 0 {
@@ -232,8 +259,8 @@ func checkOneMember(t *testing.T, code int, srv *resultServer, stderr string, ru
 
 func TestRunAgentPanelAOnly(t *testing.T) {
 	runs := &panelRuns{t: t, verify: checkAnswer(t, map[string]any{"id": "1", "real": true, "reason": "yes"})}
-	a := writeMember(t, "a.json", memberCompleted(reviewSkill(panelFindA)))
-	b := writeMember(t, "b.json", result.ErrorResult(result.Meta{}, result.CodeInternal, "it broke"))
+	a := member("a.json", memberCompleted(reviewSkill(panelFindA)))
+	b := member("b.json", result.ErrorResult(result.Meta{}, result.CodeInternal, "it broke"))
 
 	code, srv, stderr := runPanelAgent(t, a, b, runs)
 	checkOneMember(t, code, srv, stderr, runs, "a_only", panelModelA, "panel: member b can't be used: status error")
@@ -241,8 +268,8 @@ func TestRunAgentPanelAOnly(t *testing.T) {
 
 func TestRunAgentPanelBOnly(t *testing.T) {
 	runs := &panelRuns{t: t, verify: checkAnswer(t, map[string]any{"id": "1", "real": true, "reason": "yes"})}
-	a := filepath.Join(t.TempDir(), "missing.json")
-	b := writeMember(t, "b.json", memberCompleted(reviewSkill(panelFindB)))
+	a := missingMember
+	b := member("b.json", memberCompleted(reviewSkill(panelFindB)))
 
 	code, srv, stderr := runPanelAgent(t, a, b, runs)
 	checkOneMember(t, code, srv, stderr, runs, "b_only", panelModelB, "panel: member a can't be used: ")
@@ -253,8 +280,8 @@ func TestRunAgentPanelBOnly(t *testing.T) {
 
 func TestRunAgentPanelNoJudge(t *testing.T) {
 	runs := &panelRuns{t: t}
-	a := writeMember(t, "a.json", memberCompleted(reviewSkill(panelFindA)))
-	b := writeMember(t, "b.json", memberCompleted(reviewSkill(panelFindB)))
+	a := member("a.json", memberCompleted(reviewSkill(panelFindA)))
+	b := member("b.json", memberCompleted(reviewSkill(panelFindB)))
 
 	code, srv, stderr := runPanelAgent(t, a, b, runs, "--panel-no-judge")
 	if code != 0 {
@@ -275,10 +302,10 @@ func TestRunAgentPanelNoJudge(t *testing.T) {
 
 func TestRunAgentPanelNoUsableMember(t *testing.T) {
 	runs := &panelRuns{t: t}
-	a := writeMember(t, "a.json", result.ErrorResult(result.Meta{}, result.CodeInternal, "it broke"))
+	a := member("a.json", result.ErrorResult(result.Meta{}, result.CodeInternal, "it broke"))
 	other := memberCompleted(reviewSkill(panelFindB))
 	other.SchemaVersion = 2
-	b := writeMember(t, "b.json", other)
+	b := member("b.json", other)
 
 	code, srv, stderr := runPanelAgent(t, a, b, runs)
 	if code != 2 {
@@ -304,11 +331,11 @@ func TestRunAgentPanelNoUsableMember(t *testing.T) {
 
 func TestRunAgentPanelSkillFailedInB(t *testing.T) {
 	runs := &panelRuns{t: t, verify: checkAnswer(t, map[string]any{"id": "1", "real": true, "reason": "yes"})}
-	a := writeMember(t, "a.json", memberCompleted(reviewSkill(panelFindA)))
+	a := member("a.json", memberCompleted(reviewSkill(panelFindA)))
 	failed := reviewSkill()
 	failed.Verdict = string(review.Failed)
 	failed.Failures = []result.Failure{{Files: []string{"a.go"}, Message: "b broke"}}
-	b := writeMember(t, "b.json", memberCompleted(failed))
+	b := member("b.json", memberCompleted(failed))
 
 	code, srv, stderr := runPanelAgent(t, a, b, runs)
 	if code != 0 {
@@ -336,8 +363,8 @@ func TestRunAgentPanelSkillInNeitherFails(t *testing.T) {
 	runs := &panelRuns{t: t}
 	other := reviewSkill()
 	other.Name = "other"
-	a := writeMember(t, "a.json", memberCompleted(other))
-	b := writeMember(t, "b.json", memberCompleted(other))
+	a := member("a.json", memberCompleted(other))
+	b := member("b.json", memberCompleted(other))
 
 	code, srv, stderr := runPanelAgent(t, a, b, runs)
 	if code != 0 {
@@ -348,8 +375,64 @@ func TestRunAgentPanelSkillInNeitherFails(t *testing.T) {
 	if !ok || s.Verdict != "failed" || s.Panel == nil || s.Panel.Mode != "none" {
 		t.Errorf("skills = %+v", r.Skills)
 	}
+	if len(s.Failures) != 1 || s.Failures[0].Message != review.NoMemberReview {
+		t.Errorf("failures = %+v, want one that says why", s.Failures)
+	}
+	if !strings.Contains(r.Comment.Markdown, review.NoMemberReview) {
+		t.Errorf("the comment does not say why the skill failed:\n%s", r.Comment.Markdown)
+	}
 	if _, ok := skillNamed(r, "other"); ok {
 		t.Error("a skill P did not load is in the result")
+	}
+}
+
+// A member's result for another head is not a review of this change: it
+// can't be used, so it never makes the merge pass.
+func TestRunAgentPanelStaleMemberIsUnusable(t *testing.T) {
+	stale := `can't be used: head "` + strings.Repeat("f", 40) + `", want "`
+	t.Run("one", func(t *testing.T) {
+		runs := &panelRuns{t: t, verify: checkAnswer(t, map[string]any{"id": "1", "real": true, "reason": "yes"})}
+		a := member("a.json", memberCompleted(reviewSkill(panelFindA)))
+		b := staleMember("b.json", memberCompleted(reviewSkill()))
+
+		code, srv, stderr := runPanelAgent(t, a, b, runs)
+		checkOneMember(t, code, srv, stderr, runs, "a_only", panelModelA, "panel: member b "+stale)
+	})
+	t.Run("both", func(t *testing.T) {
+		runs := &panelRuns{t: t}
+		a := staleMember("a.json", memberCompleted(reviewSkill()))
+		b := staleMember("b.json", memberCompleted(reviewSkill()))
+
+		code, srv, stderr := runPanelAgent(t, a, b, runs)
+		if code != 2 {
+			t.Fatalf("exit code = %d, want 2; stderr:\n%s", code, stderr)
+		}
+		r := srv.only(t)
+		if r.Error == nil || r.Error.Code != result.CodeUsage || r.Error.Message != noUsableMember {
+			t.Errorf("error = %+v", r.Error)
+		}
+		if strings.Contains(string(srv.bodies[0]), strings.Repeat("f", 40)) {
+			t.Error("the stale head reached the result")
+		}
+		for _, role := range []string{"a", "b"} {
+			if !strings.Contains(stderr, "panel: member "+role+" "+stale) {
+				t.Errorf("stderr lacks the stale head of %s:\n%s", role, stderr)
+			}
+		}
+	})
+}
+
+// A member whose base differs is not a review of this change either.
+func TestMemberMismatch(t *testing.T) {
+	r := &result.Result{Base: "b1", Head: "h1"}
+	if got := memberMismatch(r, "b1", "h1"); got != "" {
+		t.Errorf("same change: %q", got)
+	}
+	if got := memberMismatch(r, "b2", "h1"); got != `base "b1", want "b2"` {
+		t.Errorf("other base: %q", got)
+	}
+	if got := memberMismatch(r, "b1", "h2"); got != `head "h1", want "h2"` {
+		t.Errorf("other head: %q", got)
 	}
 }
 
@@ -375,10 +458,33 @@ func TestReadMember(t *testing.T) {
 		{big, "over the 10 MB limit"},
 		{oddPath, `status "weird"`},
 		{t.TempDir(), "not a regular file"},
+		{filepath.Join(t.TempDir(), "missing.json"), "no such file or directory"},
 	} {
 		if r, reason := readMember(c.path); r != nil || !strings.Contains(reason, c.want) {
 			t.Errorf("%s: r %v, reason %q, want %q", c.path, r, reason, c.want)
 		}
+	}
+}
+
+// A FIFO is refused before it is opened: opening one blocks until a writer
+// comes.
+func TestReadMemberFIFODoesNotBlock(t *testing.T) {
+	fifo := filepath.Join(t.TempDir(), "member.json")
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		t.Skipf("mkfifo: %v", err)
+	}
+	done := make(chan string, 1)
+	go func() {
+		_, reason := readMember(fifo)
+		done <- reason
+	}()
+	select {
+	case reason := <-done:
+		if !strings.Contains(reason, "not a regular file") {
+			t.Errorf("reason = %q", reason)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("readMember blocked on a FIFO")
 	}
 }
 
@@ -390,7 +496,13 @@ func TestMemberSkills(t *testing.T) {
 	s.Files.Skipped = []result.Skipped{{Path: "go.sum", Rule: "lockfile"}}
 	odd := reviewSkill()
 	odd.Name, odd.Verdict = "odd", "maybe"
-	got := memberSkills(&result.Result{Skills: []result.Skill{s, odd}})
+	unfinished := reviewSkill()
+	unfinished.Name, unfinished.Batches = "unfinished", 2
+	twice := reviewSkill()
+	twice.Name = "twice"
+	twiceFailed := twice
+	twiceFailed.Verdict = string(review.Failed)
+	got := memberSkills(&result.Result{Skills: []result.Skill{s, odd, unfinished, twice, twiceFailed, twiceFailed, twice}})
 	res, ok := got["review"]
 	if !ok || res.Skill != "review" || res.Verdict != review.HasBlockingIssues || len(res.Findings) != 1 {
 		t.Fatalf("review = %+v", res)
@@ -407,5 +519,16 @@ func TestMemberSkills(t *testing.T) {
 	// A verdict pergent does not know can't be trusted: the skill is failed.
 	if got["odd"].Verdict != review.Failed {
 		t.Errorf("odd verdict = %s, want failed", got["odd"].Verdict)
+	}
+	// A batch that did not finish, with no failure reported, is no pass.
+	if got["unfinished"].Verdict != review.Failed {
+		t.Errorf("unfinished verdict = %s, want failed", got["unfinished"].Verdict)
+	}
+	// A skill the result holds twice can't be trusted, whichever came first.
+	if got["twice"].Verdict != review.Failed {
+		t.Errorf("twice verdict = %s, want failed", got["twice"].Verdict)
+	}
+	if again := memberSkills(&result.Result{Skills: []result.Skill{twiceFailed, twice}}); again["twice"].Verdict != review.Failed {
+		t.Errorf("failed first: verdict = %s, want failed", again["twice"].Verdict)
 	}
 }

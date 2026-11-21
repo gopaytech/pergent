@@ -251,11 +251,15 @@ func mergeBase(a, b SkillResult) SkillResult {
 	return res
 }
 
+// NoMemberReview is the failure of a skill neither member has a usable
+// review of, when neither reported a failure.
+const NoMemberReview = "Neither member's result has a usable review of this skill."
+
 // single is a skill only one member, or neither, can be used for: that
 // member's review as it is, every finding with its own severity, and the
 // member. With neither, the skill fails with A's failures, B's when A has
-// none, and the member is nil. The tokens and runs are the merge's own, none
-// yet.
+// none, NoMemberReview when neither has any, and the member is nil. The
+// tokens and runs are the merge's own, none yet.
 func single(name string, req PanelRequest) (SkillResult, *Member, *SkillPanel) {
 	a, aok := usable(req.A, name)
 	b, bok := usable(req.B, name)
@@ -273,6 +277,10 @@ func single(name string, req PanelRequest) (SkillResult, *Member, *SkillPanel) {
 			res = b
 		}
 		res.Skill, res.Verdict = name, Failed
+		if len(res.Failures) == 0 {
+			// The comment must say why the skill failed.
+			res.Failures = []BatchFailure{{Message: NoMemberReview}}
+		}
 	}
 	res.Notes = slices.Clone(res.Notes)
 	res.Usage, res.Runs, res.Duration = runner.Usage{}, nil, 0

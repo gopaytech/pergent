@@ -365,6 +365,17 @@ func agentComment(in *agentInputs, results []review.SkillResult, res result.Resu
 	}
 }
 
+// samePath reports whether a and b are the same path once made absolute and
+// cleaned.
+func samePath(a, b string) bool {
+	absA, errA := filepath.Abs(a)
+	absB, errB := filepath.Abs(b)
+	if errA != nil || errB != nil {
+		return filepath.Clean(a) == filepath.Clean(b)
+	}
+	return absA == absB
+}
+
 // parseAgent parses the agent-mode flags. On a usage error the returned
 // inputs still carry whatever delivery target could be parsed, so an error
 // result can be delivered; an HTTP target is only set with its token.
@@ -460,6 +471,9 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 		in.changePath, in.ciPath, in.linkedPath, in.graphPath = "", "", "", ""
 		if in.panelAPath == "" || in.panelBPath == "" {
 			return usage("--panel requires --panel-a and --panel-b")
+		}
+		if samePath(in.panelAPath, in.panelBPath) {
+			return usage("--panel-a and --panel-b name the same file")
 		}
 		in.panelB = config.Model{Provider: getenv("PERGENT_PANEL_B_PROVIDER"), Model: getenv("PERGENT_PANEL_B_MODEL"),
 			BaseURL: getenv("PERGENT_PANEL_B_BASE_URL"), NPM: getenv("PERGENT_PANEL_B_NPM")}

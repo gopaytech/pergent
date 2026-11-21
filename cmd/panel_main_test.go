@@ -90,8 +90,8 @@ func TestMain_PanelKeysStayApart(t *testing.T) {
 	judgeRun(t, filepath.Join(dumps, "judge-of-b.ndjson"), checkAnswer(t, map[string]any{"id": "b1", "real": true, "reason": "yes", "same_as": "a1"}))
 
 	dir, base, head := agentRepo(t, nil)
-	a := writeMember(t, "a.json", memberCompleted(reviewSkill(panelFindA)))
-	b := writeMember(t, "b.json", memberCompleted(reviewSkill(panelFindB)))
+	a := member("a.json", memberCompleted(reviewSkill(panelFindA)))(t, base, head)
+	b := member("b.json", memberCompleted(reviewSkill(panelFindB)))(t, base, head)
 	out := filepath.Join(t.TempDir(), "r.json")
 	args, err := json.Marshal([]string{"--repo-path", dir, "--base", base, "--head", head, "--skills-dir", oneSkill(t),
 		"--result", out, "--panel", "--panel-a", a, "--panel-b", b})

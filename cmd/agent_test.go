@@ -1393,6 +1393,18 @@ func TestParseAgent_PanelNeedsBothFiles(t *testing.T) {
 	}
 }
 
+func TestParseAgent_PanelSameFile(t *testing.T) {
+	for _, b := range []string{"a.json", "./a.json", "x/../a.json"} {
+		_, e := parseAgent(panelArgs("--panel", "--panel-a", "a.json", "--panel-b", b), panelEnv(nil))
+		if e == nil || e.Code != result.CodeUsage || e.Message != "--panel-a and --panel-b name the same file" {
+			t.Errorf("--panel-b %s: error = %+v, want usage", b, e)
+		}
+	}
+	if _, e := parseAgent(panelArgs("--panel", "--panel-a", "a.json", "--panel-b", "b.json"), panelEnv(nil)); e != nil {
+		t.Errorf("two files: error = %+v", e)
+	}
+}
+
 func TestParseAgent_PanelNeedsModelB(t *testing.T) {
 	for _, miss := range []string{"PERGENT_PANEL_B_MODEL", "PERGENT_PANEL_B_PROVIDER"} {
 		_, e := parseAgent(panelArgs("--panel", "--panel-a", "a.json", "--panel-b", "b.json"), panelEnv(map[string]string{miss: ""}))

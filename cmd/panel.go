@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"log"
 	"os"
+	"syscall"
 	"time"
 
 	"github.com/gopaytech/pergent/internal/diff"
@@ -26,15 +27,24 @@ const noUsableMember = "--panel needs at least one usable member result"
 // readMember reads a member's agent result. It is usable when it decodes,
 // has schema_version 1 and status completed; otherwise reason says why, for
 // the log (never the result). A file over the result size limit is not read:
-// no member writes one.
+// no member writes one. Only a regular file is opened, so a FIFO cannot
+// block the merge.
 func readMember(path string) (r *result.Result, reason string) {
-	f, err := os.Open(path)
+	st, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Sprintf("reading %q: %v", path, pathCause(err))
+	}
+	if !st.Mode().IsRegular() {
+		return nil, fmt.Sprintf("%q is not a regular file", path)
+	}
+	// O_NONBLOCK, and the check again on the open file, in case the path was
+	// replaced after the Stat.
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, fmt.Sprintf("reading %q: %v", path, pathCause(err))
 	}
 	defer f.Close()
-	st, err := f.Stat()
-	if err != nil {
+	if st, err = f.Stat(); err != nil {
 		return nil, fmt.Sprintf("reading %q: %v", path, pathCause(err))
 	}
 	if !st.Mode().IsRegular() {
@@ -71,19 +81,34 @@ func pathCause(err error) error {
 	return err
 }
 
+// memberMismatch says why a member's result is not a review of base..head,
+// or "" when it is one.
+func memberMismatch(r *result.Result, base, head string) string {
+	switch {
+	case r.Head != head:
+		return fmt.Sprintf("head %q, want %q", r.Head, head)
+	case r.Base != base:
+		return fmt.Sprintf("base %q, want %q", r.Base, base)
+	}
+	return ""
+}
+
 // memberSkills converts a member result's skills for review.RunPanel: every
-// skill of a usable result, nil for an unusable one. A skill with a failure
-// or a verdict pergent does not know is failed, so the panel never uses it.
-// The first skill of a name counts.
+// skill of a usable result, nil for an unusable one. A skill with a failure,
+// a batch that did not finish or a verdict pergent does not know is failed,
+// so the panel never uses it. So is a skill the result holds twice.
 func memberSkills(r *result.Result) map[string]review.SkillResult {
 	if r == nil {
 		return nil
 	}
 	skills := make(map[string]review.SkillResult, len(r.Skills))
 	for _, s := range r.Skills {
-		if _, ok := skills[s.Name]; !ok {
-			skills[s.Name] = memberSkill(s)
+		if prev, ok := skills[s.Name]; ok {
+			prev.Verdict = review.Failed
+			skills[s.Name] = prev
+			continue
 		}
+		skills[s.Name] = memberSkill(s)
 	}
 	return skills
 }
@@ -132,7 +157,7 @@ func memberSkill(s result.Skill) review.SkillResult {
 	}
 	switch res.Verdict {
 	case review.NoBlockingIssues, review.HasBlockingIssues:
-		if len(res.Failures) > 0 {
+		if len(res.Failures) > 0 || res.BatchesFinished < res.Batches {
 			res.Verdict = review.Failed
 		}
 	default:
@@ -150,9 +175,15 @@ func memberSeverity(s string) finding.Severity {
 	return finding.Blocking
 }
 
-// readPanelMember reads one member's result and logs why it can't be used.
-func readPanelMember(path, role string, logger *log.Logger) *result.Result {
+// readPanelMember reads one member's result, and logs why it can't be
+// used: it can't be read, or it is not a review of in's base and head.
+func readPanelMember(path, role string, in *agentInputs, logger *log.Logger) *result.Result {
 	r, reason := readMember(path)
+	if r != nil {
+		if reason = memberMismatch(r, in.Base, in.Head); reason != "" {
+			r = nil
+		}
+	}
 	if r == nil {
 		logger.Printf("panel: member %s can't be used: %s", role, redact.String(reason))
 	}
@@ -162,8 +193,8 @@ func readPanelMember(path, role string, logger *log.Logger) *result.Result {
 // runPanel reviews nothing: it merges the members and returns the result to
 // deliver, or an error result.
 func runPanel(ctx context.Context, in *agentInputs, meta result.Meta, run review.RunFunc, logger *log.Logger) (result.Result, *result.Error) {
-	a := readPanelMember(in.panelAPath, panel.A, logger)
-	b := readPanelMember(in.panelBPath, panel.B, logger)
+	a := readPanelMember(in.panelAPath, panel.A, in, logger)
+	b := readPanelMember(in.panelBPath, panel.B, in, logger)
 	var mode string
 	switch {
 	case a != nil && b != nil:

@@ -755,6 +755,9 @@ func TestRunPanelSkillInNeitherFails(t *testing.T) {
 	if res.Verdict != Failed || res.Panel == nil || res.Panel.Mode != PanelNone {
 		t.Errorf("result %+v", res)
 	}
+	if len(res.Failures) != 1 || res.Failures[0].Message != NoMemberReview {
+		t.Errorf("failures = %+v, want one that says why", res.Failures)
+	}
 	for _, c := range f.calls {
 		if c.opts.SkillName == "t" {
 			t.Errorf("a run started for t: %+v", c.opts)
