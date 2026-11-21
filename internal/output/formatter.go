@@ -99,6 +99,9 @@ type Options struct {
 	FileURL func(path string, line, endLine int) string
 	// Version is shown in the footer, e.g. "v0.3.0".
 	Version string
+	// HeaderNote is one line of pergent's own text in italics after the
+	// header, such as "Repository rules could not be read". Never model text.
+	HeaderNote string
 }
 
 // FormatReview renders the results as one markdown comment: a headline with
@@ -125,7 +128,7 @@ func FormatReviewWithinOptions(results []review.SkillResult, changedFiles []stri
 	for i, f := range changedFiles {
 		files[i] = redact.String(f)
 	}
-	return render.Comment(toRender(results, o.IDs), render.Options{MaxLen: maxLen, ChangedFiles: files, Commit: o.Commit, FileURL: o.FileURL, Version: o.Version})
+	return render.Comment(toRender(results, o.IDs), render.Options{MaxLen: maxLen, ChangedFiles: files, Commit: o.Commit, FileURL: o.FileURL, Version: o.Version, HeaderNote: o.HeaderNote})
 }
 
 // FindingsBlock returns the hidden line that carries the findings to the next
@@ -173,6 +176,9 @@ func toRender(results []review.SkillResult, ids map[string]string) []render.Skil
 		}
 		for _, rn := range r.Renamed {
 			s.Renamed = append(s.Renamed, render.Rename{Path: redact.String(rn.Path), From: redact.String(rn.From)})
+		}
+		for _, fr := range r.FileRules {
+			s.FileRules = append(s.FileRules, render.FileRule{Path: redact.String(fr.Path), Rule: redact.String(fr.Rule)})
 		}
 		for _, n := range r.Notes {
 			s.Notes = append(s.Notes, redact.String(n))

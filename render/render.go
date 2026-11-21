@@ -129,6 +129,12 @@ type Skill struct {
 	Deleted []string `json:",omitempty"` // omitted when empty, so a golden input without them is unchanged
 	Renamed []Rename `json:",omitempty"`
 
+	// FileRules is the path rule each reviewed file was checked with, by its
+	// label ("repo:<glob>", "dashboard:<set>:<glob>", "built-in:<name>").
+	// The Files block ends with one line that counts the files per rule.
+	// Caller-owned text, escaped.
+	FileRules []FileRule `json:",omitempty"`
+
 	// Confidence is the model's score for the review, 1 to 5; 0 means none.
 	// SkillScore lowers it for the comment.
 	Confidence       int
@@ -141,6 +147,12 @@ type Skill struct {
 
 	// Dismissed holds the findings ApplyDismissals set aside.
 	Dismissed []DismissedFinding
+}
+
+// FileRule is the rule a reviewed file was checked with.
+type FileRule struct {
+	Path string
+	Rule string
 }
 
 // Options changes how Comment renders.
