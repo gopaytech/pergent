@@ -255,20 +255,30 @@ func entry(n *yaml.Node, withSource bool) (Entry, error) {
 			return Entry{}, fmt.Errorf("unknown field %q", key)
 		}
 	}
+	if err := check(e, hasRule); err != nil {
+		return Entry{}, err
+	}
+	return e, nil
+}
+
+// check applies the entry rules every source shares: a path
+// scope.CheckPattern takes, exactly one of a rule and off: true, and
+// MaxRuleChars. hasRule says the entry set its rule field.
+func check(e Entry, hasRule bool) error {
 	if err := scope.CheckPattern(e.Path); err != nil {
-		return Entry{}, fmt.Errorf("path: %w", err)
+		return fmt.Errorf("path: %w", err)
 	}
 	switch {
 	case e.Off && hasRule:
-		return Entry{}, errors.New("has both rule and off: true; use one")
+		return errors.New("has both rule and off: true; use one")
 	case e.Off:
 	case strings.TrimSpace(e.Rule) == "":
-		return Entry{}, errors.New("needs a rule or off: true")
+		return errors.New("needs a rule or off: true")
 	}
 	if n := utf8.RuneCountInString(e.Rule); n > MaxRuleChars {
-		return Entry{}, fmt.Errorf("rule is %d characters, over the limit of %d", n, MaxRuleChars)
+		return fmt.Errorf("rule is %d characters, over the limit of %d", n, MaxRuleChars)
 	}
-	return e, nil
+	return nil
 }
 
 func isString(n *yaml.Node) bool { return n.Kind == yaml.ScalarNode && n.Tag == "!!str" }
