@@ -1,4 +1,42 @@
 # The built-in rules, in match order: the rule file format, with rule_file
-# (a .md file in this folder) in place of rule. The texts come in a later
-# change, after the quality harness.
-rules: []
+# (a .md file in this folder) in place of rule. The globs and texts come from
+# alibaba/open-code-review internal/config/rules/system_rules.json and
+# rule_docs/ at 39515dc (Apache-2.0, see NOTICE). Each brace glob there is one
+# entry per extension here, because the matcher has no braces.
+rules:
+  - path: ".github/workflows/**/*.yaml"
+    rule_file: github_workflows.md
+  - path: ".github/workflows/**/*.yml"
+    rule_file: github_workflows.md
+  - path: "**/*.go"
+    rule_file: go.md
+  - path: "**/*.ts"
+    rule_file: ts_js.md
+  - path: "**/*.js"
+    rule_file: ts_js.md
+  - path: "**/*.tsx"
+    rule_file: ts_js.md
+  - path: "**/*.jsx"
+    rule_file: ts_js.md
+  - path: "**/*.mjs"
+    rule_file: ts_js.md
+  - path: "**/*.cjs"
+    rule_file: ts_js.md
+  - path: "**/*.mts"
+    rule_file: ts_js.md
+  - path: "**/*.cts"
+    rule_file: ts_js.md
+  - path: "**/*.py"
+    rule_file: python.md
+  - path: "**/*.pyi"
+    rule_file: python.md
+  - path: "**/*.ipynb"
+    rule_file: python.md
+  - path: "**/*.tf"
+    rule_file: terraform.md
+  - path: "**/*.tofu"
+    rule_file: terraform.md
+  - path: "**/*.hcl"
+    rule_file: terraform.md
+  - path: "**/*.tfvars"
+    rule_file: terraform.md

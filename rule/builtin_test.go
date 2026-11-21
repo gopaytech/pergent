@@ -1,6 +1,9 @@
 package rule
 
 import (
+	"io/fs"
+	"path"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -9,13 +12,72 @@ import (
 
 func TestBuiltinLoads(t *testing.T) {
 	got := Builtin()
-	// PR 1 ships the engine with no built-in texts.
-	if len(got) != 0 {
-		t.Errorf("Builtin() has %d entries, want 0 until the texts ship", len(got))
-	}
+	var names []string
 	for _, e := range got {
-		if e.Source != SourceBuiltIn || e.Name == "" {
-			t.Errorf("built-in %+v has no name or the wrong source", e)
+		if e.Source != SourceBuiltIn || e.Name == "" || e.Off {
+			t.Errorf("built-in %+v has no name, the wrong source, or is off", e)
+		}
+		if !slices.Contains(names, e.Name) {
+			names = append(names, e.Name)
+		}
+	}
+	want := []string{"github_workflows", "go", "ts_js", "python", "terraform"}
+	if !slices.Equal(names, want) {
+		t.Errorf("built-in names in order = %v, want %v", names, want)
+	}
+}
+
+// Each file type gets its own text: a workflow is not a YAML file of any
+// kind, a .tsx file is TS/JS, and a file of another type gets nothing.
+func TestBuiltinMatches(t *testing.T) {
+	r := NewResolver(nil, true)
+	cases := map[string]string{
+		".github/workflows/ci.yml":      "built-in:github_workflows",
+		".github/workflows/rel.yaml":    "built-in:github_workflows",
+		"internal/review/review.go":     "built-in:go",
+		"web/src/pages/Review.tsx":      "built-in:ts_js",
+		"web/vite.config.mts":           "built-in:ts_js",
+		"scripts/check.py":              "built-in:python",
+		"infra/main.tf":                 "built-in:terraform",
+		"infra/prod.tfvars":             "built-in:terraform",
+		"charts/pergent-sh/values.yaml": "",
+		"README.md":                     "",
+	}
+	for p, want := range cases {
+		e, ok := r.Resolve(p)
+		got := ""
+		if ok {
+			got = e.Label()
+		}
+		if got != want {
+			t.Errorf("%s gets %q, want %q", p, got, want)
+		}
+	}
+}
+
+// Every built-in text names its source on its first line, and every .md in
+// the folder is used, so a text can't ship without its notice or be left out.
+func TestBuiltinTextsNameTheirSource(t *testing.T) {
+	used := map[string]bool{}
+	for _, e := range Builtin() {
+		used[e.Name+".md"] = true
+		first, _, _ := strings.Cut(e.Rule, "\n")
+		if !strings.HasPrefix(first, "<!-- ") || !strings.HasSuffix(first, " -->") || !strings.Contains(first, "open-code-review") {
+			t.Errorf("built-in %s: first line %q does not name its source", e.Name, first)
+		}
+	}
+	files, err := fs.Glob(builtinFS, "builtin/*.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range files {
+		if !used[path.Base(f)] {
+			t.Errorf("%s is not in builtin.yaml", f)
+		}
+	}
+	for _, f := range []string{"builtin/LICENSE", "builtin/NOTICE"} {
+		if _, err := fs.Stat(builtinFS, f); err != nil {
+			t.Errorf("%s: %v", f, err)
 		}
 	}
 }

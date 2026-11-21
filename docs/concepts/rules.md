@@ -35,7 +35,17 @@ For each changed file in a skill's batch, pergent walks one ordered list and tak
 
 A file that matches nothing, or matches an `off` entry, gets no rule. The skill still reviews it with its own text.
 
-**The built-in list is empty for now.** The first built-in texts come in a later change, once the quality harness shows they help. `--no-built-in-rules` (or `PERGENT_NO_BUILT_IN_RULES=true`) turns them off.
+**Built-in rules.** pergent ships 5, in this order. The texts and globs are adapted from [alibaba/open-code-review](https://github.com/alibaba/open-code-review) (Apache-2.0, see `rule/builtin/NOTICE`):
+
+| Name | Files |
+|---|---|
+| `built-in:github_workflows` | `.github/workflows/**/*.yaml`, `.github/workflows/**/*.yml` |
+| `built-in:go` | `**/*.go` |
+| `built-in:ts_js` | `**/*.ts`, `.js`, `.tsx`, `.jsx`, `.mjs`, `.cjs`, `.mts`, `.cts` |
+| `built-in:python` | `**/*.py`, `.pyi`, `.ipynb` |
+| `built-in:terraform` | `**/*.tf`, `.tofu`, `.hcl`, `.tfvars` |
+
+The texts are in `rule/builtin/*.md`. The changes from open-code-review: its tool names became opencode's (`read`, `grep`, `glob`), and the sentences that say which findings block were removed, because a rule never blocks. A repository or rule-set entry for the same file wins over a built-in. `--no-built-in-rules` (or `PERGENT_NO_BUILT_IN_RULES=true`) turns them all off, and `rules: false` in a skill's frontmatter turns every rule off for that skill.
 
 ## Where the rules come from
 
