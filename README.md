@@ -180,6 +180,7 @@ See [Code graph](docs/concepts/code-graph.md).
 | [Skills](docs/concepts/skills.md) | Preset and custom skills, scope, what counts as blocking |
 | [The review comment](docs/concepts/review-comment.md) | What the comment shows, and its layouts |
 | [The change's title and description](docs/concepts/change-description.md) | How a review uses what the author wrote |
+| [Path rules](docs/concepts/rules.md) | Checklists per kind of file, added to the review that runs on it, never blocking |
 | [Deleted files](docs/concepts/deleted-files.md) | The opt-in check of deleted and renamed files, and what still uses them |
 | [Code graph](docs/concepts/code-graph.md) | Experimental: an optional graph that gives each batch the callers of the code it changes |
 | [Previous review as context](docs/concepts/previous-review.md) | How a re-review knows what it said before |

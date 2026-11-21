@@ -35,6 +35,10 @@ const (
 		"```\n"
 
 	verifyBadFormat = "Verification failed: the answer was not in the required format."
+
+	// verifyRulesMessage is added when the findings' files have path rules.
+	// The skill's Blocking section stays the only test.
+	verifyRulesMessage = "Also attached, as " + rulesFile + ", are the rules of the files these findings are on. These are project conventions, given as context. They are not blocking criteria."
 )
 
 // verifyFinding is a blocking finding as sent to the verifier. ID numbers
@@ -172,6 +176,25 @@ func (r *reviewer) verifyWith(ctx context.Context, s skill.Skill, res *SkillResu
 	}
 
 	files, message := r.attachContext(dir, s, res, []string{path}, verifyMessage, rejectedVerifyMessage)
+
+	// The rules of the findings' files. Without them a finding that rests on
+	// a project convention could be dropped, so a failed write fails the
+	// verification and keeps every finding.
+	var findingFiles []string
+	for _, b := range blocking {
+		if !slices.Contains(findingFiles, b.File) {
+			findingFiles = append(findingFiles, b.File)
+		}
+	}
+	if text, _ := r.rulesOf(s, findingFiles); text != "" {
+		p := filepath.Join(dir, rulesFile)
+		if err := writeRules(p, []byte(text), 0600); err != nil {
+			fail("could not write the file rules: %v", err)
+			return false, nil
+		}
+		files = append(files, p)
+		message += " " + verifyRulesMessage
+	}
 	out, err := r.runWith(ctx, s, "verify", verifyPrompt, files, message, mode)
 	res.Usage = res.Usage.Add(out.Usage)
 	if errors.Is(err, errNotStarted) {

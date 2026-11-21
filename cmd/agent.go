@@ -32,6 +32,7 @@ import (
 	"github.com/gopaytech/pergent/internal/review"
 	"github.com/gopaytech/pergent/internal/skill"
 	"github.com/gopaytech/pergent/render"
+	"github.com/gopaytech/pergent/rule"
 	"github.com/gopaytech/pergent/scope"
 )
 
@@ -61,7 +62,11 @@ type agentInputs struct {
 	Linked []review.LinkedRepo
 	// Graph is the code graph of the default branch, nil when none was given
 	// or the file could not be used.
-	Graph          *graph.File
+	Graph *graph.File
+	// Rules gives each file its path rule: the --rules list, then the
+	// built-ins unless they are off. Set by prepareAgent; never read from
+	// the checkout.
+	Rules          *rule.Resolver
 	MaxCommentSize int
 	Target         result.Target
 	Diff           string
@@ -85,6 +90,8 @@ type agentInputs struct {
 	linkedPath string
 	// graphPath is --graph, or $PERGENT_GRAPH without the flag.
 	graphPath string
+	// rulesPath is --rules, or $PERGENT_RULES without the flag.
+	rulesPath string
 	scrub     bool
 	// skipSkillVerify is --no-skill-verify.
 	skipSkillVerify bool
@@ -264,6 +271,7 @@ func runAgent(ctx context.Context, args []string, getenv func(string) string, st
 	}
 
 	meta.Started = clock.begin(in.Review.Timeout)
+	meta.Rules = &result.Rules{BuiltIn: in.Rules.BuiltIn(), Entries: in.Rules.Entries()}
 	var res result.Result
 	if in.panel {
 		var e *result.Error
@@ -329,6 +337,7 @@ func agentRequest(in *agentInputs, run review.RunFunc) review.Request {
 		ContextLimit: in.Review.ContextLimit,
 		Dismissals:   in.Dismissals,
 		CheckDeleted: in.Review.CheckDeleted,
+		Rules:        in.Rules,
 		Run:          run,
 		Classifier:   &in.Classifier,
 		Sandbox: review.Sandbox{
@@ -388,7 +397,7 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 		timeout                                 time.Duration
 		local, previousReview                   bool
 		platformFlag, baseBranch                string
-		checkDeleted                            bool
+		checkDeleted, noBuiltInRules            bool
 	)
 
 	flags := flag.NewFlagSet("pergent agent", flag.ContinueOnError)
@@ -404,6 +413,8 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 	flags.StringVar(&in.dismissalsPath, "dismissals", getenv("PERGENT_DISMISSALS"), "A JSON file {\"<skill>\": [{\"file\", \"title\", \"severity\", \"reason\"}, ...]} of findings people rejected earlier, attached to the runs")
 	flags.StringVar(&in.ciPath, "ci-results", getenv("PERGENT_CI_RESULTS"), "A file of the CI job results of the change, attached to the review runs as data")
 	flags.StringVar(&in.graphPath, "graph", getenv("PERGENT_GRAPH"), "A pergent-graph/v1 file of the default branch, outside --repo-path")
+	flags.StringVar(&in.rulesPath, "rules", getenv("PERGENT_RULES"), "A JSON list of path rules [{\"source\", \"path\", \"rule\" or \"off\"}, ...], outside --repo-path")
+	flags.BoolVar(&noBuiltInRules, "no-built-in-rules", false, "Leave the built-in path rules out (default: on)")
 	flags.StringVar(&in.changePath, "change-description", getenv("PERGENT_CHANGE_DESCRIPTION"), "A file holding the change's title and description, attached to the review runs as data")
 	flags.StringVar(&in.linkedPath, "linked-repos", getenv("PERGENT_LINKED_REPOS"), "A JSON file [{\"name\", \"path\", \"watched\", \"can_block\", \"error\"}, ...] of linked repositories the caller cloned; they are scrubbed, and only an impact run reads them")
 	flags.BoolVar(&in.skipSkillVerify, "no-skill-verify", false, "Leave out each skill's verification run (a review panel's member); the impact check still verifies")
@@ -532,14 +543,16 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 	}
 
 	rc, err := config.ResolveAgent(config.Options{
-		MaxTurns:        maxTurns,
-		MaxTokens:       maxTokens,
-		ContextLimit:    contextLimit,
-		Concurrency:     conc,
-		ConcurrencySet:  set["concurrency"],
-		Timeout:         timeout,
-		CheckDeleted:    checkDeleted,
-		CheckDeletedSet: set["check-deleted"],
+		MaxTurns:          maxTurns,
+		MaxTokens:         maxTokens,
+		ContextLimit:      contextLimit,
+		Concurrency:       conc,
+		ConcurrencySet:    set["concurrency"],
+		Timeout:           timeout,
+		CheckDeleted:      checkDeleted,
+		CheckDeletedSet:   set["check-deleted"],
+		NoBuiltInRules:    noBuiltInRules,
+		NoBuiltInRulesSet: set["no-built-in-rules"],
 	})
 	if err != nil {
 		return usage("%v", err)
@@ -635,6 +648,19 @@ func prepareAgent(in *agentInputs, logger *log.Logger) *result.Error {
 	}
 	in.CIResults = readCIResults(in.ciPath, logger)
 	in.Graph = readGraph(in.graphPath, logger)
+	// The rule list is trusted and checked like the skills: one that can't
+	// be used stops the review, which must never run without its rules.
+	var team []rule.Entry
+	if in.rulesPath != "" {
+		var err error
+		if team, err = readRulesList(in.rulesPath); err != nil {
+			return fail(result.CodeUsage, "%s", rulesFlagError(in.rulesPath, err))
+		}
+	}
+	in.Rules = rule.NewResolver(team, !in.Review.NoBuiltInRules)
+	if in.rulesPath != "" {
+		logger.Printf("rules: %d entries, built-in rules %s", in.Rules.Entries(), onOff(in.Rules.BuiltIn()))
+	}
 	if in.linkedPath != "" {
 		repos, err := readLinkedRepos(in.linkedPath, logger)
 		if err != nil {
@@ -744,6 +770,9 @@ func trustedInputs(in *agentInputs) []trustedInput {
 	}
 	if in.graphPath != "" {
 		inputs = append(inputs, trustedInput{"--graph", in.graphPath})
+	}
+	if in.rulesPath != "" {
+		inputs = append(inputs, trustedInput{"--rules", in.rulesPath})
 	}
 	if in.panelAPath != "" {
 		inputs = append(inputs, trustedInput{"--panel-a", in.panelAPath})

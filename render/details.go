@@ -2,6 +2,8 @@ package render
 
 import (
 	"fmt"
+	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -529,7 +531,78 @@ func writeFiles(b *strings.Builder, skills []Skill, o Options, l layout) {
 	}
 	fmt.Fprintf(b, "<details%s><summary>Files (%d)</summary>\n\n", openAttr(l.openFiles), len(rows))
 	writeList(b, lines, l.listLimit)
+	if line := rulesLine(skills); line != "" {
+		b.WriteString("\n" + line + "\n")
+	}
 	b.WriteString("\n</details>\n\n")
+}
+
+// rulesLine counts the reviewed files per path rule, each file once per rule
+// however many skills had it: "Rules: built-in:go (12 files) · repo
+// `internal/api/**/*.go` (3 files)", most files first. Empty when no file had
+// a rule.
+func rulesLine(skills []Skill) string {
+	files := map[string]map[string]bool{}
+	for _, s := range skills {
+		for _, fr := range s.FileRules {
+			if files[fr.Rule] == nil {
+				files[fr.Rule] = map[string]bool{}
+			}
+			files[fr.Rule][fr.Path] = true
+		}
+	}
+	if len(files) == 0 {
+		return ""
+	}
+	labels := make([]string, 0, len(files))
+	for l := range files {
+		labels = append(labels, l)
+	}
+	sort.Slice(labels, func(i, j int) bool {
+		if a, b := len(files[labels[i]]), len(files[labels[j]]); a != b {
+			return a > b
+		}
+		return labels[i] < labels[j]
+	})
+	parts := make([]string, len(labels))
+	for i, l := range labels {
+		noun := "files"
+		if len(files[l]) == 1 {
+			noun = "file"
+		}
+		parts[i] = fmt.Sprintf("%s (%d %s)", ruleText(l), len(files[l]), noun)
+	}
+	return "Rules: " + strings.Join(parts, " · ")
+}
+
+// plainName matches a name that reads the same in Markdown as in text.
+var plainName = regexp.MustCompile(`^[A-Za-z0-9.-]+$`)
+
+// ruleText shows a rule label: "repo <glob>", "dashboard:<set> <glob>" or
+// "built-in:<name>", the glob in a code span, a name in one unless it is
+// plain, and a label of any other form whole in a code span.
+func ruleText(label string) string {
+	name := func(n string) string {
+		if plainName.MatchString(n) {
+			return n
+		}
+		return neutralizeComments(codeSpan(n))
+	}
+	glob := func(g string) string { return neutralizeComments(codeSpan(g)) }
+	switch {
+	case strings.HasPrefix(label, "repo:"):
+		return "repo " + glob(strings.TrimPrefix(label, "repo:"))
+	case strings.HasPrefix(label, "dashboard:"):
+		set, g, ok := strings.Cut(strings.TrimPrefix(label, "dashboard:"), ":")
+		if ok && set != "" {
+			return "dashboard:" + name(set) + " " + glob(g)
+		}
+	case strings.HasPrefix(label, "built-in:"):
+		if n := strings.TrimPrefix(label, "built-in:"); n != "" {
+			return "built-in:" + name(n)
+		}
+	}
+	return glob(label)
 }
 
 // writeFooter writes the caller's footer and pergent's version in one small

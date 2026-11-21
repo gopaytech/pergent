@@ -164,6 +164,7 @@ Top level:
 | `error` | object | `code` (one of the [error codes](#error-codes)) and `message`. Error results only. |
 | `provider_error` | object | The most severe classified provider error in any skill's `failures` (`auth`, then `billing`, `quota`, `rate_limit`; the first in skill and batch order on a tie). Completed results only; omitted when no failure has one. Same shape as `failures[].cause.provider_error`. New in the next pergent release. An additive field: `schema_version` stays `1`, and a reader that doesn't know it can ignore it. In a panel merge it also covers the judge runs' errors, and `role` (`a` or `b`) names the model that judged. |
 | `panel` | object | Set only by a [review panel](concepts/review-panel.md) merge (`--panel`). `a` and `b` are `{provider, model}`. `mode` is `both`, `a_only` or `b_only`: which members' results could be used. `judged` is `false` with `--panel-no-judge`. |
+| `rules` | object | `{built_in, entries}`: the path rule list this review used. `built_in` says whether the built-in rules were on, `entries` counts every entry (team entries and built-ins in use). Set on every completed result of a pergent that knows rules, even when no file had a rule, so a caller can tell "no rule matched" from "this pergent does not use rules". Absent from an error result. An additive field: `schema_version` stays `1`. See [Path rules](concepts/rules.md). |
 | `comment` | object | The rendered comment. See below. |
 
 `comment`:
@@ -187,6 +188,7 @@ Each entry of `skills`:
 | `files.reviewed` | array | Paths the skill reviewed. The verdict covers these files and nothing else. |
 | `files.deleted` | array | The reviewed files the change deleted: a subset of `files.reviewed`. Set only with `--check-deleted`, for a deleted file whose batch finished. A path the change also adds again (a type change, such as a file that becomes a symlink) is never listed. Omitted when empty. An additive field: `schema_version` stays `1`, and a reader that doesn't know it can ignore it. |
 | `files.renamed` | array | `{path, from}`: the reviewed files the change renamed without changing them, with `path` the new path (also in `files.reviewed`) and `from` the old one. Set only with `--check-deleted`, for a rename a finished run checked for references. Omitted when empty. Also additive. |
+| `files.rules` | array | `{path, rule}`: the path rule each reviewed file was checked with, in `files.reviewed` order, only for files that had one. `rule` is `repo:<glob>`, `dashboard:<set>:<glob>` or `built-in:<name>`. A skill with `rules: false` has none. Omitted when empty. Also additive. |
 | `files.carried` | array | Paths the caller's previous review covers; not reviewed in this run. Omitted when empty. |
 | `files.skipped` | array | `{path, rule}`: files left out, the machine-readable record of what was not reviewed. `rule` is one of the values in [What a verdict covers](#what-a-verdict-covers). |
 | `files.not_reviewed` | array | `{path, cause}`: in-scope files whose batch failed. `cause` is plain one-line text. |

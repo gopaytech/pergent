@@ -54,6 +54,7 @@ cross_batch: true
 | `paths` | Glob patterns. When set, the skill reviews only changed files matching one of them. Files that match none are listed in the comment's Files list as skipped, out of scope. Unset means every changed file. |
 | `exclude` | Glob patterns for files the skill skips even though they are in scope. |
 | `cross_batch` | `true` adds one extra run, after all batches, that looks for problems spanning batches (for example conflicting changes in different directories). It only runs when the change needed more than one batch. Default `false`. |
+| `rules` | `false` gives the skill no [path rules](rules.md) in any of its runs. Default `true`. Only a YAML bool: any other value, such as `yes`, is an error when the skill loads. |
 
 Patterns use `/`-separated paths from the repo root. `*` matches within one path segment and `**` matches any number of segments. A pattern with no `/` (such as `*.proto`) matches the file name at any depth. A pattern with bad glob syntax, or one that can never match a file (`api/`, `/api/**`, `./api/**`), is an error when the skill loads, because the skill would otherwise report a clean review on every change. For a directory, use `api/**`.
 

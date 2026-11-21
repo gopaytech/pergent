@@ -3,6 +3,7 @@ package skill
 import (
 	"bytes"
 	"embed"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -28,6 +29,9 @@ type Skill struct {
 	Exclude     []string
 	CrossBatch  bool
 	HasBlocking bool
+	// NoRules turns path rules off for every run of the skill (frontmatter
+	// rules: false). The zero value keeps them on, the default.
+	NoRules bool
 }
 
 type frontmatter struct {
@@ -35,6 +39,9 @@ type frontmatter struct {
 	Paths      []string `yaml:"paths"`
 	Exclude    []string `yaml:"exclude"`
 	CrossBatch bool     `yaml:"cross_batch"`
+	// Rules is read as a node so only a YAML bool is taken: a typed bool
+	// would also take "yes".
+	Rules yaml.Node `yaml:"rules"`
 }
 
 var blockingHeading = regexp.MustCompile(`(?im)^#{1,6}\s*blocking\b`)
@@ -184,6 +191,14 @@ func parse(data []byte, fallbackName string) (Skill, error) {
 		}
 	}
 
+	noRules := false
+	if fm.Rules.Kind != 0 {
+		if fm.Rules.Kind != yaml.ScalarNode || fm.Rules.Tag != "!!bool" {
+			return Skill{}, errors.New("rules must be true or false")
+		}
+		noRules = strings.EqualFold(fm.Rules.Value, "false")
+	}
+
 	if err := checkPatterns("paths", fm.Paths); err != nil {
 		return Skill{}, err
 	}
@@ -203,5 +218,6 @@ func parse(data []byte, fallbackName string) (Skill, error) {
 		Exclude:     fm.Exclude,
 		CrossBatch:  fm.CrossBatch,
 		HasBlocking: blockingHeading.MatchString(body),
+		NoRules:     noRules,
 	}, nil
 }
