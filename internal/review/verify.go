@@ -128,6 +128,11 @@ func readResults(block finding.JSONBlock) ([]verifyResult, error) {
 // dropped. A verification that cannot run, or whose answer cannot be used,
 // adds a note and keeps every finding; it never fails the skill.
 func (r *reviewer) verify(ctx context.Context, s skill.Skill, res *SkillResult) {
+	r.verifyWith(ctx, s, res, runMode{})
+}
+
+// verifyWith is verify with a run mode: a panel member's model and key.
+func (r *reviewer) verifyWith(ctx context.Context, s skill.Skill, res *SkillResult, mode runMode) {
 	var blocking []verifyFinding
 	for _, f := range res.Findings {
 		if f.Severity == finding.Blocking {
@@ -164,56 +169,8 @@ func (r *reviewer) verify(ctx context.Context, s skill.Skill, res *SkillResult) 
 		return
 	}
 
-	files, message := []string{path}, verifyMessage
-	// The run has no diff attached. When one batch's diff covered every file
-	// with a diff, the review needs nothing more.
-	var own []string
-	if res.Batches == 1 {
-		own = res.Reviewed
-	}
-	if note := r.diffsNote(verifyDiffsMessage, own); note != "" {
-		message += " " + note
-	}
-	// Every deleted file in the skill's scope, batched or not, and the renames:
-	// a finding may be on a deleted file, or on what still refers to one.
-	if refs, _, _ := r.referenceList(s, nil); len(refs) > 0 {
-		p := filepath.Join(dir, deletedFile)
-		if err := writeDeleted(p, []byte(deletedList(refs)), 0600); err != nil {
-			res.noteDeletedFailed()
-		} else {
-			files = append(files, p)
-			message += " " + verifyDeletedMessage
-		}
-	}
-	// A finding on a deleted file is about removed lines the checkout no longer
-	// has: the run gets their diff.
-	if patch := r.deletedPatch(res); patch != "" {
-		p := filepath.Join(dir, deletedPatchFile)
-		if err := writeDeletedPatch(p, []byte(patch), 0600); err != nil {
-			if !slices.Contains(res.Notes, deletedPatchNote) {
-				res.Notes = append(res.Notes, deletedPatchNote)
-			}
-		} else {
-			files = append(files, p)
-			message += " " + verifyDeletedPatchMessage
-		}
-	}
-	var rejected []finding.Rejected
-	for _, d := range r.req.Dismissals[s.Name] {
-		if d.Severity == string(finding.Blocking) {
-			rejected = append(rejected, d)
-		}
-	}
-	if len(rejected) > 0 {
-		if p, err := attachRejected(dir, rejected); err != nil {
-			res.noteDismissalsFailed()
-		} else {
-			files = append(files, p)
-			message += " " + rejectedVerifyMessage
-		}
-	}
-
-	out, err := r.runWithPrompt(ctx, s, "verify", verifyPrompt, files, message)
+	files, message := r.attachContext(dir, s, res, []string{path}, verifyMessage, rejectedVerifyMessage)
+	out, err := r.runWith(ctx, s, "verify", verifyPrompt, files, message, mode)
 	res.Usage = res.Usage.Add(out.Usage)
 	if errors.Is(err, errNotStarted) {
 		res.Notes = append(res.Notes, fmt.Sprintf("Verification skipped: %s before it could start; blocking findings are unverified.", r.stopReason(ctx)))
@@ -264,4 +221,61 @@ func (r *reviewer) verify(ctx context.Context, s skill.Skill, res *SkillResult) 
 		res.Notes = append(res.Notes, fmt.Sprintf("Verification dropped %d of %d blocking %s: %s",
 			len(dropped), len(blocking), noun, strings.Join(dropped, "; ")))
 	}
+}
+
+// attachContext adds to a run that checks findings (verification or a panel
+// judge) what it gets beyond the findings: where the diffs are, the deleted
+// files and renames, the diffs of the deleted files a blocking finding in
+// res.Findings is on, and the skill's blocking dismissals, with rejected as
+// their sentence. The files are written in dir. What cannot be attached adds
+// its note to res and the run goes on without it.
+func (r *reviewer) attachContext(dir string, s skill.Skill, res *SkillResult, files []string, message, rejected string) ([]string, string) {
+	// The run has no diff attached. When one batch's diff covered every file
+	// with a diff, the review needs nothing more.
+	var own []string
+	if res.Batches == 1 {
+		own = res.Reviewed
+	}
+	if note := r.diffsNote(verifyDiffsMessage, own); note != "" {
+		message += " " + note
+	}
+	// Every deleted file in the skill's scope, batched or not, and the renames:
+	// a finding may be on a deleted file, or on what still refers to one.
+	if refs, _, _ := r.referenceList(s, nil); len(refs) > 0 {
+		p := filepath.Join(dir, deletedFile)
+		if err := writeDeleted(p, []byte(deletedList(refs)), 0600); err != nil {
+			res.noteDeletedFailed()
+		} else {
+			files = append(files, p)
+			message += " " + verifyDeletedMessage
+		}
+	}
+	// A finding on a deleted file is about removed lines the checkout no longer
+	// has: the run gets their diff.
+	if patch := r.deletedPatch(res); patch != "" {
+		p := filepath.Join(dir, deletedPatchFile)
+		if err := writeDeletedPatch(p, []byte(patch), 0600); err != nil {
+			if !slices.Contains(res.Notes, deletedPatchNote) {
+				res.Notes = append(res.Notes, deletedPatchNote)
+			}
+		} else {
+			files = append(files, p)
+			message += " " + verifyDeletedPatchMessage
+		}
+	}
+	var blocking []finding.Rejected
+	for _, d := range r.req.Dismissals[s.Name] {
+		if d.Severity == string(finding.Blocking) {
+			blocking = append(blocking, d)
+		}
+	}
+	if len(blocking) > 0 {
+		if p, err := attachRejected(dir, blocking); err != nil {
+			res.noteDismissalsFailed()
+		} else {
+			files = append(files, p)
+			message += " " + rejected
+		}
+	}
+	return files, message
 }

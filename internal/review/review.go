@@ -170,6 +170,8 @@ type SkillResult struct {
 	Runs []RunUsage
 	// Duration is how long the skill's review took.
 	Duration time.Duration
+	// Panel is how a review panel merged the skill; nil outside a panel.
+	Panel *SkillPanel
 }
 
 // BatchChecks is the checklist the model reported for one batch.
@@ -265,58 +267,9 @@ type reviewer struct {
 // most req.Concurrency opencode runs at once and all of them within
 // req.Budget, and returns the results in req.Skills order.
 func Run(ctx context.Context, req Request) []SkillResult {
-	if req.Run == nil {
-		req.Run = runner.Run
-	}
-	if req.Concurrency < 1 {
-		req.Concurrency = 1
-	}
-	if req.Budget <= 0 {
-		req.Budget = defaultBudget
-	}
-	files := diff.Split(req.Diff)
-	var list strings.Builder
-	for _, f := range files {
-		fmt.Fprintf(&list, "- %s\n", f.Path)
-	}
-	start := time.Now()
-	ctx, cancel := context.WithDeadlineCause(ctx, start.Add(req.Budget), errBudget)
+	ctx, cancel, r := newReviewer(ctx, req)
 	defer cancel()
-	deadline, _ := ctx.Deadline()
-	var classifier diff.Classifier
-	if req.Classifier != nil {
-		classifier = *req.Classifier
-	} else {
-		classifier = diff.NewClassifier(req.RepoPath)
-	}
-	// The request decides, whatever the caller's classifier says: off is off.
-	// A deleted file the runs may not read is never batched; the deny flag is
-	// every run's (see eligibleDiffs).
-	classifier.ReviewDeleted = req.CheckDeleted
-	deny := req.Sandbox.Hardened
-	classifier.DeniedDeleted = func(p string) bool { return config.ReadDenied(p, deny) }
-	req.Description = changeText(req.Description)
-	req.CIResults = ciText(req.CIResults)
-	r := &reviewer{
-		req:         req,
-		files:       files,
-		changedList: list.String(),
-		classifier:  classifier,
-		slots:       make(chan struct{}, req.Concurrency),
-		start:       start,
-		deadline:    deadline,
-		atHead:      make(map[string]bool, len(files)),
-		live:        make(map[string]bool, len(files)),
-	}
-	for _, f := range files {
-		r.atHead[f.Path] = true
-		if !f.Deleted {
-			r.live[f.Path] = true
-		}
-	}
-	if req.Graph != nil {
-		r.graph = graphpack.NewIndex(req.Graph)
-	}
+	req, files := r.req, r.files
 
 	results := make([]SkillResult, len(req.Skills))
 	if len(files) == 0 && strings.TrimSpace(req.Diff) != "" {
@@ -362,6 +315,64 @@ func Run(ctx context.Context, req Request) []SkillResult {
 		results = append(results, r.impact(ctx))
 	}
 	return results
+}
+
+// newReviewer prepares req as Run does (defaults, the diff split, the
+// classifier) and returns the reviewer with a context that ends at the
+// review's deadline. The caller cancels it.
+func newReviewer(ctx context.Context, req Request) (context.Context, context.CancelFunc, *reviewer) {
+	if req.Run == nil {
+		req.Run = runner.Run
+	}
+	if req.Concurrency < 1 {
+		req.Concurrency = 1
+	}
+	if req.Budget <= 0 {
+		req.Budget = defaultBudget
+	}
+	files := diff.Split(req.Diff)
+	var list strings.Builder
+	for _, f := range files {
+		fmt.Fprintf(&list, "- %s\n", f.Path)
+	}
+	start := time.Now()
+	ctx, cancel := context.WithDeadlineCause(ctx, start.Add(req.Budget), errBudget)
+	deadline, _ := ctx.Deadline()
+	var classifier diff.Classifier
+	if req.Classifier != nil {
+		classifier = *req.Classifier
+	} else {
+		classifier = diff.NewClassifier(req.RepoPath)
+	}
+	// The request decides, whatever the caller's classifier says: off is off.
+	// A deleted file the runs may not read is never batched; the deny flag is
+	// every run's (see eligibleDiffs).
+	classifier.ReviewDeleted = req.CheckDeleted
+	deny := req.Sandbox.Hardened
+	classifier.DeniedDeleted = func(p string) bool { return config.ReadDenied(p, deny) }
+	req.Description = changeText(req.Description)
+	req.CIResults = ciText(req.CIResults)
+	r := &reviewer{
+		req:         req,
+		files:       files,
+		changedList: list.String(),
+		classifier:  classifier,
+		slots:       make(chan struct{}, req.Concurrency),
+		start:       start,
+		deadline:    deadline,
+		atHead:      make(map[string]bool, len(files)),
+		live:        make(map[string]bool, len(files)),
+	}
+	for _, f := range files {
+		r.atHead[f.Path] = true
+		if !f.Deleted {
+			r.live[f.Path] = true
+		}
+	}
+	if req.Graph != nil {
+		r.graph = graphpack.NewIndex(req.Graph)
+	}
+	return ctx, cancel, r
 }
 
 // batchOutcome is one batch's review: its findings, why it was not
