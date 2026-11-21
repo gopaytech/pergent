@@ -567,3 +567,13 @@ func TestMemberSkills(t *testing.T) {
 		t.Errorf("failed first: verdict = %s, want failed", again["twice"].Verdict)
 	}
 }
+
+// TestMemberSkillNotReviewedIsFailed: a file the member did not review, with
+// no failure and every batch finished, still makes the skill failed.
+func TestMemberSkillNotReviewedIsFailed(t *testing.T) {
+	s := reviewSkill(panelFindA)
+	s.Files.NotReviewed = []result.NotReviewed{{Path: "a.go", Cause: "the batch failed"}}
+	if got := memberSkill(s); got.Verdict != review.Failed {
+		t.Errorf("verdict = %s, want failed", got.Verdict)
+	}
+}

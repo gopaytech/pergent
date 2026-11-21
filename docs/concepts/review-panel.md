@@ -57,7 +57,7 @@ A judge can lower a finding to a suggestion. It cannot drop one. A `same_as` tha
 | Case | What the merge does | Mode of the skill |
 |---|---|---|
 | Both members usable for the skill | Two judge runs | `both` |
-| Only A usable (B's skill is missing or `failed`) | Takes A's review. A's blocking findings are checked on A's model | `a_only` |
+| Only A usable (B's skill is missing, `failed`, or lists a file in `files.not_reviewed`) | Takes A's review. A's blocking findings are checked on A's model | `a_only` |
 | Only B usable | The same, with B | `b_only` |
 | Neither usable | The skill is `failed`. It never drops out, because that would read as a pass | `none` |
 | One judge run fails, is skipped (the budget was short) or gives no usable answer | Findings it would have judged stay blocking. A note says so | `both` |

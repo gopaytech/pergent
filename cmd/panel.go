@@ -95,8 +95,9 @@ func memberMismatch(r *result.Result, base, head string) string {
 
 // memberSkills converts a member result's skills for review.RunPanel: every
 // skill of a usable result, nil for an unusable one. A skill with a failure,
-// a batch that did not finish or a verdict pergent does not know is failed,
-// so the panel never uses it. So is a skill the result holds twice.
+// a batch that did not finish, a file not reviewed or a verdict pergent does
+// not know is failed, so the panel never uses it. So is a skill the result
+// holds twice.
 func memberSkills(r *result.Result) map[string]review.SkillResult {
 	if r == nil {
 		return nil
@@ -157,7 +158,9 @@ func memberSkill(s result.Skill) review.SkillResult {
 	}
 	switch res.Verdict {
 	case review.NoBlockingIssues, review.HasBlockingIssues:
-		if len(res.Failures) > 0 || res.BatchesFinished < res.Batches {
+		// A file the member did not review is a batch that failed, even when
+		// the result reports no failure for it.
+		if len(res.Failures) > 0 || res.BatchesFinished < res.Batches || len(s.Files.NotReviewed) > 0 {
 			res.Verdict = review.Failed
 		}
 	default:
