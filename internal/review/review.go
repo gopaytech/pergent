@@ -998,6 +998,19 @@ type runMode struct {
 	// noInstructions leaves out Sandbox.Instructions, which are for reviews of
 	// this repository. The impact run gets none.
 	noInstructions bool
+	// member is the model and key of a review panel's run. Nil is the
+	// environment's.
+	member *Member
+}
+
+// Member is one model of a review panel: its role (panel.A or panel.B), its
+// model and its key, and its review by skill name (nil: its result can't be
+// used). The key reaches only the runs on this model.
+type Member struct {
+	Role   string
+	Model  config.Model
+	Key    string
+	Skills map[string]SkillResult
 }
 
 // runWithPrompt is run with an explicit agent prompt in place of the
@@ -1026,7 +1039,15 @@ func (r *reviewer) runWith(ctx context.Context, s skill.Skill, label, prompt str
 		Linked:       mode.linked,
 	}
 	var logPrefix string
-	var excludeEnv []string
+	var excludeEnv, env []string
+	role := ""
+	if m := mode.member; m != nil {
+		// The run's key is set as OPENCODE_API_KEY for this run only. Neither
+		// key name is left in the environment the sandbox passes on.
+		opts.Model = &m.Model
+		env = []string{"OPENCODE_API_KEY=" + m.Key}
+		role = m.Role
+	}
 	if sb.Hardened {
 		opts.Prompt = strings.TrimRight(prompt, "\n") + "\n\n" + untrustedSection + "\n"
 		opts.ExplicitInstructions = true
@@ -1037,6 +1058,9 @@ func (r *reviewer) runWith(ctx context.Context, s skill.Skill, label, prompt str
 		opts.DenySecretFiles = true
 		logPrefix = fmt.Sprintf("[%s %s]", s.Name, label)
 		excludeEnv = sb.ExcludeEnv
+		if mode.member != nil {
+			excludeEnv = append(slices.Clone(excludeEnv), "OPENCODE_API_KEY", "PERGENT_PANEL_B_API_KEY")
+		}
 	}
 	configPath, cleanup, err := config.GenerateOpenCodeConfigWith(opts)
 	if err != nil {
@@ -1084,9 +1108,10 @@ func (r *reviewer) runWith(ctx context.Context, s skill.Skill, label, prompt str
 		StepLimit:    stepLimit,
 		ContextLimit: ctxLimit,
 		ExcludeEnv:   excludeEnv,
+		Env:          env,
 		LogPrefix:    logPrefix,
 	})
-	recordRun(ctx, label, len(opts.Prompt), files, run)
+	recordRun(ctx, label, role, len(opts.Prompt), files, run)
 	return run, nil
 }
 

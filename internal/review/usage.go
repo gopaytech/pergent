@@ -26,6 +26,9 @@ type RunUsage struct {
 	// Label is the run's label as runWith got it: "1/2", "1/2 repair",
 	// "references", "cross", "verify", "check", "check repair".
 	Label string
+	// Role is the panel member's role ("a" or "b"); empty when the run was not
+	// on a panel member.
+	Role string
 	// PromptBytes is the length of the agent prompt the run got (the untrusted
 	// section included when hardened).
 	PromptBytes int
@@ -113,13 +116,14 @@ func batchNumber(label string) (int, bool) {
 }
 
 // recordRun adds a finished run to the context's log, if it has one.
-func recordRun(ctx context.Context, label string, promptBytes int, files []string, res runner.RunResult) {
+func recordRun(ctx context.Context, label, role string, promptBytes int, files []string, res runner.RunResult) {
 	l := runLogFrom(ctx)
 	if l == nil {
 		return
 	}
 	u := RunUsage{
 		Label:       label,
+		Role:        role,
 		PromptBytes: promptBytes,
 		Usage:       res.Usage,
 		Steps:       res.Steps,
