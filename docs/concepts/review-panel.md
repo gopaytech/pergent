@@ -25,6 +25,8 @@ Model A is the usual `OPENCODE_*` setting. Model B is set with `PERGENT_PANEL_B_
 
 **Key isolation.** A run on model A gets A's key only. A run on model B gets B's key only, as that run's `OPENCODE_API_KEY`. `PERGENT_PANEL_B_API_KEY` is never passed to opencode. No key is written to a log, note, failure, comment or result.
 
+Model B signs in only through `PERGENT_PANEL_B_API_KEY`. The cloud credentials in the environment (`AWS_*`, `GOOGLE_*`, `VERTEX_*`, `AZURE_*`, `CLOUDFLARE_*`) are model A's, so they are removed from every run on model B. A provider that signs in with cloud credentials is not supported for model B. Other names listed in `PERGENT_OPENCODE_ENV` reach the runs of both models.
+
 ## What the merge does
 
 For each skill that both members reviewed, the merge runs two judge runs:

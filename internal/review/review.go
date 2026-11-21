@@ -23,6 +23,7 @@ import (
 	"github.com/gopaytech/pergent/internal/diff"
 	"github.com/gopaytech/pergent/internal/finding"
 	"github.com/gopaytech/pergent/internal/graphpack"
+	"github.com/gopaytech/pergent/internal/panel"
 	"github.com/gopaytech/pergent/internal/redact"
 	"github.com/gopaytech/pergent/internal/runner"
 	"github.com/gopaytech/pergent/internal/skill"
@@ -1024,6 +1025,22 @@ type Member struct {
 	Skills map[string]SkillResult
 }
 
+// cloudEnvNames returns the names in env that have a cloud-provider prefix
+// a run keeps (runner.CloudEnvPrefixes).
+func cloudEnvNames(env []string) []string {
+	var names []string
+	for _, kv := range env {
+		name, _, _ := strings.Cut(kv, "=")
+		for _, p := range runner.CloudEnvPrefixes {
+			if strings.HasPrefix(name, p) {
+				names = append(names, name)
+				break
+			}
+		}
+	}
+	return names
+}
+
 // runWithPrompt is run with an explicit agent prompt in place of the
 // skill's own.
 func (r *reviewer) runWithPrompt(ctx context.Context, s skill.Skill, label, prompt string, files []string, message string) (runner.RunResult, error) {
@@ -1072,6 +1089,11 @@ func (r *reviewer) runWith(ctx context.Context, s skill.Skill, label, prompt str
 		if mode.member != nil {
 			excludeEnv = append(slices.Clone(excludeEnv), "OPENCODE_API_KEY", "PERGENT_PANEL_B_API_KEY")
 		}
+	}
+	if m := mode.member; m != nil && m.Role == panel.B {
+		// A run on model B gets B's key only. The cloud credentials in the
+		// environment are model A's, so they are removed too.
+		excludeEnv = append(slices.Clone(excludeEnv), cloudEnvNames(os.Environ())...)
 	}
 	configPath, cleanup, err := config.GenerateOpenCodeConfigWith(opts)
 	if err != nil {

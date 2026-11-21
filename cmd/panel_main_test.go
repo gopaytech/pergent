@@ -15,6 +15,8 @@ import (
 const (
 	panelKeyA = "key-a-0123456789"
 	panelKeyB = "key-b-0123456789"
+	// panelCloudA is a cloud credential model A could sign in with.
+	panelCloudA = "cloud-a-0123456789"
 )
 
 // fakePanelOpencode is a stub opencode for a panel merge. For --version it
@@ -101,7 +103,7 @@ func TestMain_PanelKeysStayApart(t *testing.T) {
 
 	cmd := exec.Command(os.Args[0], "-test.run=^TestMain_PanelKeysStayApart$")
 	for _, kv := range os.Environ() {
-		if !strings.HasPrefix(kv, "OPENCODE_") && !strings.HasPrefix(kv, "PERGENT_") && !strings.HasPrefix(kv, "PATH=") {
+		if !strings.HasPrefix(kv, "OPENCODE_") && !strings.HasPrefix(kv, "PERGENT_") && !strings.HasPrefix(kv, "PATH=") && !strings.HasPrefix(kv, "AWS_") {
 			cmd.Env = append(cmd.Env, kv)
 		}
 	}
@@ -115,6 +117,7 @@ func TestMain_PanelKeysStayApart(t *testing.T) {
 		"PERGENT_PANEL_B_PROVIDER=openai",
 		"PERGENT_PANEL_B_MODEL=model-b",
 		"PERGENT_PANEL_B_API_KEY="+panelKeyB,
+		"AWS_SECRET_ACCESS_KEY="+panelCloudA,
 	)
 	logs, err := cmd.CombinedOutput()
 	if err != nil {
@@ -157,6 +160,12 @@ func TestMain_PanelKeysStayApart(t *testing.T) {
 		}
 		if strings.Contains(string(raw), "PERGENT_PANEL_B_API_KEY") {
 			t.Errorf("run on %s has PERGENT_PANEL_B_API_KEY", c.Model)
+		}
+		// Model A's cloud credentials reach A's runs only.
+		if got, ok := env["AWS_SECRET_ACCESS_KEY"]; c.Model == panelModelB && (ok || strings.Contains(string(raw), panelCloudA)) {
+			t.Errorf("run on %s holds model A's cloud credential", c.Model)
+		} else if c.Model == panelModelA && got != panelCloudA {
+			t.Errorf("run on %s: AWS_SECRET_ACCESS_KEY = %q, want model A's", c.Model, got)
 		}
 	}
 	if len(envs) != 2 || seen[panelModelA] != 1 || seen[panelModelB] != 1 {

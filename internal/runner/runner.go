@@ -103,9 +103,13 @@ var allowedEnvNames = []string{
 	"OPENCODE_API_KEY",
 }
 
-// allowedEnvPrefixes are the cloud-provider and locale prefixes kept as well,
-// so a provider that signs in with the caller's cloud credentials still can.
-var allowedEnvPrefixes = []string{"LC_", "AWS_", "GOOGLE_", "VERTEX_", "AZURE_", "CLOUDFLARE_"}
+// CloudEnvPrefixes are the cloud-provider prefixes a run keeps, so a provider
+// that signs in with the caller's cloud credentials still can. A review
+// panel's run on model B removes them: they are model A's.
+var CloudEnvPrefixes = []string{"AWS_", "GOOGLE_", "VERTEX_", "AZURE_", "CLOUDFLARE_"}
+
+// allowedEnvPrefixes are the cloud-provider and locale prefixes kept as well.
+var allowedEnvPrefixes = append([]string{"LC_"}, CloudEnvPrefixes...)
 
 // allowedEnv returns the entries of env a generated-config run keeps: the
 // names above, the prefixes, and the names in extra.
