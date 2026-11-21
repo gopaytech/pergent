@@ -66,6 +66,18 @@ func TestMergeNoAnswerKeepsBlocking(t *testing.T) {
 	}
 }
 
+func TestMergeBOwnerDemoted(t *testing.T) {
+	b := IDs(B, []finding.Finding{blocking("fb", "x.go", "Nil check")})
+	// A says B's lone blocking finding is not real: a suggestion, with A's reason.
+	got := Merge(nil, b, Answers{}, Answers{"b1": {Real: isReal(false), Reason: "r"}})
+	if len(got) != 1 || got[0].Severity != finding.Suggestion || got[0].FoundBy != B || got[0].DisagreedBy != A {
+		t.Fatalf("got %+v", got)
+	}
+	if got[0].Reason != "r" || got[0].UnjudgedBy != "" || got[0].RatedSuggestionBy != "" {
+		t.Fatalf("tag %+v", got[0].Tag)
+	}
+}
+
 func TestMergeJudgeFailedKeepsBlocking(t *testing.T) {
 	a := IDs(A, []finding.Finding{blocking("fa", "x.go", "Nil check")})
 	b := IDs(B, []finding.Finding{suggestion("fb", "y.go", "Rename")})
@@ -154,6 +166,9 @@ func TestMergeUnionOfLinks(t *testing.T) {
 	if !reflect.DeepEqual(got[0].Also, []string{"fa3", "fb2"}) {
 		t.Fatalf("also %v", got[0].Also)
 	}
+	if got[0].UnjudgedBy != "" || got[0].DisagreedBy != "" || got[0].RatedSuggestionBy != B {
+		t.Fatalf("tag %+v", got[0].Tag)
+	}
 	if got[1].Fingerprint != "fa2" || got[1].FoundBy != A || got[2].Fingerprint != "fb1" || got[2].FoundBy != B {
 		t.Fatalf("got %+v", got)
 	}
@@ -175,21 +190,26 @@ func TestMergeChainedLinks(t *testing.T) {
 }
 
 func TestMergeIgnoresBadLinks(t *testing.T) {
-	for name, ofA := range map[string]Answers{
-		"missing ID":     {"a1": {Real: isReal(true), SameAs: "b9"}, "a2": {Real: isReal(true)}},
-		"own side":       {"a1": {Real: isReal(true), SameAs: "a2"}, "a2": {Real: isReal(true)}},
-		"key wrong side": {"a1": {Real: isReal(true)}, "a2": {Real: isReal(true)}, "b1": {SameAs: "a1"}},
+	// a1 has index 0, the index a lookup of a missing ID returns, so each
+	// bad link starts or ends at a later finding: without its guard it would
+	// join two findings.
+	for name, c := range map[string]struct{ ofA, ofB Answers }{
+		"missing ID":     {ofA: Answers{"a2": {Real: isReal(true), SameAs: "b9"}}, ofB: Answers{"b2": {Real: isReal(true), SameAs: "a9"}}},
+		"own side":       {ofA: Answers{"a1": {Real: isReal(true), SameAs: "a2"}}, ofB: Answers{"b1": {Real: isReal(true), SameAs: "b2"}}},
+		"key wrong side": {ofA: Answers{"b1": {SameAs: "b2"}}, ofB: Answers{"a1": {SameAs: "a2"}}},
+		"unknown key":    {ofA: Answers{}, ofB: Answers{"c1": {SameAs: "a2"}}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			a := IDs(A, []finding.Finding{blocking("fa1", "x.go", "One"), blocking("fa2", "x.go", "Two")})
-			b := IDs(B, []finding.Finding{blocking("fb1", "x.go", "Three")})
-			// "c1" is no finding's ID: its link is ignored too.
-			got := Merge(a, b, ofA, Answers{"c1": {SameAs: "a1"}})
-			if len(got) != 3 || got[0].FoundBy != A || got[1].FoundBy != A || got[2].FoundBy != B {
-				t.Fatalf("got %+v", got)
+			b := IDs(B, []finding.Finding{blocking("fb1", "x.go", "Three"), blocking("fb2", "x.go", "Four")})
+			got := Merge(a, b, c.ofA, c.ofB)
+			if len(got) != 4 {
+				t.Fatalf("got %d groups, want 4: %+v", len(got), got)
 			}
-			if got[0].Severity != finding.Blocking || got[1].Severity != finding.Blocking || len(got[0].Also) != 0 {
-				t.Fatalf("got %+v", got)
+			for i, want := range []struct{ fp, by string }{{"fa1", A}, {"fa2", A}, {"fb1", B}, {"fb2", B}} {
+				if got[i].Fingerprint != want.fp || got[i].FoundBy != want.by || len(got[i].Also) != 0 || got[i].Severity != finding.Blocking {
+					t.Fatalf("group %d: got %+v", i, got[i])
+				}
 			}
 		})
 	}
