@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -1006,5 +1008,60 @@ func TestGenerateOpenCodeConfig_AllowList(t *testing.T) {
 	check("agent.pergent.permission", raw.Agent[AgentName].Permission)
 	if raw.Snapshot == nil || *raw.Snapshot {
 		t.Errorf("snapshot = %v, want present and false", raw.Snapshot)
+	}
+}
+
+func TestGenerateConfigWithModel(t *testing.T) {
+	t.Setenv("OPENCODE_PROVIDER", "anthropic")
+	t.Setenv("OPENCODE_MODEL", "model-a")
+	t.Setenv("OPENCODE_BASE_URL", "")
+	path, cleanup, err := GenerateOpenCodeConfigWith(OpenCodeOptions{
+		Prompt: "p", Model: &Model{Provider: "openai", Model: "model-b", BaseURL: "https://llm.example.test/v1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	var cfg struct {
+		Model    string                     `json:"model"`
+		Provider map[string]json.RawMessage `json:"provider"`
+	}
+	data, _ := os.ReadFile(path)
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Model != "openai/model-b" {
+		t.Errorf("model = %q, want openai/model-b", cfg.Model)
+	}
+	if _, ok := cfg.Provider["anthropic"]; ok || cfg.Provider["openai"] == nil {
+		t.Errorf("providers = %v, want only openai", cfg.Provider)
+	}
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, cfg.Provider["openai"]); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(compact.String(), `"baseURL":"https://llm.example.test/v1"`) ||
+		!strings.Contains(compact.String(), `@ai-sdk/openai-compatible`) {
+		t.Errorf("openai provider = %s", cfg.Provider["openai"])
+	}
+}
+
+func TestGenerateConfigNilModelIsEnv(t *testing.T) {
+	t.Setenv("OPENCODE_PROVIDER", "anthropic")
+	t.Setenv("OPENCODE_MODEL", "model-a")
+	t.Setenv("OPENCODE_BASE_URL", "")
+	t.Setenv("OPENCODE_NPM", "")
+	gen := func(m *Model) []byte {
+		path, cleanup, err := GenerateOpenCodeConfigWith(OpenCodeOptions{Prompt: "p", Model: m})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer cleanup()
+		data, _ := os.ReadFile(path)
+		// The prompt file sits in a random temp directory; drop that part.
+		return regexp.MustCompile(`pergent-[0-9]+`).ReplaceAll(data, []byte("pergent-X"))
+	}
+	if a, b := gen(nil), gen(&Model{"anthropic", "model-a", "", ""}); !bytes.Equal(a, b) {
+		t.Errorf("configs differ:\n%s\n%s", a, b)
 	}
 }

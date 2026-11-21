@@ -162,7 +162,8 @@ Top level:
 | `budget_seconds` | number | The review's `--timeout` in seconds. Completed results only. |
 | `skills` | array | One entry per skill, in the order loaded. Completed results only. A completed result with no skills has no `skills` key. |
 | `error` | object | `code` (one of the [error codes](#error-codes)) and `message`. Error results only. |
-| `provider_error` | object | The most severe classified provider error in any skill's `failures` (`auth`, then `billing`, `quota`, `rate_limit`; the first in skill and batch order on a tie). Completed results only; omitted when no failure has one. Same shape as `failures[].cause.provider_error`. New in the next pergent release. An additive field: `schema_version` stays `1`, and a reader that doesn't know it can ignore it. |
+| `provider_error` | object | The most severe classified provider error in any skill's `failures` (`auth`, then `billing`, `quota`, `rate_limit`; the first in skill and batch order on a tie). Completed results only; omitted when no failure has one. Same shape as `failures[].cause.provider_error`. New in the next pergent release. An additive field: `schema_version` stays `1`, and a reader that doesn't know it can ignore it. In a panel merge it also covers the judge runs' errors, and `role` (`a` or `b`) names the model that judged. |
+| `panel` | object | Set only by a [review panel](concepts/review-panel.md) merge (`--panel`). `a` and `b` are `{provider, model}`. `mode` is `both`, `a_only` or `b_only`: which members' results could be used. `judged` is `false` with `--panel-no-judge`. |
 | `rules` | object | `{built_in, entries}`: the path rule list this review used. `built_in` says whether the built-in rules were on, `entries` counts every entry (team entries and built-ins in use). Set on every completed result of a pergent that knows rules, even when no file had a rule, so a caller can tell "no rule matched" from "this pergent does not use rules". Absent from an error result. An additive field: `schema_version` stays `1`. See [Path rules](concepts/rules.md). |
 | `comment` | object | The rendered comment. See below. |
 
@@ -197,6 +198,8 @@ Each entry of `skills`:
 | `duration_seconds` | number | Wall-clock time for the skill, to a tenth of a second. |
 | `tokens` | object | Token counts summed over every run of the skill: batch, repair, verification and cross-batch runs, retries included. `input` and `output` are what the provider reports as input and output. `reasoning`, `cache_read` and `cache_write` are counted apart: pergent does not add them to `input` or `output` (whether a provider's own output already contains reasoning is up to the provider); they are new in pergent v0.9.0, and an older pergent leaves them out. An additive field: `schema_version` stays `1`, and a reader that doesn't know them can ignore them. A provider that reports no usage gives zeros. |
 | `runs` | array | One entry per opencode run of the skill, in the order of `run`. Omitted when the skill started no run. Raw counts only: pergent adds no prices. See below. |
+| `panel` | object | Panel merge only. `mode` is `both`, `a_only`, `b_only` or `none` (neither member could review the skill: its verdict is `failed`). `judges` is one entry per judge run: `role` (the model that judged), `status` (`ok`, `failed`, `not_run` when there was nothing to judge, or `skipped` when the budget was short, the review stopped or `--panel-no-judge` was set) and, for `failed`, `cause` when the run reported one (a run that failed with no reported cause has none). In mode `a_only` or `b_only`, a verification run of the one member that failed is one entry with that member's role and status `failed`, so its provider error reaches the top `provider_error` with the role. `exact_merge` is `true` when the findings were merged by file, line and title with no judge answer. |
+| `tokens_by_model` | array | Panel merge only. `{role, provider, model, tokens}` per model, A first, for the merge's own judge runs. A role with no run is left out. |
 
 Each entry of `runs`:
 
@@ -251,6 +254,7 @@ Each entry of `findings`:
 | `suggested_fix` | string | A proposed fix. Omitted when empty. |
 | `suggestion` | string | The exact replacement text for lines `line` to `end_line` (or `line` alone). Omitted when empty, and always omitted on a file in `files.deleted`. |
 | `linked` | object | `{repo, file, line}`: the caller, in a linked repository, that an impact finding says the change breaks. `repo` is the link's name from `--linked-repos`. Set only on a finding of the `impact` skill and only when pergent found the file and line in the clone. Omitted on every other finding. An additive field: `schema_version` stays `1`, and a reader that doesn't know it can ignore it. |
+| `panel` | object | Panel merge only. `found_by` is `a`, `b` or `both`. `also` lists the fingerprints of the group's other findings: a dismissal of any of them dismisses this one. `disagreed_by` and `reason`: the model that judged the finding not real, so it became a suggestion. `rated_suggestion_by`: the model that reported the same issue only as a suggestion. `unjudged_by`: the model that gave no usable answer, so the finding stays blocking. |
 
 `failures[].message` and `files.not_reviewed[].cause` are one line of plain text with no markdown and no opencode stderr, made for machines. The markdown version is in `comment.markdown`.
 
@@ -343,6 +347,6 @@ After a `SIGTERM` the whole HTTP delivery gets 20 seconds, with a single retry a
 
 Version 1 changes only by adding fields. A reader must ignore fields it does not know. Renaming a field, removing one, or changing the meaning of one requires `schema_version: 2`.
 
-The skill's `runs` field is additive and new in this version of pergent.
+The skill's `runs` field, and the review panel fields (`panel`, `skills[].panel`, `skills[].tokens_by_model`, `findings[].panel` and `provider_error.role`), are additive. A result without a panel has none of them. `schema_version` stays `1`.
 
 `--previous` reads a result with this schema. A file with another `schema_version`, or one that cannot be read, is ignored with a warning and the review runs as a first review.

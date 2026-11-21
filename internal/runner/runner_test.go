@@ -1186,3 +1186,43 @@ func TestRun_NoStopOnRateLimit(t *testing.T) {
 		t.Errorf("opencode ran %d times, want 2", n)
 	}
 }
+
+func TestRunEnvIsAddedLast(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake opencode is a shell script")
+	}
+	t.Setenv("OPENCODE_API_KEY", "key-a")
+	t.Setenv("PERGENT_PANEL_B_API_KEY", "key-b")
+	dir := t.TempDir()
+	envPath := filepath.Join(dir, "env.txt")
+	fixture, err := filepath.Abs(filepath.Join("testdata", "completed.ndjson"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := fmt.Sprintf("#!/bin/sh\nenv > %q\ncat %q\n", envPath, fixture)
+	bin := filepath.Join(dir, "bin")
+	if err := os.Mkdir(bin, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "opencode"), []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	res := Run(context.Background(), Options{
+		ConfigPath: "/tmp/config.json", RepoPath: t.TempDir(), Timeout: time.Minute, Message: "m",
+		ExcludeEnv: []string{"OPENCODE_API_KEY", "PERGENT_PANEL_B_API_KEY"},
+		Env:        []string{"OPENCODE_API_KEY=key-b"},
+	})
+	if res.Status != StatusCompleted {
+		t.Fatalf("status = %v", res.Status)
+	}
+	data, err := os.ReadFile(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := string(data)
+	if !strings.Contains(env, "OPENCODE_API_KEY=key-b\n") || strings.Contains(env, "key-a") || strings.Contains(env, "PERGENT_PANEL_B_API_KEY") {
+		t.Fatalf("env:\n%s", env)
+	}
+}

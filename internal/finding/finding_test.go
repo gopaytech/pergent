@@ -20,6 +20,19 @@ func TestFingerprint_StableAndNormalized(t *testing.T) {
 	}
 }
 
+func TestKeyIgnoresCaseAndSpaces(t *testing.T) {
+	k := Key(Finding{File: "a.go", Line: 3, Title: "Bad  Thing"})
+	if got := Key(Finding{File: "a.go", Line: 3, Title: "bad thing"}); got != k {
+		t.Errorf("Key not normalized: %q != %q", got, k)
+	}
+	if got := Key(Finding{File: "a.go", Line: 4, Title: "bad thing"}); got == k {
+		t.Errorf("Key for another line should differ, both %q", k)
+	}
+	if got := Key(Finding{File: "b.go", Line: 3, Title: "bad thing"}); got == k {
+		t.Errorf("Key for another file should differ, both %q", k)
+	}
+}
+
 func TestDedup_KeepsFirst(t *testing.T) {
 	in := []Finding{
 		{File: "a.go", Line: 3, Title: "Nil  Deref", Explanation: "first"},

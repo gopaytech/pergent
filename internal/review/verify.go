@@ -132,6 +132,13 @@ func readResults(block finding.JSONBlock) ([]verifyResult, error) {
 // dropped. A verification that cannot run, or whose answer cannot be used,
 // adds a note and keeps every finding; it never fails the skill.
 func (r *reviewer) verify(ctx context.Context, s skill.Skill, res *SkillResult) {
+	r.verifyWith(ctx, s, res, runMode{})
+}
+
+// verifyWith is verify with a run mode: a panel member's model and key. It
+// reports whether the run started and failed, with the run's cause (nil when
+// none was reported), so a panel can carry a provider error with its role.
+func (r *reviewer) verifyWith(ctx context.Context, s skill.Skill, res *SkillResult, mode runMode) (failed bool, cause *runner.Cause) {
 	var blocking []verifyFinding
 	for _, f := range res.Findings {
 		if f.Severity == finding.Blocking {
@@ -141,11 +148,11 @@ func (r *reviewer) verify(ctx context.Context, s skill.Skill, res *SkillResult) 
 		}
 	}
 	if len(blocking) == 0 {
-		return
+		return false, nil
 	}
 	if time.Until(r.deadline) < verifyMinRemaining {
 		res.Notes = append(res.Notes, fmt.Sprintf("Verification skipped: less than %s of the review budget was left; blocking findings are unverified.", verifyMinRemaining))
-		return
+		return false, nil
 	}
 	fail := func(format string, args ...any) {
 		res.Notes = append(res.Notes, "Verification failed: "+fmt.Sprintf(format, args...))
@@ -154,21 +161,92 @@ func (r *reviewer) verify(ctx context.Context, s skill.Skill, res *SkillResult) 
 	data, err := json.MarshalIndent(map[string][]verifyFinding{"findings": blocking}, "", "  ")
 	if err != nil {
 		fail("could not encode the findings: %v", err)
-		return
+		return false, nil
 	}
 	dir, err := os.MkdirTemp("", "pergent-verify-*")
 	if err != nil {
 		fail("could not write the findings file: %v", err)
-		return
+		return false, nil
 	}
 	defer os.RemoveAll(dir)
 	path := filepath.Join(dir, "blocking-findings.json")
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		fail("could not write the findings file: %v", err)
-		return
+		return false, nil
 	}
 
-	files, message := []string{path}, verifyMessage
+	// Without the rules of the findings' files a finding that rests on a
+	// project convention could be dropped, so a failed write fails the
+	// verification and keeps every finding.
+	files, message, err := r.attachContext(dir, s, res, []string{path}, verifyMessage, rejectedVerifyMessage, verifyRulesMessage)
+	if err != nil {
+		fail("could not write the file rules: %v", err)
+		return false, nil
+	}
+	out, err := r.runWith(ctx, s, "verify", verifyPrompt, files, message, mode)
+	res.Usage = res.Usage.Add(out.Usage)
+	if errors.Is(err, errNotStarted) {
+		res.Notes = append(res.Notes, fmt.Sprintf("Verification skipped: %s before it could start; blocking findings are unverified.", r.stopReason(ctx)))
+		return false, nil
+	}
+	if err != nil {
+		fail("could not generate the opencode config: %v", err)
+		return false, nil
+	}
+	if out.Status != runner.StatusCompleted {
+		if out.Cause == nil {
+			fail("the run failed without a reported cause.")
+			return true, nil
+		}
+		fail("%s", out.Cause.Message())
+		return true, out.Cause
+	}
+	notReal, err := parseVerifyAnswer(out.Output)
+	if err != nil {
+		res.Notes = append(res.Notes, verifyBadFormat)
+		return false, nil
+	}
+
+	// Blocking findings are numbered in res.Findings order, as sent.
+	kept := res.Findings[:0:0]
+	var dropped []string
+	n := 0
+	for _, f := range res.Findings {
+		if f.Severity == finding.Blocking {
+			n++
+			if reason, ok := notReal[strconv.Itoa(n)]; ok {
+				if reason = strings.Join(strings.Fields(reason), " "); reason != "" {
+					dropped = append(dropped, fmt.Sprintf("%s (%s)", f.Title, reason))
+				} else {
+					dropped = append(dropped, f.Title)
+				}
+				continue
+			}
+		}
+		kept = append(kept, f)
+	}
+	res.Findings = kept
+	if len(dropped) > 0 {
+		noun := "findings"
+		if len(blocking) == 1 {
+			noun = "finding"
+		}
+		res.Notes = append(res.Notes, fmt.Sprintf("Verification dropped %d of %d blocking %s: %s",
+			len(dropped), len(blocking), noun, strings.Join(dropped, "; ")))
+	}
+	return false, nil
+}
+
+// attachContext adds to a run that checks findings (verification or a panel
+// judge) what it gets beyond the findings: where the diffs are, the deleted
+// files and renames, the diffs of the deleted files a blocking finding in
+// res.Findings is on, the skill's blocking dismissals, with rejected as
+// their sentence, and the rules of the files the blocking findings in
+// res.Findings are on, with rules as their sentence. The files are written
+// in dir. What else cannot be attached adds its note to res and the run goes
+// on without it; the rules cannot be left out, so a failed write of them is
+// the error, and the run must not start.
+func (r *reviewer) attachContext(dir string, s skill.Skill, res *SkillResult, files []string, message, rejected, rules string) ([]string, string, error) {
 	// The run has no diff attached. When one batch's diff covered every file
 	// with a diff, the review needs nothing more.
 	var own []string
@@ -202,89 +280,33 @@ func (r *reviewer) verify(ctx context.Context, s skill.Skill, res *SkillResult) 
 			message += " " + verifyDeletedPatchMessage
 		}
 	}
-	var rejected []finding.Rejected
+	var blocking []finding.Rejected
 	for _, d := range r.req.Dismissals[s.Name] {
 		if d.Severity == string(finding.Blocking) {
-			rejected = append(rejected, d)
+			blocking = append(blocking, d)
 		}
 	}
-	if len(rejected) > 0 {
-		if p, err := attachRejected(dir, rejected); err != nil {
+	if len(blocking) > 0 {
+		if p, err := attachRejected(dir, blocking); err != nil {
 			res.noteDismissalsFailed()
 		} else {
 			files = append(files, p)
-			message += " " + rejectedVerifyMessage
+			message += " " + rejected
 		}
 	}
-
-	// The rules of the findings' files. Without them a finding that rests on
-	// a project convention could be dropped, so a failed write fails the
-	// verification and keeps every finding.
 	var findingFiles []string
-	for _, b := range blocking {
-		if !slices.Contains(findingFiles, b.File) {
-			findingFiles = append(findingFiles, b.File)
+	for _, f := range res.Findings {
+		if f.Severity == finding.Blocking && !slices.Contains(findingFiles, f.File) {
+			findingFiles = append(findingFiles, f.File)
 		}
 	}
 	if text, _ := r.rulesOf(s, findingFiles); text != "" {
 		p := filepath.Join(dir, rulesFile)
 		if err := writeRules(p, []byte(text), 0600); err != nil {
-			fail("could not write the file rules: %v", err)
-			return
+			return nil, "", err
 		}
 		files = append(files, p)
-		message += " " + verifyRulesMessage
+		message += " " + rules
 	}
-
-	out, err := r.runWithPrompt(ctx, s, "verify", verifyPrompt, files, message)
-	res.Usage = res.Usage.Add(out.Usage)
-	if errors.Is(err, errNotStarted) {
-		res.Notes = append(res.Notes, fmt.Sprintf("Verification skipped: %s before it could start; blocking findings are unverified.", r.stopReason(ctx)))
-		return
-	}
-	if err != nil {
-		fail("could not generate the opencode config: %v", err)
-		return
-	}
-	if out.Status != runner.StatusCompleted {
-		if out.Cause == nil {
-			fail("the run failed without a reported cause.")
-			return
-		}
-		fail("%s", out.Cause.Message())
-		return
-	}
-	notReal, err := parseVerifyAnswer(out.Output)
-	if err != nil {
-		res.Notes = append(res.Notes, verifyBadFormat)
-		return
-	}
-
-	// Blocking findings are numbered in res.Findings order, as sent.
-	kept := res.Findings[:0:0]
-	var dropped []string
-	n := 0
-	for _, f := range res.Findings {
-		if f.Severity == finding.Blocking {
-			n++
-			if reason, ok := notReal[strconv.Itoa(n)]; ok {
-				if reason = strings.Join(strings.Fields(reason), " "); reason != "" {
-					dropped = append(dropped, fmt.Sprintf("%s (%s)", f.Title, reason))
-				} else {
-					dropped = append(dropped, f.Title)
-				}
-				continue
-			}
-		}
-		kept = append(kept, f)
-	}
-	res.Findings = kept
-	if len(dropped) > 0 {
-		noun := "findings"
-		if len(blocking) == 1 {
-			noun = "finding"
-		}
-		res.Notes = append(res.Notes, fmt.Sprintf("Verification dropped %d of %d blocking %s: %s",
-			len(dropped), len(blocking), noun, strings.Join(dropped, "; ")))
-	}
+	return files, message, nil
 }

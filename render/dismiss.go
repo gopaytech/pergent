@@ -1,5 +1,7 @@
 package render
 
+import "slices"
+
 // Dismissal sets aside the findings with one fingerprint, up to a severity.
 type Dismissal struct {
 	Fingerprint string
@@ -30,9 +32,10 @@ func dismissalRank(s string) int {
 }
 
 // ApplyDismissals moves each finding a dismissal covers into Skill.Dismissed.
-// A dismissal covers a finding with the same fingerprint whose severity is no
-// higher than the dismissal's, so a suggestion dismissal leaves a blocking
-// finding in place. When several dismissals cover a finding, the first one
+// A dismissal covers a finding with the same fingerprint, or the fingerprint
+// of a finding merged into it (Panel.Also), whose severity is no higher than
+// the dismissal's, so a suggestion dismissal leaves a blocking finding in
+// place. When several dismissals cover a finding, the first one
 // wins.
 //
 // It recomputes the verdict of each skill it changed: a has_blocking_issues
@@ -69,14 +72,22 @@ func ApplyDismissals(skills []Skill, ds []Dismissal) []Skill {
 	return out
 }
 
-// covering returns the first dismissal that covers f. A finding without a
-// fingerprint can't be dismissed.
+// covering returns the first dismissal that covers f, by its own fingerprint
+// or by one of the findings merged into it. A finding with neither can't be
+// dismissed.
 func covering(ds []Dismissal, f Finding) (Dismissal, bool) {
-	if f.Fingerprint == "" {
+	var also []string
+	if f.Panel != nil {
+		also = f.Panel.Also
+	}
+	if f.Fingerprint == "" && len(also) == 0 {
 		return Dismissal{}, false
 	}
 	for _, d := range ds {
-		if d.Fingerprint == f.Fingerprint && severityRank(f.Severity) <= dismissalRank(d.Severity) {
+		if d.Fingerprint == "" {
+			continue
+		}
+		if (d.Fingerprint == f.Fingerprint || slices.Contains(also, d.Fingerprint)) && severityRank(f.Severity) <= dismissalRank(d.Severity) {
 			return d, true
 		}
 	}

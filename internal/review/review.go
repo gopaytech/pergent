@@ -23,6 +23,7 @@ import (
 	"github.com/gopaytech/pergent/internal/diff"
 	"github.com/gopaytech/pergent/internal/finding"
 	"github.com/gopaytech/pergent/internal/graphpack"
+	"github.com/gopaytech/pergent/internal/panel"
 	"github.com/gopaytech/pergent/internal/redact"
 	"github.com/gopaytech/pergent/internal/runner"
 	"github.com/gopaytech/pergent/internal/skill"
@@ -79,6 +80,11 @@ type Request struct {
 	// none. It is data, not instructions, and is attached to the batch and
 	// cross-batch runs only, never to a verification or repair run.
 	CIResults string
+	// SkipSkillVerify leaves out each skill's verification run, so its
+	// blocking findings come back unjudged: a review panel's member, whose
+	// findings the other model judges. The impact check keeps its own
+	// verification. False (the default) changes nothing.
+	SkipSkillVerify bool
 	// Linked are the repositories the caller cloned and scrubbed, to check the
 	// change against. With any, one more run (ImpactSkill) looks in them for
 	// callers the change breaks, once the skills are done. An entry with an
@@ -86,8 +92,9 @@ type Request struct {
 	// refused while Linked is not empty. Nil changes nothing.
 	Linked []LinkedRepo
 	// Rules gives each file its path rule. A skill's batch runs get the rules
-	// of their files (file-rules.md), its verification run those of its
-	// findings' files, and rule text counts in batch sizing; a skill with
+	// of their files (file-rules.md), its verification run (and a review
+	// panel's judge runs) those of the blocking findings' files it checks,
+	// and rule text counts in batch sizing; a skill with
 	// NoRules gets none. Rules never change what is blocking. Nil changes
 	// nothing.
 	Rules *rule.Resolver
@@ -175,6 +182,8 @@ type SkillResult struct {
 	Runs []RunUsage
 	// Duration is how long the skill's review took.
 	Duration time.Duration
+	// Panel is how a review panel merged the skill; nil outside a panel.
+	Panel *SkillPanel
 }
 
 // BatchChecks is the checklist the model reported for one batch.
@@ -270,58 +279,9 @@ type reviewer struct {
 // most req.Concurrency opencode runs at once and all of them within
 // req.Budget, and returns the results in req.Skills order.
 func Run(ctx context.Context, req Request) []SkillResult {
-	if req.Run == nil {
-		req.Run = runner.Run
-	}
-	if req.Concurrency < 1 {
-		req.Concurrency = 1
-	}
-	if req.Budget <= 0 {
-		req.Budget = defaultBudget
-	}
-	files := diff.Split(req.Diff)
-	var list strings.Builder
-	for _, f := range files {
-		fmt.Fprintf(&list, "- %s\n", f.Path)
-	}
-	start := time.Now()
-	ctx, cancel := context.WithDeadlineCause(ctx, start.Add(req.Budget), errBudget)
+	ctx, cancel, r := newReviewer(ctx, req)
 	defer cancel()
-	deadline, _ := ctx.Deadline()
-	var classifier diff.Classifier
-	if req.Classifier != nil {
-		classifier = *req.Classifier
-	} else {
-		classifier = diff.NewClassifier(req.RepoPath)
-	}
-	// The request decides, whatever the caller's classifier says: off is off.
-	// A deleted file the runs may not read is never batched; the deny flag is
-	// every run's (see eligibleDiffs).
-	classifier.ReviewDeleted = req.CheckDeleted
-	deny := req.Sandbox.Hardened
-	classifier.DeniedDeleted = func(p string) bool { return config.ReadDenied(p, deny) }
-	req.Description = changeText(req.Description)
-	req.CIResults = ciText(req.CIResults)
-	r := &reviewer{
-		req:         req,
-		files:       files,
-		changedList: list.String(),
-		classifier:  classifier,
-		slots:       make(chan struct{}, req.Concurrency),
-		start:       start,
-		deadline:    deadline,
-		atHead:      make(map[string]bool, len(files)),
-		live:        make(map[string]bool, len(files)),
-	}
-	for _, f := range files {
-		r.atHead[f.Path] = true
-		if !f.Deleted {
-			r.live[f.Path] = true
-		}
-	}
-	if req.Graph != nil {
-		r.graph = graphpack.NewIndex(req.Graph)
-	}
+	req, files := r.req, r.files
 
 	results := make([]SkillResult, len(req.Skills))
 	if len(files) == 0 && strings.TrimSpace(req.Diff) != "" {
@@ -367,6 +327,64 @@ func Run(ctx context.Context, req Request) []SkillResult {
 		results = append(results, r.impact(ctx))
 	}
 	return results
+}
+
+// newReviewer prepares req as Run does (defaults, the diff split, the
+// classifier) and returns the reviewer with a context that ends at the
+// review's deadline. The caller cancels it.
+func newReviewer(ctx context.Context, req Request) (context.Context, context.CancelFunc, *reviewer) {
+	if req.Run == nil {
+		req.Run = runner.Run
+	}
+	if req.Concurrency < 1 {
+		req.Concurrency = 1
+	}
+	if req.Budget <= 0 {
+		req.Budget = defaultBudget
+	}
+	files := diff.Split(req.Diff)
+	var list strings.Builder
+	for _, f := range files {
+		fmt.Fprintf(&list, "- %s\n", f.Path)
+	}
+	start := time.Now()
+	ctx, cancel := context.WithDeadlineCause(ctx, start.Add(req.Budget), errBudget)
+	deadline, _ := ctx.Deadline()
+	var classifier diff.Classifier
+	if req.Classifier != nil {
+		classifier = *req.Classifier
+	} else {
+		classifier = diff.NewClassifier(req.RepoPath)
+	}
+	// The request decides, whatever the caller's classifier says: off is off.
+	// A deleted file the runs may not read is never batched; the deny flag is
+	// every run's (see eligibleDiffs).
+	classifier.ReviewDeleted = req.CheckDeleted
+	deny := req.Sandbox.Hardened
+	classifier.DeniedDeleted = func(p string) bool { return config.ReadDenied(p, deny) }
+	req.Description = changeText(req.Description)
+	req.CIResults = ciText(req.CIResults)
+	r := &reviewer{
+		req:         req,
+		files:       files,
+		changedList: list.String(),
+		classifier:  classifier,
+		slots:       make(chan struct{}, req.Concurrency),
+		start:       start,
+		deadline:    deadline,
+		atHead:      make(map[string]bool, len(files)),
+		live:        make(map[string]bool, len(files)),
+	}
+	for _, f := range files {
+		r.atHead[f.Path] = true
+		if !f.Deleted {
+			r.live[f.Path] = true
+		}
+	}
+	if req.Graph != nil {
+		r.graph = graphpack.NewIndex(req.Graph)
+	}
+	return ctx, cancel, r
 }
 
 // batchOutcome is one batch's review: its findings, why it was not
@@ -631,7 +649,9 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillRes
 	if len(r.req.Dismissals[s.Name]) > 0 {
 		res.noteLeftOut(append(leftOut, crossLeftOut...))
 	}
-	r.verify(ctx, s, &res)
+	if !r.req.SkipSkillVerify {
+		r.verify(ctx, s, &res)
+	}
 	// The verdict is computed after verification: findings it drops no
 	// longer block.
 	res.Verdict = verdict(res)
@@ -1023,6 +1043,35 @@ type runMode struct {
 	// noInstructions leaves out Sandbox.Instructions, which are for reviews of
 	// this repository. The impact run gets none.
 	noInstructions bool
+	// member is the model and key of a review panel's run. Nil is the
+	// environment's.
+	member *Member
+}
+
+// Member is one model of a review panel: its role (panel.A or panel.B), its
+// model and its key, and its review by skill name (nil: its result can't be
+// used). The key reaches only the runs on this model.
+type Member struct {
+	Role   string
+	Model  config.Model
+	Key    string
+	Skills map[string]SkillResult
+}
+
+// cloudEnvNames returns the names in env that have a cloud-provider prefix
+// a run keeps (runner.CloudEnvPrefixes).
+func cloudEnvNames(env []string) []string {
+	var names []string
+	for _, kv := range env {
+		name, _, _ := strings.Cut(kv, "=")
+		for _, p := range runner.CloudEnvPrefixes {
+			if strings.HasPrefix(name, p) {
+				names = append(names, name)
+				break
+			}
+		}
+	}
+	return names
 }
 
 // runWithPrompt is run with an explicit agent prompt in place of the
@@ -1051,7 +1100,15 @@ func (r *reviewer) runWith(ctx context.Context, s skill.Skill, label, prompt str
 		Linked:       mode.linked,
 	}
 	var logPrefix string
-	var excludeEnv []string
+	var excludeEnv, env []string
+	role := ""
+	if m := mode.member; m != nil {
+		// The run's key is set as OPENCODE_API_KEY for this run only. Neither
+		// key name is left in the environment the sandbox passes on.
+		opts.Model = &m.Model
+		env = []string{"OPENCODE_API_KEY=" + m.Key}
+		role = m.Role
+	}
 	if sb.Hardened {
 		opts.Prompt = strings.TrimRight(prompt, "\n") + "\n\n" + untrustedSection + "\n"
 		opts.ExplicitInstructions = true
@@ -1062,6 +1119,14 @@ func (r *reviewer) runWith(ctx context.Context, s skill.Skill, label, prompt str
 		opts.DenySecretFiles = true
 		logPrefix = fmt.Sprintf("[%s %s]", s.Name, label)
 		excludeEnv = sb.ExcludeEnv
+		if mode.member != nil {
+			excludeEnv = append(slices.Clone(excludeEnv), "OPENCODE_API_KEY", "PERGENT_PANEL_B_API_KEY")
+		}
+	}
+	if m := mode.member; m != nil && m.Role == panel.B {
+		// A run on model B gets B's key only. The cloud credentials in the
+		// environment are model A's, so they are removed too.
+		excludeEnv = append(slices.Clone(excludeEnv), cloudEnvNames(os.Environ())...)
 	}
 	configPath, cleanup, err := config.GenerateOpenCodeConfigWith(opts)
 	if err != nil {
@@ -1109,9 +1174,10 @@ func (r *reviewer) runWith(ctx context.Context, s skill.Skill, label, prompt str
 		StepLimit:    stepLimit,
 		ContextLimit: ctxLimit,
 		ExcludeEnv:   excludeEnv,
+		Env:          env,
 		LogPrefix:    logPrefix,
 	})
-	recordRun(ctx, label, len(opts.Prompt), files, run)
+	recordRun(ctx, label, role, len(opts.Prompt), files, run)
 	return run, nil
 }
 

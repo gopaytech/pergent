@@ -70,6 +70,13 @@ func Fingerprint(skill, file, title string) string {
 	return hex.EncodeToString(sum[:])[:12]
 }
 
+// Key is the exact-match identity of a finding: its file, its line and its
+// title, case and spacing ignored. Dedup keeps one finding per key, and a
+// review panel merges by it when no cross-check answer can be used.
+func Key(f Finding) string {
+	return fmt.Sprintf("%s\x00%d\x00%s", f.File, f.Line, normalize(f.Title))
+}
+
 // Dedup keeps one finding for each (file, line, normalized title), preserving
 // order: the first, unless a blocking one follows a suggestion, which then
 // takes its place. A duplicate must never lower a finding's severity.
@@ -77,7 +84,7 @@ func Dedup(fs []Finding) []Finding {
 	seen := make(map[string]int, len(fs))
 	out := make([]Finding, 0, len(fs))
 	for _, f := range fs {
-		key := fmt.Sprintf("%s\x00%d\x00%s", f.File, f.Line, normalize(f.Title))
+		key := Key(f)
 		if i, ok := seen[key]; ok {
 			if f.Severity == Blocking && out[i].Severity != Blocking {
 				out[i] = f
