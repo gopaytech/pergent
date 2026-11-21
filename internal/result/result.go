@@ -54,7 +54,9 @@ type Result struct {
 	// billing, quota, then rate_limit), for a caller that moves the review to
 	// another model. Absent when no failure has one.
 	ProviderError *ProviderError `json:"provider_error,omitempty"`
-	Comment       Comment        `json:"comment"`
+	// Panel names the review panel's two models; absent without a panel.
+	Panel   *Panel  `json:"panel,omitempty"`
+	Comment Comment `json:"comment"`
 }
 
 // Skill is one skill's review.
@@ -74,6 +76,9 @@ type Skill struct {
 	DurationSeconds  float64       `json:"duration_seconds"`
 	Tokens           Tokens        `json:"tokens"`
 	Runs             []Run         `json:"runs,omitempty"`
+	// Panel and TokensByModel are set only for a review panel's skill.
+	Panel         *SkillPanel   `json:"panel,omitempty"`
+	TokensByModel []ModelTokens `json:"tokens_by_model,omitempty"`
 }
 
 // Finding is a finding with its short ID.
@@ -91,6 +96,8 @@ type Finding struct {
 	// Linked is the caller in a linked repository that an impact finding
 	// names; omitted on every other finding.
 	Linked *finding.Caller `json:"linked,omitempty"`
+	// Panel is what a review panel's merge says about the finding.
+	Panel *FindingPanel `json:"panel,omitempty"`
 }
 
 // Summary is the model's summary of one batch.
@@ -169,6 +176,9 @@ type ProviderError struct {
 	Status   int    `json:"status,omitempty"`
 	Provider string `json:"provider,omitempty"`
 	Model    string `json:"model,omitempty"`
+	// Role is the panel model ("a" or "b") of a judge run's error; empty
+	// for every other provider error.
+	Role string `json:"role,omitempty"`
 }
 
 // Tokens is the model usage of a skill's runs. Input and Output keep their
@@ -445,6 +455,12 @@ func redactResult(r Result) Result {
 		r.Error = &e
 	}
 	r.ProviderError = redactProviderError(r.ProviderError)
+	if r.Panel != nil {
+		p := *r.Panel
+		p.A = PanelMember{Provider: redact.String(p.A.Provider), Model: redact.String(p.A.Model)}
+		p.B = PanelMember{Provider: redact.String(p.B.Provider), Model: redact.String(p.B.Model)}
+		r.Panel = &p
+	}
 	if r.Skills != nil {
 		skills := make([]Skill, len(r.Skills))
 		for i, s := range r.Skills {
@@ -467,6 +483,14 @@ func redactSkill(s Skill) Skill {
 		f.Explanation = redact.String(f.Explanation)
 		f.SuggestedFix = redact.String(f.SuggestedFix)
 		f.Suggestion = redact.String(f.Suggestion)
+		if f.Panel != nil {
+			fp := *f.Panel
+			fp.Reason = redact.String(fp.Reason)
+			if fp.Also != nil {
+				fp.Also = redactStrings(fp.Also)
+			}
+			f.Panel = &fp
+		}
 		if f.Linked != nil {
 			// A copy: the pointer is shared with the finding Build read.
 			c := *f.Linked
@@ -539,6 +563,31 @@ func redactSkill(s Skill) Skill {
 	}
 	s.Failures = failures
 	s.Notes = redactStrings(s.Notes)
+	if s.Panel != nil {
+		sp := *s.Panel
+		if sp.Judges != nil {
+			judges := make([]PanelJudge, len(sp.Judges))
+			for i, j := range sp.Judges {
+				if j.Cause != nil {
+					c := *j.Cause
+					c.Message = redact.String(c.Message)
+					c.ProviderError = redactProviderError(c.ProviderError)
+					j.Cause = &c
+				}
+				judges[i] = j
+			}
+			sp.Judges = judges
+		}
+		s.Panel = &sp
+	}
+	if s.TokensByModel != nil {
+		tbm := make([]ModelTokens, len(s.TokensByModel))
+		for i, m := range s.TokensByModel {
+			m.Provider, m.Model = redact.String(m.Provider), redact.String(m.Model)
+			tbm[i] = m
+		}
+		s.TokensByModel = tbm
+	}
 	return s
 }
 
