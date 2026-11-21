@@ -16,6 +16,7 @@ import (
 	"github.com/gopaytech/pergent/internal/panel"
 	"github.com/gopaytech/pergent/internal/runner"
 	"github.com/gopaytech/pergent/internal/skill"
+	"github.com/gopaytech/pergent/render"
 )
 
 func TestParseJudgeAnswer(t *testing.T) {
@@ -468,6 +469,47 @@ func TestRunPanelRejectedAttached(t *testing.T) {
 		if c.opts.Message != judgeMessage+" "+judgeRejectedMessage {
 			t.Errorf("%s: message = %q", c.model, c.opts.Message)
 		}
+	}
+}
+
+// TestRunPanelDismissedFindingLinksNothing: B reports b1 again, which people
+// dismissed as blocking, and a judge links A's own blocking a1 to it. The
+// link is dropped, so the dismissal of b1 cannot hide a1.
+func TestRunPanelDismissedFindingLinksNothing(t *testing.T) {
+	dismissedB := finding.Finding{File: "a/x.go", Line: 7, Severity: finding.Blocking, Title: "Old dismissed bug", Explanation: "e"}
+	dismissedB.Fingerprint = finding.Fingerprint("s", dismissedB.File, dismissedB.Title)
+	for name, answers := range map[string][2]string{
+		// B's judge links a1 to its own b1.
+		"of a": {judgeAnswer(t, map[string]any{"id": "b1", "real": true, "reason": "yes", "same_as": nil}),
+			judgeAnswer(t, map[string]any{"id": "a1", "real": true, "reason": "yes", "same_as": "b1"})},
+		// A's judge links b1 to its own a1.
+		"of b": {judgeAnswer(t, map[string]any{"id": "b1", "real": true, "reason": "yes", "same_as": "a1"}),
+			judgeAnswer(t, map[string]any{"id": "a1", "real": true, "reason": "yes", "same_as": nil})},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := &panelFake{t: t}
+			f.respond = byModel(answers[0], answers[1])
+			req := panelRequest(t, f, memberResult(findA1), memberResult(dismissedB))
+			req.Dismissals = map[string][]finding.Rejected{"s": {{File: dismissedB.File, Title: dismissedB.Title, Severity: string(finding.Blocking), Reason: "fine"}}}
+			res := runPanel(t, req)
+
+			s := render.Skill{Name: "s", Verdict: render.VerdictHasBlockingIssues}
+			for i, f := range res.Findings {
+				tag := res.Panel.Tags[i]
+				s.Findings = append(s.Findings, render.Finding{Fingerprint: f.Fingerprint, Title: f.Title, Severity: render.Severity(f.Severity),
+					Panel: &render.FindingPanel{FoundBy: tag.FoundBy, Also: tag.Also}})
+			}
+			out := render.ApplyDismissals([]render.Skill{s}, []render.Dismissal{{Fingerprint: dismissedB.Fingerprint, Severity: "blocking"}})[0]
+			if len(out.Findings) != 1 || out.Findings[0].Title != findA1.Title || out.Findings[0].Severity != render.Blocking {
+				t.Errorf("kept = %+v, want a1 blocking", out.Findings)
+			}
+			if len(out.Dismissed) != 1 || out.Dismissed[0].Finding.Title != dismissedB.Title {
+				t.Errorf("dismissed = %+v, want b1 alone", out.Dismissed)
+			}
+			if out.Verdict != render.VerdictHasBlockingIssues {
+				t.Errorf("verdict = %s", out.Verdict)
+			}
+		})
 	}
 }
 

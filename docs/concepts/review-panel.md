@@ -90,7 +90,7 @@ A reason is cut to 300 bytes and made safe, so it cannot ping a user.
 
 ## Dismissals and the result
 
-A dismissal of any finding in a group dismisses the merged finding. The result keeps the other members' fingerprints in `panel.also` for this.
+A dismissal of any finding in a group dismisses the merged finding. The result keeps the other members' fingerprints in `panel.also` for this. A member finding that a `--dismissals` entry already covers (same fingerprint, and a severity the entry covers) is never linked to another finding by `same_as`, so its dismissal cannot hide a finding of the other model.
 
 `--dismissals` is accepted with `--panel`. These flags are a usage error with `--panel`: `--previous`, `--carried`, `--ci-results`, `--change-description`, `--linked-repos`, `--graph`, `--no-skill-verify`.
 

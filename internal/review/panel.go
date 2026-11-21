@@ -221,6 +221,11 @@ func (r *reviewer) panelSkill(ctx context.Context, s skill.Skill, req PanelReque
 	p.Judges = []JudgeRun{runB, runA}
 	// With no usable answer from either run, Merge is exact.
 	p.Exact = ofA == nil && ofB == nil
+	// A dismissal of any member dismisses its whole group, so a finding people
+	// dismissed must not be linked to another: its dismissal would hide the
+	// other finding too.
+	dismissed := r.dismissedIDs(s.Name, append(slices.Clone(itemsA), itemsB...))
+	ofA, ofB = unlinkDismissed(ofA, dismissed), unlinkDismissed(ofB, dismissed)
 	merged := panel.Merge(itemsA, itemsB, ofA, ofB)
 	res.Findings = make([]finding.Finding, len(merged))
 	p.Tags = make([]panel.Tag, len(merged))
@@ -232,6 +237,49 @@ func (r *reviewer) panelSkill(ctx context.Context, s skill.Skill, req PanelReque
 	res.Runs = runs.sorted()
 	res.Duration = time.Since(start)
 	return res
+}
+
+// dismissedIDs returns the IDs of the items a dismissal in r.req.Dismissals
+// for skill name covers, by the rule render.ApplyDismissals uses: the same
+// fingerprint (finding.Fingerprint of the entry's file and title), and a
+// finding no more severe than the dismissal. The item's own fingerprint and
+// the one its file and title give both count, so a carried fingerprint is
+// matched too.
+func (r *reviewer) dismissedIDs(name string, items []panel.Item) map[string]bool {
+	ds := r.req.Dismissals[name]
+	if len(ds) == 0 {
+		return nil
+	}
+	out := map[string]bool{}
+	for _, it := range items {
+		own := finding.Fingerprint(name, it.File, it.Title)
+		for _, d := range ds {
+			fp := finding.Fingerprint(name, d.File, d.Title)
+			covers := d.Severity == string(finding.Blocking) ||
+				(d.Severity == string(finding.Suggestion) && it.Severity == finding.Suggestion)
+			if covers && (fp == own || fp == it.Fingerprint) {
+				out[it.ID] = true
+				break
+			}
+		}
+	}
+	return out
+}
+
+// unlinkDismissed returns answers with no same_as link to or from a
+// dismissed item. Nil stays nil: no usable answer.
+func unlinkDismissed(answers panel.Answers, dismissed map[string]bool) panel.Answers {
+	if answers == nil || len(dismissed) == 0 {
+		return answers
+	}
+	out := make(panel.Answers, len(answers))
+	for id, j := range answers {
+		if dismissed[id] || dismissed[j.SameAs] {
+			j.SameAs = ""
+		}
+		out[id] = j
+	}
+	return out
 }
 
 // mergeBase is the base of a merge of a and b: A's files, batches,
