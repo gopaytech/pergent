@@ -112,6 +112,22 @@ type OpenCodeOptions struct {
 	// through external_directory. Only an impact run sets it; every other run
 	// reads nothing outside the repository and pergent's own temp files.
 	Linked []string
+	// Model is the run's model; nil is the one the environment names. The
+	// key is always {env:OPENCODE_API_KEY}: the caller sets that variable in
+	// the run's own environment (runner.Options.Env).
+	Model *Model
+}
+
+// Model is the model a run uses, as OPENCODE_PROVIDER, OPENCODE_MODEL,
+// OPENCODE_BASE_URL and OPENCODE_NPM name it.
+type Model struct {
+	Provider, Model, BaseURL, NPM string
+}
+
+// EnvModel is the model the environment names.
+func EnvModel() Model {
+	return Model{Provider: os.Getenv("OPENCODE_PROVIDER"), Model: os.Getenv("OPENCODE_MODEL"),
+		BaseURL: os.Getenv("OPENCODE_BASE_URL"), NPM: os.Getenv("OPENCODE_NPM")}
 }
 
 // ReadRules returns the generated config's read permission, pattern to
@@ -215,8 +231,11 @@ func GenerateOpenCodeConfig(maxTurns int, contextLimit int, skillPrompt string, 
 // GenerateOpenCodeConfigWith writes a temporary opencode.json as configured by o.
 func GenerateOpenCodeConfigWith(o OpenCodeOptions) (string, func(), error) {
 	maxTurns, contextLimit, skillPrompt := o.MaxTurns, o.ContextLimit, o.Prompt
-	provider := os.Getenv("OPENCODE_PROVIDER")
-	model := os.Getenv("OPENCODE_MODEL")
+	m := EnvModel()
+	if o.Model != nil {
+		m = *o.Model
+	}
+	provider, model := m.Provider, m.Model
 
 	// If no provider set, skip config generation — opencode uses its own config
 	if !GeneratesConfig() {
@@ -228,8 +247,8 @@ func GenerateOpenCodeConfigWith(o OpenCodeOptions) (string, func(), error) {
 	}
 
 	fullModel := provider + "/" + model
-	npm := os.Getenv("OPENCODE_NPM")
-	baseURL := os.Getenv("OPENCODE_BASE_URL")
+	npm := m.NPM
+	baseURL := m.BaseURL
 
 	// Default to openai-compatible SDK when using a custom base URL
 	// This forces /chat/completions instead of /responses
