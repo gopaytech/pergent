@@ -65,6 +65,5 @@ Confirm attacker control or a trust boundary before reporting. Prefer a concrete
 - `reflect`, `unsafe`, cgo, unsafe pointer conversion, manual memory/layout assumptions, or custom cryptography without narrow documented invariants and required bounds/lifetime checks. Do not flag ordinary reflection alone.
 
 #### Tests and Review Scope
-- Review production Go changes by default. `*_test.go` files remain excluded by OCR's default path filter and are reviewed only when user configuration explicitly includes them.
 - Suggest tests only for concrete changed correctness, concurrency, error, or boundary failure modes. Favor deterministic tests; do not demand flaky timing-based race tests.
 - Do not report formatting, import ordering, naming preferences, simplification, or advice already enforced by `gofmt`, `go vet`, Staticcheck, linters, or the compiler.
