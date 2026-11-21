@@ -1,42 +1,151 @@
-# The built-in rules, in match order: the rule file format, with rule_file
-# (a .md file in this folder) in place of rule. The globs and texts come from
-# alibaba/open-code-review internal/config/rules/system_rules.json and
-# rule_docs/ at 39515dc (Apache-2.0, see NOTICE). Each brace glob there is one
-# entry per extension here, because the matcher has no braces.
+# The built-in rules, in match order (first match wins): the rule file format,
+# with rule_file (a .md file in this folder) in place of rule. The globs, their
+# order and the texts come from alibaba/open-code-review
+# internal/config/rules/system_rules.json and rule_docs/ at 39515dc (Apache-2.0,
+# see NOTICE). A {a,b} glob is split into one entry per choice when it loads.
+# scala.md and objc.md are left out: both are over the 16,000-character limit.
 rules:
-  - path: ".github/workflows/**/*.yaml"
+  - path: "**/*.properties"
+    rule_file: properties.md
+  - path: "**/*{mapper,dao}*.xml"
+    rule_file: mapper_dao_xml.md
+  - path: "**/pom.xml"
+    rule_file: pom_xml.md
+  - path: "**/build.gradle"
+    rule_file: build_gradle.md
+  - path: "**/package.json"
+    rule_file: package_json.md
+  - path: "**/Cargo.toml"
+    rule_file: cargo_toml.md
+  - path: "**/Move.toml"
+    rule_file: move_toml.md
+  - path: "**/*.move"
+    rule_file: move.md
+  - path: "**/composer.json"
+    rule_file: composer_json.md
+  - path: "**/*.{json,json5,jsonc}"
+    rule_file: json.md
+  - path: ".github/workflows/**/*.{yaml,yml}"
     rule_file: github_workflows.md
-  - path: ".github/workflows/**/*.yml"
-    rule_file: github_workflows.md
+  - path: ".github/**/*.{yaml,yml}"
+    rule_file: github_config.md
+  - path: "**/*.{yaml,yml}"
+    rule_file: yaml.md
+  - path: "**/*.java"
+    rule_file: java.md
   - path: "**/*.go"
     rule_file: go.md
-  - path: "**/*.ts"
+  - path: "**/*.{ftl,ftlh,ftlx}"
+    rule_file: freemarker.md
+  - path: "**/*.{hbs,mustache}"
+    rule_file: handlebars_mustache.md
+  - path: "**/*.{jinja2,j2}"
+    rule_file: jinja.md
+  - path: "**/*.pug"
+    rule_file: pug.md
+  - path: "**/*.{ejs,liquid,njk}"
+    rule_file: ejs_liquid_njk.md
+  - path: "**/*.{haml,slim}"
+    rule_file: haml_slim.md
+  - path: "**/*.erb"
+    rule_file: erb.md
+  - path: "**/*.ets"
+    rule_file: arkts.md
+  - path: "**/*.astro"
+    rule_file: astro.md
+  - path: "**/*.{ts,js,tsx,jsx,mjs,cjs,mts,cts}"
     rule_file: ts_js.md
-  - path: "**/*.js"
-    rule_file: ts_js.md
-  - path: "**/*.tsx"
-    rule_file: ts_js.md
-  - path: "**/*.jsx"
-    rule_file: ts_js.md
-  - path: "**/*.mjs"
-    rule_file: ts_js.md
-  - path: "**/*.cjs"
-    rule_file: ts_js.md
-  - path: "**/*.mts"
-    rule_file: ts_js.md
-  - path: "**/*.cts"
-    rule_file: ts_js.md
-  - path: "**/*.py"
+  - path: "**/*.{kt,kts}"
+    rule_file: kotlin.md
+  - path: "**/*.{fs,fsi,fsx}"
+    rule_file: fsharp.md
+  - path: "**/*.cs"
+    rule_file: csharp.md
+  - path: "**/*.rs"
+    rule_file: rust.md
+  - path: "**/*.{cpp,cc,cxx,hpp,hxx}"
+    rule_file: cpp.md
+  - path: "**/*.c"
+    rule_file: c.md
+  - path: "**/*.{cu,cuh}"
+    rule_file: cuda_hip.md
+  - path: "**/*.hip"
+    rule_file: cuda_hip.md
+  - path: "**/*.{py,pyi,ipynb}"
     rule_file: python.md
-  - path: "**/*.pyi"
-    rule_file: python.md
-  - path: "**/*.ipynb"
-    rule_file: python.md
-  - path: "**/*.tf"
+  - path: "**/*.{rb,rake}"
+    rule_file: ruby.md
+  - path: "**/*.gemspec"
+    rule_file: ruby.md
+  - path: "**/{Gemfile,Rakefile}"
+    rule_file: ruby.md
+  - path: "**/*.{php,phtml}"
+    rule_file: php.md
+  - path: "**/*.proto"
+    rule_file: protobuf.md
+  - path: "**/*.po"
+    rule_file: po.md
+  - path: "**/*.pot"
+    rule_file: pot.md
+  - path: "**/*.{graphql,gql}"
+    rule_file: graphql.md
+  - path: "**/*.prisma"
+    rule_file: prisma.md
+  - path: "**/*.jl"
+    rule_file: julia.md
+  - path: "**/*.R"
+    rule_file: r.md
+  - path: "**/*.{tf,tofu,hcl,tfvars}"
     rule_file: terraform.md
-  - path: "**/*.tofu"
-    rule_file: terraform.md
-  - path: "**/*.hcl"
-    rule_file: terraform.md
-  - path: "**/*.tfvars"
-    rule_file: terraform.md
+  - path: "**/*.bicep"
+    rule_file: bicep.md
+  - path: "**/*.dhall"
+    rule_file: dhall.md
+  - path: "**/*.nix"
+    rule_file: nix.md
+  - path: "**/*.{hs,lhs}"
+    rule_file: haskell.md
+  - path: "**/*.{nim,nims,nimble}"
+    rule_file: nim.md
+  - path: "**/*.swift"
+    rule_file: swift.md
+  - path: "**/*.nu"
+    rule_file: nushell.md
+  - path: "**/*.elm"
+    rule_file: elm.md
+  - path: "**/*.{jsonnet,libsonnet}"
+    rule_file: jsonnet.md
+  - path: "**/*.zig"
+    rule_file: zig.md
+  - path: "**/*.thrift"
+    rule_file: thrift.md
+  - path: "**/*.{bzl,bazel,star}"
+    rule_file: starlark.md
+  - path: "**/{BUILD,WORKSPACE}"
+    rule_file: starlark.md
+  - path: "**/*.capnp"
+    rule_file: capnp.md
+  - path: "**/*.{ml,mli}"
+    rule_file: ocaml.md
+  - path: "**/*.{re,rei}"
+    rule_file: ocaml.md
+  - path: "**/*.{v,sv,vh}"
+    rule_file: verilog.md
+  - path: "**/*.{vhd,vhdl}"
+    rule_file: vhdl.md
+  - path: "**/*.m"
+    rule_file: matlab.md
+  - path: "**/*.sol"
+    rule_file: solidity.md
+  - path: "**/*.vy"
+    rule_file: vyper.md
+  - path: "**/*.rego"
+    rule_file: rego.md
+  - path: "**/*.{glsl,hlsl,wgsl,metal}"
+    rule_file: shader.md
+  - path: "**/*.{ps1,psm1,psd1}"
+    rule_file: powershell.md
+  - path: "**/*.{clj,cljs,cljc,edn}"
+    rule_file: clojure.md
+  - path: "**/*.sql"
+    rule_file: sql.md

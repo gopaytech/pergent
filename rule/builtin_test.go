@@ -3,6 +3,7 @@ package rule
 import (
 	"io/fs"
 	"path"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -21,14 +22,27 @@ func TestBuiltinLoads(t *testing.T) {
 			names = append(names, e.Name)
 		}
 	}
-	want := []string{"github_workflows", "go", "ts_js", "python", "terraform"}
+	// open-code-review's texts in the order of its system_rules.json, less
+	// scala and objc, which are over MaxRuleChars.
+	want := []string{
+		"properties", "mapper_dao_xml", "pom_xml", "build_gradle", "package_json", "cargo_toml", "move_toml", "move",
+		"composer_json", "json", "github_workflows", "github_config", "yaml", "java", "go", "freemarker",
+		"handlebars_mustache", "jinja", "pug", "ejs_liquid_njk", "haml_slim", "erb", "arkts", "astro",
+		"ts_js", "kotlin", "fsharp", "csharp", "rust", "cpp", "c", "cuda_hip",
+		"python", "ruby", "php", "protobuf", "po", "pot", "graphql", "prisma",
+		"julia", "r", "terraform", "bicep", "dhall", "nix", "haskell", "nim",
+		"swift", "nushell", "elm", "jsonnet", "zig", "thrift", "starlark", "capnp",
+		"ocaml", "verilog", "vhdl", "matlab", "solidity", "vyper", "rego", "shader",
+		"powershell", "clojure", "sql",
+	}
 	if !slices.Equal(names, want) {
 		t.Errorf("built-in names in order = %v, want %v", names, want)
 	}
 }
 
-// Each file type gets its own text: a workflow is not a YAML file of any
-// kind, a .tsx file is TS/JS, and a file of another type gets nothing.
+// Each file type gets its own text, first match wins: a workflow is not a
+// .github config file or a YAML file of any kind, a .tsx file is TS/JS, and
+// scala, objc and a file of another type get nothing.
 func TestBuiltinMatches(t *testing.T) {
 	r := NewResolver(nil, true)
 	cases := map[string]string{
@@ -40,7 +54,13 @@ func TestBuiltinMatches(t *testing.T) {
 		"scripts/check.py":              "built-in:python",
 		"infra/main.tf":                 "built-in:terraform",
 		"infra/prod.tfvars":             "built-in:terraform",
-		"charts/pergent-sh/values.yaml": "",
+		"charts/pergent-sh/values.yaml": "built-in:yaml",
+		".github/dependabot.yml":        "built-in:github_config",
+		"Cargo.toml":                    "built-in:cargo_toml",
+		"web/package.json":              "built-in:package_json",
+		"analysis/model.R":              "built-in:r",
+		"src/App.scala":                 "",
+		"ios/View.mm":                   "",
 		"README.md":                     "",
 	}
 	for p, want := range cases {
@@ -82,10 +102,45 @@ func TestBuiltinTextsNameTheirSource(t *testing.T) {
 	}
 }
 
+// severityWords finds a sentence that says what blocks ("Treat security
+// findings as blocking", "not blocking", "blocking findings"). A rule never
+// blocks. "Blocking I/O" and Verilog's blocking assignments stay: they name
+// what the code does, not a verdict.
+var severityWords = regexp.MustCompile(`(?i)\bas (non-)?blocking\b|\b(non-)?blocking (finding|issue|suggestion|comment)s?\b|\bnot blocking\b|\btreat\b[^.\n]*\bblocking\b`)
+
 func TestBuiltinTextsHaveNoBlocking(t *testing.T) {
+	for _, s := range []string{
+		"Treat security and correctness findings as blocking, and style suggestions as non-blocking.",
+		"report as minor, not blocking",
+		"into blocking findings.",
+	} {
+		if !severityWords.MatchString(s) {
+			t.Errorf("severityWords misses %q", s)
+		}
+	}
+	for _, s := range []string{"- Blocking I/O, waits", "Mixed blocking and non-blocking assignments"} {
+		if severityWords.MatchString(s) {
+			t.Errorf("severityWords matches %q", s)
+		}
+	}
 	for _, e := range Builtin() {
-		if strings.Contains(strings.ToLower(e.Rule), "blocking") {
-			t.Errorf("built-in %s says what is blocking", e.Name)
+		if m := severityWords.FindString(e.Rule); m != "" {
+			t.Errorf("built-in %s says what is blocking: %q", e.Name, m)
+		}
+	}
+}
+
+func TestExpandBraces(t *testing.T) {
+	cases := map[string][]string{
+		"**/*.go":              {"**/*.go"},
+		"**/*.{ts,js}":         {"**/*.ts", "**/*.js"},
+		"**/{BUILD,WORKSPACE}": {"**/BUILD", "**/WORKSPACE"},
+		"{a,b}/*.{x,y}":        {"a/*.x", "a/*.y", "b/*.x", "b/*.y"},
+		"**/*.{go":             {"**/*.{go"},
+	}
+	for in, want := range cases {
+		if got := expandBraces(in); !slices.Equal(got, want) {
+			t.Errorf("expandBraces(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

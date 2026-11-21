@@ -1,0 +1,2 @@
+<!-- Adapted for pergent from alibaba/open-code-review internal/config/rules/rule_docs/pom_xml.md at 39515dc (Apache-2.0, see NOTICE). -->
+In newly added code, the version must not contain the snapshot qualifier; any other version is allowed. Note: when no version is declared in the code, it is because the version is managed in the parent POM. Ignore this rule when the version number is not on a newly added line of code.

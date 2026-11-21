@@ -39,7 +39,8 @@ func mustLoadBuiltin(fsys fs.FS) []Entry {
 
 // loadBuiltin reads builtin/builtin.yaml from fsys: the rule file format with
 // rule_file (a .md file beside it) in place of rule, and the same checks and
-// limits as Load.
+// limits as Load. MaxEntries counts the file's entries, before a {a,b} glob
+// is split.
 func loadBuiltin(fsys fs.FS) ([]Entry, error) {
 	const prefix = "builtin.yaml"
 	data, err := fs.ReadFile(fsys, "builtin/builtin.yaml")
@@ -77,10 +78,34 @@ func loadBuiltin(fsys fs.FS) ([]Entry, error) {
 			}
 			e.Rule, e.Name = string(text), strings.TrimSuffix(r.RuleFile, ".md")
 		}
-		if err := check(e, r.RuleFile != ""); err != nil {
-			return nil, fmt.Errorf("%s: entry %d: %w", prefix, i+1, err)
+		for _, p := range expandBraces(r.Path) {
+			e.Path = p
+			if err := check(e, r.RuleFile != ""); err != nil {
+				return nil, fmt.Errorf("%s: entry %d: %w", prefix, i+1, err)
+			}
+			out = append(out, e)
 		}
-		out = append(out, e)
 	}
 	return out, nil
+}
+
+// expandBraces splits each {a,b} group in a built-in glob into one glob per
+// choice, in order, as open-code-review does with the same globs:
+// "**/*.{ts,js}" is "**/*.ts" then "**/*.js". The matcher has no braces, and
+// only built-ins use them: a team rule file keeps one glob per entry.
+func expandBraces(s string) []string {
+	open := strings.IndexByte(s, '{')
+	if open < 0 {
+		return []string{s}
+	}
+	end := strings.IndexByte(s[open:], '}')
+	if end < 0 {
+		return []string{s}
+	}
+	end += open
+	var out []string
+	for _, choice := range strings.Split(s[open+1:end], ",") {
+		out = append(out, expandBraces(s[:open]+choice+s[end+1:])...)
+	}
+	return out
 }

@@ -61,7 +61,7 @@ Confirm data scale and that the code is on a hot path before flagging:
 Only flag concurrency issues when there is evidence of multi-threaded, multi-process, or async invocation (confirm the call context before reporting):
 - CPU-bound work parallelized with `threading` under the GIL where `multiprocessing` or a process pool is the right tool (traditional CPython; free-threaded builds excepted); I/O-bound work is the case threads actually help
 - Check-then-act races on shared state without a `Lock`, or non-atomic compound updates assumed to be atomic
-- Calls that block (synchronous I/O, `time.sleep`, `requests`, CPU-heavy work) inside `async def`, stalling the event loop; use the async equivalent or run them in an executor
+- Blocking calls (synchronous I/O, `time.sleep`, `requests`, CPU-heavy work) inside `async def`, stalling the event loop; use the async equivalent or run them in an executor
 - `asyncio` tasks created and never awaited, so exceptions are swallowed and the work may be garbage-collected before it finishes
 - Shared mutable state across threads or tasks without synchronization or a thread-safe structure
 

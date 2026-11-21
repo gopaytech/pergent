@@ -21,7 +21,7 @@ Before reporting a non-local claim, use `read` and `grep` to establish the relev
 - Request-scoped work started with `context.Background()`/`TODO()` or a fresh context when it should inherit the caller's deadline, cancellation, values, or tracing. Independent background work is valid.
 - `context.Context` stored in a struct or replaced with a custom context interface when it should be passed explicitly as the first parameter. Allow it only where a required external interface fixes the signature or ownership/lifetime is unambiguous.
 - `context.WithCancel`, `WithTimeout`, or `WithDeadline` whose cancel function is not called once the derived context is no longer needed, unless ownership transfer and eventual cancellation are evident.
-- I/O that can block, waits, retries, selects, or loops on a request/worker path that lack cancellation or deadline where the dependency can stall. Confirm the operation can outlive its caller first.
+- Blocking I/O, waits, retries, selects, or loops on a request/worker path that lack cancellation or deadline where the dependency can stall. Confirm the operation can outlive its caller first.
 - Goroutines that can outlive their owner because they wait forever on a channel, lock, I/O operation, or unbounded retry; lack shutdown; or have no way for errors/completion to be observed when that matters.
 - Fire-and-forget goroutines that capture request-local mutable data, write to a response after the handler returns, panic without recovery at a process boundary, or race with cleanup. Do not require joining independent background work.
 - Loop-variable or mutable outer-variable captures in goroutines/callbacks where a closure can observe a later value. Verify the module's `go` directive and whether a new variable is created per iteration; Go 1.22 language semantics changed range-loop variables while older-module semantics can retain the shared variable.
@@ -30,7 +30,7 @@ Before reporting a non-local claim, use `read` and `grep` to establish the relev
 Only report races or deadlocks with evidence that state is reachable concurrently; inspect surrounding call sites where that is not local. Do not flag immutable data, per-goroutine locals, or synchronization guaranteed by ownership.
 
 - Unsynchronized concurrent reads/writes of maps, slices, pointers, counters, caches, or compound state; check-then-act sequences that can interleave.
-- Holding a mutex/RWMutex across I/O that can block, channel operations, callbacks, network/database calls, or long CPU work when another path needs the lock to progress. Check lock ordering before claiming deadlock.
+- Holding a mutex/RWMutex across blocking I/O, channel operations, callbacks, network/database calls, or long CPU work when another path needs the lock to progress. Check lock ordering before claiming deadlock.
 - `RLock` used while mutating protected data; unlocked mutation of a field whose peers protect it; or atomic and non-atomic access mixed for the same state.
 - Sends/receives that can block indefinitely because a peer may stop, a buffer may fill, or shutdown/cancellation is not selected. Do not flag a synchronous handoff with a proven peer.
 - Multiple possible channel closers, send-on-closed-channel risk, or double-close. Establish sender/owner responsibility first.

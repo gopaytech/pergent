@@ -162,7 +162,8 @@ func TestMain_RulesInLocalMode(t *testing.T) {
 	if !strings.Contains(got, "BASE RULE") || strings.Contains(got, "HEAD RULE") {
 		t.Errorf("file-rules.md = %q, want the base branch's rule only", got)
 	}
-	if !strings.Contains(out, "Rules: repo `*.go` (1 file)") {
+	// The change also edits .pergent/rules.yaml, which gets the built-in YAML rule.
+	if !strings.Contains(out, "Rules: built-in:yaml (1 file) · repo `*.go` (1 file)") {
 		t.Errorf("the comment has no Rules line:\n%s", out)
 	}
 
