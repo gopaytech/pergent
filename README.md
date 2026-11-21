@@ -186,6 +186,7 @@ See [Code graph](docs/concepts/code-graph.md).
 | [When a review fails](docs/concepts/failed-reviews.md) | What a failed run means, and when CI goes red |
 | [Agent sandbox](docs/concepts/sandbox.md) | What the review agent can and can't do |
 | [Agent mode](docs/concepts/agent-mode.md) | `pergent agent`, for running pergent from another service |
+| [Review panel](docs/concepts/review-panel.md) | Two models review one change, and `pergent agent --panel` merges the results |
 | [How it differs from pr-agent](docs/concepts/comparison.md) | The comparison |
 
 **Reference**
