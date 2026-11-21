@@ -1,5 +1,7 @@
 package render
 
+import "slices"
+
 // Dismissal sets aside the findings with one fingerprint, up to a severity.
 type Dismissal struct {
 	Fingerprint string
@@ -69,14 +71,22 @@ func ApplyDismissals(skills []Skill, ds []Dismissal) []Skill {
 	return out
 }
 
-// covering returns the first dismissal that covers f. A finding without a
-// fingerprint can't be dismissed.
+// covering returns the first dismissal that covers f, by its own fingerprint
+// or by one of the findings merged into it. A finding with neither can't be
+// dismissed.
 func covering(ds []Dismissal, f Finding) (Dismissal, bool) {
-	if f.Fingerprint == "" {
+	var also []string
+	if f.Panel != nil {
+		also = f.Panel.Also
+	}
+	if f.Fingerprint == "" && len(also) == 0 {
 		return Dismissal{}, false
 	}
 	for _, d := range ds {
-		if d.Fingerprint == f.Fingerprint && severityRank(f.Severity) <= dismissalRank(d.Severity) {
+		if d.Fingerprint == "" {
+			continue
+		}
+		if (d.Fingerprint == f.Fingerprint || slices.Contains(also, d.Fingerprint)) && severityRank(f.Severity) <= dismissalRank(d.Severity) {
 			return d, true
 		}
 	}

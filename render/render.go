@@ -58,7 +58,37 @@ type Finding struct {
 	Explanation  string
 	SuggestedFix string
 	Suggestion   string // exact replacement text for the lines Line to EndLine; the comment shows an escaped copy
+
+	// Panel is what a review panel says about the finding; nil for a review
+	// without a panel.
+	Panel *FindingPanel `json:",omitempty"`
 }
+
+// FindingPanel is what a review panel says about a finding: which model
+// found it (FoundBy "a", "b" or "both"), the fingerprints of the other
+// findings merged into it (Also), and why its severity is what it is. The
+// roles name the models of Options.Panel; Reason is model text.
+type FindingPanel struct {
+	FoundBy           string
+	Also              []string `json:",omitempty"`
+	DisagreedBy       string   `json:",omitempty"`
+	Reason            string   `json:",omitempty"`
+	RatedSuggestionBy string   `json:",omitempty"`
+	UnjudgedBy        string   `json:",omitempty"`
+}
+
+// SkillPanel is how a review panel merged a skill: Mode is "both",
+// "a_only", "b_only" or "none"; JudgeFailed lists the models whose judge run
+// failed; Exact says the findings were merged by file, line and title.
+type SkillPanel struct {
+	Mode        string
+	JudgeFailed []string `json:",omitempty"`
+	Exact       bool     `json:",omitempty"`
+}
+
+// PanelNames are the names a comment uses for the two models of a review
+// panel. They are the caller's text, made inert like HeaderNote.
+type PanelNames struct{ A, B string }
 
 // Check is one item of a skill's checklist.
 type Check struct {
@@ -141,6 +171,9 @@ type Skill struct {
 
 	// Dismissed holds the findings ApplyDismissals set aside.
 	Dismissed []DismissedFinding
+
+	// Panel is how a review panel merged this skill; nil without a panel.
+	Panel *SkillPanel `json:",omitempty"`
 }
 
 // Options changes how Comment renders.
@@ -209,6 +242,9 @@ type Options struct {
 	// the size limit: its step 5 can cut the failed checks, with a note, in any
 	// layout. No layout can hide them. Short wins over it.
 	Layout []Block
+	// Panel names the two models of a review panel. Nil writes no panel
+	// text, so a comment without it is the comment of before.
+	Panel *PanelNames
 }
 
 // failedPrefix starts the report of a failed batch.
