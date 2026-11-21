@@ -740,3 +740,24 @@ func TestRunPanelLoadedImpactSkillIsJudged(t *testing.T) {
 		t.Errorf("%d runs, panel %+v", len(f.calls), res.Panel)
 	}
 }
+
+// A loaded skill neither member reviewed fails: it never drops out of the
+// merge, which would read as a pass.
+func TestRunPanelSkillInNeitherFails(t *testing.T) {
+	f := &panelFake{t: t, respond: byModel(judgeAnswer(t), judgeAnswer(t))}
+	req := panelRequest(t, f, memberResult(), memberResult())
+	req.Skills = append(req.Skills, skill.Skill{Name: "t", Body: "Review it."})
+	rs := RunPanel(context.Background(), req)
+	if len(rs) != 2 || rs[0].Skill != "s" || rs[1].Skill != "t" {
+		t.Fatalf("results = %+v", rs)
+	}
+	res := rs[1]
+	if res.Verdict != Failed || res.Panel == nil || res.Panel.Mode != PanelNone {
+		t.Errorf("result %+v", res)
+	}
+	for _, c := range f.calls {
+		if c.opts.SkillName == "t" {
+			t.Errorf("a run started for t: %+v", c.opts)
+		}
+	}
+}

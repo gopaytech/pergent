@@ -31,6 +31,7 @@ import (
 	"github.com/gopaytech/pergent/internal/result"
 	"github.com/gopaytech/pergent/internal/review"
 	"github.com/gopaytech/pergent/internal/skill"
+	"github.com/gopaytech/pergent/render"
 	"github.com/gopaytech/pergent/scope"
 )
 
@@ -91,13 +92,14 @@ type agentInputs struct {
 	home, configHome string
 
 	// Review panel merge step (--panel). panelAPath and panelBPath are the
-	// two members' agent results. panelB is model B, from PERGENT_PANEL_B_*,
-	// and panelBKey its key: never logged or written anywhere.
+	// two members' agent results. panelA is model A, from OPENCODE_*, and
+	// panelB model B, from PERGENT_PANEL_B_*; panelAKey and panelBKey are
+	// their keys: never logged or written anywhere.
 	panel                  bool
 	panelAPath, panelBPath string
 	panelNoJudge           bool
-	panelB                 config.Model
-	panelBKey              string
+	panelA, panelB         config.Model
+	panelAKey, panelBKey   string
 }
 
 // panelRefused are the review inputs a panel merge step does not take.
@@ -261,55 +263,15 @@ func runAgent(ctx context.Context, args []string, getenv func(string) string, st
 		logger.Printf("warning: %s", versionWarning)
 	}
 
-	logger.Printf("Reviewing %d changed file(s) with %d skill(s), up to %d opencode runs at once, within %s",
-		len(in.Files), len(in.Skills), in.Review.Concurrency, in.Review.Timeout)
 	meta.Started = clock.begin(in.Review.Timeout)
-	results := review.Run(ctx, review.Request{
-		Skills:          in.Skills,
-		Diff:            in.Diff,
-		RepoPath:        in.RepoPath,
-		Budget:          in.Review.Timeout,
-		Concurrency:     in.Review.Concurrency,
-		MaxTurns:        in.Review.MaxTurns,
-		ContextLimit:    in.Review.ContextLimit,
-		Previous:        in.Previous,
-		Carried:         in.Carried,
-		Dismissals:      in.Dismissals,
-		Description:     in.Description,
-		CIResults:       in.CIResults,
-		SkipSkillVerify: in.skipSkillVerify,
-		CheckDeleted:    in.Review.CheckDeleted,
-		Linked:          in.Linked,
-		Graph:           in.Graph,
-		Run:             run,
-		Classifier:      &in.Classifier,
-		Sandbox: review.Sandbox{
-			Hardened:     true,
-			Instructions: in.Instructions,
-			// Agent mode uses no platform token, so one left in the
-			// environment is kept from opencode too.
-			ExcludeEnv: []string{"PERGENT_RESULT_TOKEN", "GITHUB_TOKEN", "GITLAB_TOKEN"},
-		},
-	})
-	meta.Finished = time.Now()
-	meta.Budget = in.Review.Timeout
-	for _, r := range results {
-		for _, f := range r.Failures {
-			logger.Print(failureLogLine(r.Skill, f))
+	var res result.Result
+	if in.panel {
+		var e *result.Error
+		if res, e = runPanel(ctx, &in, meta, run, logger); e != nil {
+			return failWith(e)
 		}
-	}
-
-	res := result.Build(meta, results)
-	// The comment shows the IDs Build assigned.
-	ids := map[string]string{}
-	for _, s := range res.Skills {
-		for _, f := range s.Findings {
-			ids[f.Fingerprint] = f.ID
-		}
-	}
-	res.Comment = result.Comment{
-		Markdown:      output.FormatReviewWithinOptions(results, in.Files, in.MaxCommentSize, output.Options{IDs: ids, Commit: in.Head, Version: "v" + version}),
-		FindingsBlock: output.FindingsBlock(results),
+	} else {
+		res = reviewChange(ctx, &in, meta, run, logger)
 	}
 
 	data, err := result.Encode(res)
@@ -324,6 +286,83 @@ func runAgent(ctx context.Context, args []string, getenv func(string) string, st
 	}
 	logger.Print("Done.")
 	return 0
+}
+
+// reviewChange reviews the change and returns the result to deliver.
+func reviewChange(ctx context.Context, in *agentInputs, meta result.Meta, run review.RunFunc, logger *log.Logger) result.Result {
+	logger.Printf("Reviewing %d changed file(s) with %d skill(s), up to %d opencode runs at once, within %s",
+		len(in.Files), len(in.Skills), in.Review.Concurrency, in.Review.Timeout)
+	req := agentRequest(in, run)
+	req.Previous = in.Previous
+	req.Carried = in.Carried
+	req.Description = in.Description
+	req.CIResults = in.CIResults
+	req.SkipSkillVerify = in.skipSkillVerify
+	req.Linked = in.Linked
+	req.Graph = in.Graph
+	results := review.Run(ctx, req)
+	meta.Finished = time.Now()
+	meta.Budget = in.Review.Timeout
+	logFailures(results, logger)
+	res := result.Build(meta, results)
+	res.Comment = agentComment(in, results, res, nil)
+	return res
+}
+
+// agentRequest is the review request both a review and a panel merge make:
+// the change, the skills, the limits and the hardened sandbox.
+func agentRequest(in *agentInputs, run review.RunFunc) review.Request {
+	// Agent mode uses no platform token, so one left in the environment is
+	// kept from opencode too. So is model B's key: only a run on model B
+	// gets it, as its OPENCODE_API_KEY.
+	exclude := []string{"PERGENT_RESULT_TOKEN", "GITHUB_TOKEN", "GITLAB_TOKEN"}
+	if in.panel {
+		exclude = append(exclude, "PERGENT_PANEL_B_API_KEY")
+	}
+	return review.Request{
+		Skills:       in.Skills,
+		Diff:         in.Diff,
+		RepoPath:     in.RepoPath,
+		Budget:       in.Review.Timeout,
+		Concurrency:  in.Review.Concurrency,
+		MaxTurns:     in.Review.MaxTurns,
+		ContextLimit: in.Review.ContextLimit,
+		Dismissals:   in.Dismissals,
+		CheckDeleted: in.Review.CheckDeleted,
+		Run:          run,
+		Classifier:   &in.Classifier,
+		Sandbox: review.Sandbox{
+			Hardened:     true,
+			Instructions: in.Instructions,
+			ExcludeEnv:   exclude,
+		},
+	}
+}
+
+// logFailures logs every failure of the results.
+func logFailures(results []review.SkillResult, logger *log.Logger) {
+	for _, r := range results {
+		for _, f := range r.Failures {
+			logger.Print(failureLogLine(r.Skill, f))
+		}
+	}
+}
+
+// agentComment is the comment of res, built from results; names are a
+// review panel's models, nil without one.
+func agentComment(in *agentInputs, results []review.SkillResult, res result.Result, names *render.PanelNames) result.Comment {
+	// The comment shows the IDs Build assigned.
+	ids := map[string]string{}
+	for _, s := range res.Skills {
+		for _, f := range s.Findings {
+			ids[f.Fingerprint] = f.ID
+		}
+	}
+	return result.Comment{
+		Markdown: output.FormatReviewWithinOptions(results, in.Files, in.MaxCommentSize,
+			output.Options{IDs: ids, Commit: in.Head, Version: "v" + version, Panel: names}),
+		FindingsBlock: output.FindingsBlock(results),
+	}
 }
 
 // parseAgent parses the agent-mode flags. On a usage error the returned
@@ -425,6 +464,10 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 		in.panelB = config.Model{Provider: getenv("PERGENT_PANEL_B_PROVIDER"), Model: getenv("PERGENT_PANEL_B_MODEL"),
 			BaseURL: getenv("PERGENT_PANEL_B_BASE_URL"), NPM: getenv("PERGENT_PANEL_B_NPM")}
 		in.panelBKey = getenv("PERGENT_PANEL_B_API_KEY")
+		// Model A is the environment's, as config.EnvModel reads it.
+		in.panelA = config.Model{Provider: getenv("OPENCODE_PROVIDER"), Model: getenv("OPENCODE_MODEL"),
+			BaseURL: getenv("OPENCODE_BASE_URL"), NPM: getenv("OPENCODE_NPM")}
+		in.panelAKey = getenv("OPENCODE_API_KEY")
 		if in.panelB.Provider == "" || in.panelB.Model == "" {
 			return usage("--panel requires PERGENT_PANEL_B_PROVIDER and PERGENT_PANEL_B_MODEL")
 		}

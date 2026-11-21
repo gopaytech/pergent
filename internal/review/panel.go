@@ -125,12 +125,13 @@ type PanelRequest struct {
 	NoJudge bool
 }
 
-// RunPanel returns one result per skill a member reviewed, in req.Skills
-// order, then the impact check when a member has one and no loaded skill
-// has its name. A skill both members can be used for is merged with a judge
-// run on each model (none with NoJudge). A skill only one member can be used
-// for is that member's review, its blocking findings verified on that
-// member's model (not with NoJudge). A skill neither can be used for fails.
+// RunPanel returns one result per loaded skill, in req.Skills order, then
+// the impact check when a member has one and no loaded skill has its name.
+// A skill both members can be used for is merged with a judge run on each
+// model (none with NoJudge). A skill only one member can be used for is that
+// member's review, its blocking findings verified on that member's model
+// (not with NoJudge). A skill neither can be used for, or neither reviewed,
+// fails: it never drops out, which would read as a pass.
 // The impact check is merged by file, line and title, with no run: each
 // member verified its own.
 func RunPanel(ctx context.Context, req PanelRequest) []SkillResult {
@@ -138,14 +139,9 @@ func RunPanel(ctx context.Context, req PanelRequest) []SkillResult {
 	defer cancel()
 	r.writeDiffs()
 	defer r.removeDiffs()
-	var skills []skill.Skill
+	skills := r.req.Skills
 	impact := true
-	for _, s := range r.req.Skills {
-		_, inA := req.A.Skills[s.Name]
-		_, inB := req.B.Skills[s.Name]
-		if inA || inB {
-			skills = append(skills, s)
-		}
+	for _, s := range skills {
 		impact = impact && s.Name != ImpactSkill
 	}
 	_, inA := req.A.Skills[ImpactSkill]
