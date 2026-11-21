@@ -89,7 +89,19 @@ type agentInputs struct {
 	skipSkillVerify bool
 	// $HOME and $XDG_CONFIG_HOME, where opencode finds its global config.
 	home, configHome string
+
+	// Review panel merge step (--panel). panelAPath and panelBPath are the
+	// two members' agent results. panelB is model B, from PERGENT_PANEL_B_*,
+	// and panelBKey its key: never logged or written anywhere.
+	panel                  bool
+	panelAPath, panelBPath string
+	panelNoJudge           bool
+	panelB                 config.Model
+	panelBKey              string
 }
+
+// panelRefused are the review inputs a panel merge step does not take.
+var panelRefused = []string{"previous", "carried", "ci-results", "change-description", "linked-repos", "graph", "no-skill-verify"}
 
 // ciOnlyFlags are CI-mode flags that agent mode refuses.
 var ciOnlyFlags = map[string]bool{"local": true, "platform": true, "previous-review": true, "base-branch": true}
@@ -355,6 +367,10 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 	flags.IntVar(&conc, "concurrency", 0, "Max opencode runs in flight at once (default 4)")
 	flags.DurationVar(&timeout, "timeout", 0, "Max wall-clock time for the whole review (default 10m)")
 	flags.BoolVar(&checkDeleted, "check-deleted", false, "Review deleted files and check what still uses deleted and renamed files (off by default)")
+	flags.BoolVar(&in.panel, "panel", false, "Merge two members' results into one review panel result")
+	flags.StringVar(&in.panelAPath, "panel-a", "", "A member's agent result, outside --repo-path")
+	flags.StringVar(&in.panelBPath, "panel-b", "", "A member's agent result, outside --repo-path")
+	flags.BoolVar(&in.panelNoJudge, "panel-no-judge", false, "With --panel: run no model; merge by file, line and title")
 	// CI-mode flags, defined only to refuse them by name.
 	flags.BoolVar(&local, "local", false, "CI mode only")
 	flags.StringVar(&platformFlag, "platform", "", "CI mode only")
@@ -394,6 +410,30 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 	})
 	if len(ciFlags) > 0 {
 		return usage("%s can't be used with pergent agent: CI mode only", strings.Join(ciFlags, ", "))
+	}
+	if in.panel {
+		for _, n := range panelRefused {
+			if set[n] {
+				return usage("--%s can't be used with --panel", n)
+			}
+		}
+		// An env default is not the caller's choice for the panel.
+		in.changePath, in.ciPath, in.linkedPath, in.graphPath = "", "", "", ""
+		if in.panelAPath == "" || in.panelBPath == "" {
+			return usage("--panel requires --panel-a and --panel-b")
+		}
+		in.panelB = config.Model{Provider: getenv("PERGENT_PANEL_B_PROVIDER"), Model: getenv("PERGENT_PANEL_B_MODEL"),
+			BaseURL: getenv("PERGENT_PANEL_B_BASE_URL"), NPM: getenv("PERGENT_PANEL_B_NPM")}
+		in.panelBKey = getenv("PERGENT_PANEL_B_API_KEY")
+		if in.panelB.Provider == "" || in.panelB.Model == "" {
+			return usage("--panel requires PERGENT_PANEL_B_PROVIDER and PERGENT_PANEL_B_MODEL")
+		}
+	} else {
+		for _, n := range []string{"panel-a", "panel-b", "panel-no-judge"} {
+			if set[n] {
+				return usage("--%s needs --panel", n)
+			}
+		}
 	}
 	if resultPath == "" && resultURL == "" {
 		return usage("at least one of --result or --result-url is required")
@@ -647,6 +687,12 @@ func trustedInputs(in *agentInputs) []trustedInput {
 	}
 	if in.graphPath != "" {
 		inputs = append(inputs, trustedInput{"--graph", in.graphPath})
+	}
+	if in.panelAPath != "" {
+		inputs = append(inputs, trustedInput{"--panel-a", in.panelAPath})
+	}
+	if in.panelBPath != "" {
+		inputs = append(inputs, trustedInput{"--panel-b", in.panelBPath})
 	}
 	if in.home != "" {
 		inputs = append(inputs, trustedInput{"$HOME", in.home})
