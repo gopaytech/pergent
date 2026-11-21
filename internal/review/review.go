@@ -26,6 +26,7 @@ import (
 	"github.com/gopaytech/pergent/internal/redact"
 	"github.com/gopaytech/pergent/internal/runner"
 	"github.com/gopaytech/pergent/internal/skill"
+	"github.com/gopaytech/pergent/rule"
 )
 
 // Verdict is a skill's overall outcome. Failed never counts as a pass.
@@ -84,6 +85,12 @@ type Request struct {
 	// Error fails that check and is never read. A skill named ImpactSkill is
 	// refused while Linked is not empty. Nil changes nothing.
 	Linked []LinkedRepo
+	// Rules gives each file its path rule. A skill's batch runs get the rules
+	// of their files (file-rules.md), its verification run those of its
+	// findings' files, and rule text counts in batch sizing; a skill with
+	// NoRules gets none. Rules never change what is blocking. Nil changes
+	// nothing.
+	Rules *rule.Resolver
 	// Graph is a code graph of the default branch. Each batch run with a diff
 	// gets a hint built from it (graph-context.md), last among its files. Other
 	// runs never get it. Nil changes nothing.
@@ -138,6 +145,9 @@ type SkillResult struct {
 	// Reviewed lists the files of the batches that finished, in batch order,
 	// then the paths of the pure renames in Renamed.
 	Reviewed []string
+	// FileRules is the rule of each file in Reviewed that had one, in
+	// Reviewed order.
+	FileRules []FileRule
 	// Carried lists the files left out because the request carried them, in
 	// diff order.
 	Carried []string
@@ -453,13 +463,14 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillRes
 	if t := diff.EstimateTokens(r.req.CIResults); t > 0 {
 		packBudget = max(budget-t, budget/2)
 	}
-	batches, oversize := diff.Batch(reviewable, packBudget)
+	// A file's rule rides along with its diff, once per batch.
+	batches, oversize := diff.BatchWith(reviewable, packBudget, r.ruleExtra(s))
 	if packBudget < budget {
 		// A file over the reduced budget that fits the full one gets a batch
 		// of its own.
 		var over []diff.FileDiff
 		for _, f := range oversize {
-			if diff.EstimateTokens(f.Patch) <= budget {
+			if n, _ := r.fileSize(s, f); n <= budget {
 				batches = append(batches, []diff.FileDiff{f})
 			} else {
 				over = append(over, f)
@@ -469,10 +480,15 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillRes
 	}
 	res.Batches = len(batches)
 	for _, f := range oversize {
+		what := "its diff is"
+		n, withRule := r.fileSize(s, f)
+		if withRule {
+			what = "its diff and rule are"
+		}
 		res.Failures = append(res.Failures, BatchFailure{
 			Files: []string{f.Path},
-			Message: fmt.Sprintf("Not reviewed: `%s` \u2014 its diff is about %s tokens, larger than the per-batch limit of %s.",
-				f.Path, runner.FormatInt(diff.EstimateTokens(f.Patch)), runner.FormatInt(budget)),
+			Message: fmt.Sprintf("Not reviewed: `%s` \u2014 %s about %s tokens, larger than the per-batch limit of %s.",
+				f.Path, what, runner.FormatInt(n), runner.FormatInt(budget)),
 		})
 	}
 
@@ -578,6 +594,9 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillRes
 				}
 				reviewed[f.Path] = true
 				res.Reviewed = append(res.Reviewed, f.Path)
+				if e, ok := r.ruleFor(s, f.Path); ok {
+					res.FileRules = append(res.FileRules, FileRule{Path: f.Path, Rule: e.Label()})
+				}
 				if r.gone(f) {
 					res.Deleted = append(res.Deleted, f.Path)
 				}
@@ -839,6 +858,16 @@ func (r *reviewer) reviewBatch(ctx context.Context, s skill.Skill, batch []diff.
 	if deletedPath != "" {
 		message += " " + deletedMessage
 	}
+	// The rules of the batch's files, after changed-files.md. A batch with
+	// no rule gets no file and no sentence.
+	var rulesPath string
+	if text, _ := r.rulesOf(s, paths); text != "" {
+		rulesPath = filepath.Join(dir, rulesFile)
+		if err := writeRules(rulesPath, []byte(text), 0600); err != nil {
+			return notReviewed("could not write the file rules: %v", err)
+		}
+		message += " " + rulesMessage
+	}
 	if hasPrev {
 		if prev == nil {
 			prev = []finding.Finding{}
@@ -865,6 +894,9 @@ func (r *reviewer) reviewBatch(ctx context.Context, s skill.Skill, batch []diff.
 			return notReviewed("could not write the batch files: %v", err)
 		}
 		files = append(files, p)
+		if a.name == "changed-files.md" && rulesPath != "" {
+			files = append(files, rulesPath)
+		}
 	}
 	if deletedPath != "" {
 		files = append(files, deletedPath)

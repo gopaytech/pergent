@@ -1,0 +1,4 @@
+# The built-in rules, in match order: the rule file format, with rule_file
+# (a .md file in this folder) in place of rule. The texts come in a later
+# change, after the quality harness.
+rules: []
