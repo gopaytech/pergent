@@ -64,6 +64,7 @@ A judge can lower a finding to a suggestion. It cannot drop one. A `same_as` tha
 | Both judge runs fail, or `--panel-no-judge` | Exact merge: findings are joined by file, line and title. Every blocking finding stays blocking | `both`, `exact_merge` |
 | A skill is loaded but neither member reviewed it | The skill is `failed` | `none` |
 | A member's file is missing, unreadable, not schema 1 or not `completed` | The member is not used. The reason goes to the log only | top-level `panel.mode` is `a_only` or `b_only` |
+| A member's result is for another head or base (stale) | The member is not used, as a missing file. The reason goes to the log only | top-level `panel.mode` is `a_only` or `b_only` |
 | Neither member file is usable | Usage error, exit 2, error result | n/a |
 
 The panel never fails a review that would pass on one model, and a failed review is never a pass. The `impact` check is not judged: both members' impact findings are merged by file, line and title.
