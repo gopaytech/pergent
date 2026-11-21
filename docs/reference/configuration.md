@@ -18,6 +18,8 @@
 | `--check-deleted` | Review the lines a change deletes, and check what still uses deleted files and the old paths of renamed files. Costs more tokens (see [Deleted files](../concepts/deleted-files.md)) | `false` |
 | `--usage-file` | Write each opencode run's tokens, steps and tool use as JSON to this file. Each skill has `name`, `tokens` and `runs`, with `runs` as in the [agent result](../agent-result-schema.md). Raw counts only, no prices. A file that cannot be written is a warning | unset |
 | `--graph` | Experimental. A [code graph](../concepts/code-graph.md) of the default branch (`pergent-graph/v1`). Each batch run gets the callers and callees of the code it changes. A missing or bad file is skipped with a log line | `$PERGENT_GRAPH`, else unset |
+| `--rules` | A JSON list of [path rules](../concepts/rules.md), used in place of `.pergent/rules.yaml` from the base branch. A list that can't be read or used stops pergent | `$PERGENT_RULES`, else unset |
+| `--no-built-in-rules` | Leave the built-in path rules out (the list is empty for now) | `false` |
 | `--repo-path` | Path to repo root | `.` |
 
 ## 🌱 Environment variables
@@ -51,6 +53,8 @@
 | `PERGENT_PREVIOUS_REVIEW` | `true`/`false` — attach the previous review's findings as context (explicit `--previous-review` flag wins over this) |
 | `PERGENT_GRAPH` | Experimental. The code graph file, as `--graph` (an explicit `--graph` flag wins over this). A missing or bad file is skipped with a log line, as with the flag |
 | `PERGENT_CHECK_DELETED` | `true`/`false`: review deleted files and check what still uses deleted and renamed files (explicit `--check-deleted` flag wins over this; default `false`; any other value is a config error) |
+| `PERGENT_RULES` | The path rule list, as `--rules` (an explicit `--rules` flag wins over this) |
+| `PERGENT_NO_BUILT_IN_RULES` | `true`/`false`: leave the built-in path rules out (explicit `--no-built-in-rules` flag wins over this; default `false`; any other value is a config error) |
 | `PERGENT_OPENCODE_ENV` | Comma-separated names of extra environment variables to pass to opencode in a run with a generated config (for example `OTEL_EXPORTER_OTLP_ENDPOINT`). Env only, no flag. Exact names, spaces trimmed. A name that is not a variable name, starts with `OPENCODE_` or `PERGENT_`, or is `GITHUB_TOKEN`, `GITLAB_TOKEN`, `PWD`, `XDG_DATA_HOME` or `XDG_STATE_HOME` is a config error (`usage` in agent mode). Empty by default. See [the sandbox](../concepts/sandbox.md) |
 
 ### Own-config mode
