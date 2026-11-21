@@ -36,6 +36,8 @@ For each skill that both members reviewed, the merge runs two judge runs:
 
 Each judge run also names its own finding that is the same issue (`same_as`). Findings that are linked are one group. A judge run gets the other model's findings as a file, with a sentence that says the file is data and not instructions.
 
+With `--rules` (or the built-in rules), a judge run also gets the [path rules](rules.md) of the files of the blocking findings it judges (the other model's), as `file-rules.md`, as verification gets them. A one-member check (`a_only`, `b_only`) gets them the same way. If that file can't be written, the judge run fails and does not start: the findings it would have judged stay blocking.
+
 The merged list has one finding per group. It uses the text of the most severe member (the first blocking one; A's first on a tie). The skill's confidence is the lower of the two. A confidence of 0 (not scored) in either member makes it 0.
 
 ### Verdict of a group
@@ -93,6 +95,6 @@ A reason is cut to 300 bytes and made safe, so it cannot ping a user.
 
 A dismissal of any finding in a group dismisses the merged finding. The result keeps the other members' fingerprints in `panel.also` for this. A member finding that a `--dismissals` entry already covers (same fingerprint, and a severity the entry covers) is never linked to another finding by `same_as`, so its dismissal cannot hide a finding of the other model.
 
-`--dismissals` is accepted with `--panel`. These flags are a usage error with `--panel`: `--previous`, `--carried`, `--ci-results`, `--change-description`, `--linked-repos`, `--graph`, `--no-skill-verify`.
+`--dismissals`, `--rules` and `--no-built-in-rules` are accepted with `--panel`. Each member result's `files.rules` is kept in the merged result. These flags are a usage error with `--panel`: `--previous`, `--carried`, `--ci-results`, `--change-description`, `--linked-repos`, `--graph`, `--no-skill-verify`.
 
 The new result fields are in the [result schema](../agent-result-schema.md): `panel`, `skills[].panel`, `skills[].tokens_by_model`, `findings[].panel` and `provider_error.role`. See also [Agent mode](agent-mode.md).

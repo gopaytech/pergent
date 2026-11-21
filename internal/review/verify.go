@@ -175,25 +175,13 @@ func (r *reviewer) verifyWith(ctx context.Context, s skill.Skill, res *SkillResu
 		return false, nil
 	}
 
-	files, message := r.attachContext(dir, s, res, []string{path}, verifyMessage, rejectedVerifyMessage)
-
-	// The rules of the findings' files. Without them a finding that rests on
-	// a project convention could be dropped, so a failed write fails the
+	// Without the rules of the findings' files a finding that rests on a
+	// project convention could be dropped, so a failed write fails the
 	// verification and keeps every finding.
-	var findingFiles []string
-	for _, b := range blocking {
-		if !slices.Contains(findingFiles, b.File) {
-			findingFiles = append(findingFiles, b.File)
-		}
-	}
-	if text, _ := r.rulesOf(s, findingFiles); text != "" {
-		p := filepath.Join(dir, rulesFile)
-		if err := writeRules(p, []byte(text), 0600); err != nil {
-			fail("could not write the file rules: %v", err)
-			return false, nil
-		}
-		files = append(files, p)
-		message += " " + verifyRulesMessage
+	files, message, err := r.attachContext(dir, s, res, []string{path}, verifyMessage, rejectedVerifyMessage, verifyRulesMessage)
+	if err != nil {
+		fail("could not write the file rules: %v", err)
+		return false, nil
 	}
 	out, err := r.runWith(ctx, s, "verify", verifyPrompt, files, message, mode)
 	res.Usage = res.Usage.Add(out.Usage)
@@ -252,10 +240,13 @@ func (r *reviewer) verifyWith(ctx context.Context, s skill.Skill, res *SkillResu
 // attachContext adds to a run that checks findings (verification or a panel
 // judge) what it gets beyond the findings: where the diffs are, the deleted
 // files and renames, the diffs of the deleted files a blocking finding in
-// res.Findings is on, and the skill's blocking dismissals, with rejected as
-// their sentence. The files are written in dir. What cannot be attached adds
-// its note to res and the run goes on without it.
-func (r *reviewer) attachContext(dir string, s skill.Skill, res *SkillResult, files []string, message, rejected string) ([]string, string) {
+// res.Findings is on, the skill's blocking dismissals, with rejected as
+// their sentence, and the rules of the files the blocking findings in
+// res.Findings are on, with rules as their sentence. The files are written
+// in dir. What else cannot be attached adds its note to res and the run goes
+// on without it; the rules cannot be left out, so a failed write of them is
+// the error, and the run must not start.
+func (r *reviewer) attachContext(dir string, s skill.Skill, res *SkillResult, files []string, message, rejected, rules string) ([]string, string, error) {
 	// The run has no diff attached. When one batch's diff covered every file
 	// with a diff, the review needs nothing more.
 	var own []string
@@ -303,5 +294,19 @@ func (r *reviewer) attachContext(dir string, s skill.Skill, res *SkillResult, fi
 			message += " " + rejected
 		}
 	}
-	return files, message
+	var findingFiles []string
+	for _, f := range res.Findings {
+		if f.Severity == finding.Blocking && !slices.Contains(findingFiles, f.File) {
+			findingFiles = append(findingFiles, f.File)
+		}
+	}
+	if text, _ := r.rulesOf(s, findingFiles); text != "" {
+		p := filepath.Join(dir, rulesFile)
+		if err := writeRules(p, []byte(text), 0600); err != nil {
+			return nil, "", err
+		}
+		files = append(files, p)
+		message += " " + rules
+	}
+	return files, message, nil
 }

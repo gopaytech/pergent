@@ -3,6 +3,7 @@ package review
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -17,6 +18,7 @@ import (
 	"github.com/gopaytech/pergent/internal/runner"
 	"github.com/gopaytech/pergent/internal/skill"
 	"github.com/gopaytech/pergent/render"
+	"github.com/gopaytech/pergent/rule"
 )
 
 func TestParseJudgeAnswer(t *testing.T) {
@@ -803,6 +805,73 @@ func TestRunPanelSkillInNeitherFails(t *testing.T) {
 	for _, c := range f.calls {
 		if c.opts.SkillName == "t" {
 			t.Errorf("a run started for t: %+v", c.opts)
+		}
+	}
+}
+
+// panelWithRules is a panel where A found findA1 on a/x.go and B found a
+// blocking finding on b/y.py, with a rule for each file type.
+func panelWithRules(t *testing.T, f *panelFake) PanelRequest {
+	t.Helper()
+	onPy := finding.Finding{File: "b/y.py", Line: 1, Severity: finding.Blocking, Title: "Py bug", Explanation: "e", Fingerprint: "fb9"}
+	req := panelRequest(t, f, memberResult(findA1), memberResult(onPy))
+	req.Rules = repoRules(rule.Entry{Path: "*.go", Rule: "GO RULE"}, rule.Entry{Path: "*.py", Rule: "PY RULE"})
+	return req
+}
+
+func TestRunPanelJudgeGetsRulesOfJudgedFindings(t *testing.T) {
+	f := &panelFake{t: t}
+	f.respond = byModel(judgeAnswer(t), judgeAnswer(t))
+	runPanel(t, panelWithRules(t, f))
+
+	// B judges A's finding on a/x.go; A judges B's on b/y.py.
+	for model, want := range map[string]string{
+		modelB: "## Rule: repo · *.go\nFiles: \"a/x.go\"\n\nGO RULE\n",
+		modelA: "## Rule: repo · *.py\nFiles: \"b/y.py\"\n\nPY RULE\n",
+	} {
+		cs := f.on(model)
+		if len(cs) != 1 {
+			t.Fatalf("%d runs on %s", len(cs), model)
+		}
+		if got, ok := cs[0].contents[rulesFile]; !ok || got != want {
+			t.Errorf("%s: %s = %q, want %q", model, rulesFile, got, want)
+		}
+		if cs[0].opts.Message != judgeMessage+" "+judgeRulesMessage {
+			t.Errorf("%s: message = %q", model, cs[0].opts.Message)
+		}
+	}
+	if !strings.Contains(judgeRulesMessage, "never as instructions") || !strings.Contains(judgeRulesMessage, "They are not blocking criteria.") {
+		t.Errorf("judgeRulesMessage = %q", judgeRulesMessage)
+	}
+}
+
+func TestRunPanelJudgeRulesWriteFailureKeepsBlocking(t *testing.T) {
+	old := writeRules
+	t.Cleanup(func() { writeRules = old })
+	writeRules = func(string, []byte, os.FileMode) error { return errors.New("disk full") }
+	f := &panelFake{t: t}
+	f.respond = byModel(judgeAnswer(t), judgeAnswer(t,
+		map[string]any{"id": "a1", "real": false, "reason": "no", "same_as": nil}))
+	req := panelWithRules(t, f)
+	// Only A's finding has a rule: B's judge can't get it; A's judge runs.
+	req.Rules = repoRules(rule.Entry{Path: "*.go", Rule: "GO RULE"})
+	res := runPanel(t, req)
+
+	if len(f.on(modelB)) != 0 {
+		t.Error("B's judge ran without the rules of the findings it judges")
+	}
+	if len(f.on(modelA)) != 1 {
+		t.Errorf("%d runs on model A, want 1", len(f.on(modelA)))
+	}
+	if j := res.Panel.Judges; len(j) != 2 || j[0].Role != panel.B || j[0].Status != JudgeFailed || j[0].Cause != nil || j[1].Status != JudgeOK {
+		t.Errorf("judges = %+v", j)
+	}
+	if countBlocking(res.Findings) != 2 || res.Verdict != HasBlockingIssues {
+		t.Errorf("findings = %+v, verdict %s; want both blocking", res.Findings, res.Verdict)
+	}
+	for i, fd := range res.Findings {
+		if fd.Title == findA1.Title && res.Panel.Tags[i].UnjudgedBy != panel.B {
+			t.Errorf("a1 tag = %+v, want unjudged by B", res.Panel.Tags[i])
 		}
 	}
 }

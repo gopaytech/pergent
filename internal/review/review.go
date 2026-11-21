@@ -92,8 +92,9 @@ type Request struct {
 	// refused while Linked is not empty. Nil changes nothing.
 	Linked []LinkedRepo
 	// Rules gives each file its path rule. A skill's batch runs get the rules
-	// of their files (file-rules.md), its verification run those of its
-	// findings' files, and rule text counts in batch sizing; a skill with
+	// of their files (file-rules.md), its verification run (and a review
+	// panel's judge runs) those of the blocking findings' files it checks,
+	// and rule text counts in batch sizing; a skill with
 	// NoRules gets none. Rules never change what is blocking. Nil changes
 	// nothing.
 	Rules *rule.Resolver

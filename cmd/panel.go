@@ -143,6 +143,9 @@ func memberSkill(s result.Skill) review.SkillResult {
 	for _, r := range s.Files.Renamed {
 		res.Renamed = append(res.Renamed, review.Rename{Path: r.Path, From: r.From})
 	}
+	for _, fr := range s.Files.Rules {
+		res.FileRules = append(res.FileRules, review.FileRule{Path: fr.Path, Rule: fr.Rule})
+	}
 	for _, f := range s.Failures {
 		res.Failures = append(res.Failures, review.BatchFailure{Files: f.Files, Message: f.Message})
 	}
