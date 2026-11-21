@@ -59,6 +59,10 @@ type Options struct {
 	// ExcludeEnv names environment variables removed from opencode's
 	// environment (e.g. secrets only pergent itself needs).
 	ExcludeEnv []string
+	// Env are NAME=value entries added to opencode's environment last, after
+	// ExcludeEnv is removed: a review panel's run on its second model gets
+	// that model's key as OPENCODE_API_KEY here. Never logged.
+	Env []string
 	// LogPrefix, when set, is written as "<prefix> " before every progress
 	// line of the run.
 	LogPrefix string
@@ -317,6 +321,7 @@ func runAttempt(ctx context.Context, opts Options) attempt {
 	defer os.RemoveAll(stateDir)
 	cmd.Env = append(withoutEnv(cmd.Env, append([]string{"XDG_DATA_HOME", "XDG_STATE_HOME"}, opts.ExcludeEnv...)),
 		"XDG_DATA_HOME="+dataDir, "XDG_STATE_HOME="+stateDir)
+	cmd.Env = append(cmd.Env, opts.Env...)
 
 	pw := &progressWriter{buf: &bytes.Buffer{}, w: os.Stderr, prefix: opts.logPrefix()}
 	if opts.StepLimit > 0 {
