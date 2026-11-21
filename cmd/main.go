@@ -62,6 +62,8 @@ func main() {
 	var checkDeleted bool
 	var usageFile string
 	var graphFile string
+	var rulesFile string
+	var noBuiltInRules bool
 
 	flag.Var(&skills, "skill", "Preset name or path to skill .md file (repeatable)")
 	flag.StringVar(&platformFlag, "platform", "", "Platform: github or gitlab")
@@ -78,11 +80,15 @@ func main() {
 	flag.BoolVar(&checkDeleted, "check-deleted", false, "Review deleted files and check what still uses deleted and renamed files (off by default)")
 	flag.StringVar(&usageFile, "usage-file", "", "Write each opencode run's tokens, steps and tool use as JSON to this file (off by default)")
 	flag.StringVar(&graphFile, "graph", os.Getenv("PERGENT_GRAPH"), "A pergent-graph/v1 file of the default branch; each batch run gets the callers and callees of the code it changes (off by default)")
+	flag.StringVar(&rulesFile, "rules", os.Getenv("PERGENT_RULES"), "A JSON list of path rules, in place of .pergent/rules.yaml from the base branch")
+	flag.BoolVar(&noBuiltInRules, "no-built-in-rules", false, "Leave the built-in path rules out (default: on)")
 	flag.Parse()
 
-	previousReviewSet, concurrencySet, checkDeletedSet := false, false, false
+	previousReviewSet, concurrencySet, checkDeletedSet, noBuiltInRulesSet := false, false, false, false
 	flag.Visit(func(f *flag.Flag) {
 		switch f.Name {
+		case "no-built-in-rules":
+			noBuiltInRulesSet = true
 		case "check-deleted":
 			checkDeletedSet = true
 		case "previous-review":
@@ -113,6 +119,8 @@ func main() {
 		PreviousReviewSet: previousReviewSet,
 		CheckDeleted:      checkDeleted,
 		CheckDeletedSet:   checkDeletedSet,
+		NoBuiltInRules:    noBuiltInRules,
+		NoBuiltInRulesSet: noBuiltInRulesSet,
 	})
 	if err != nil {
 		log.Fatalf("config error: %v", err)
@@ -179,6 +187,14 @@ func main() {
 	// here is a warning, not a stop.
 	scrubCheckout(cfg, log.Default())
 
+	// The rules come from the base branch, never from the change. One that
+	// can't be used stops the review; one that can't be read at all gives
+	// the built-ins only and a note.
+	rules, rulesNote, err := ciRules(cfg, rulesFile, log.Default())
+	if err != nil {
+		log.Fatalf("loading rules: %v", err)
+	}
+
 	// Review the change with every skill. A failed review is reported in the
 	// comment and the log but doesn't fail the job; only setup errors above
 	// exit non-zero.
@@ -195,6 +211,7 @@ func main() {
 		Description:  description,
 		CheckDeleted: cfg.CheckDeleted,
 		Graph:        readGraph(graphFile, log.Default()),
+		Rules:        rules,
 	})
 	failed := 0
 	for _, r := range results {
@@ -218,7 +235,9 @@ func main() {
 
 	// A comment over the platform's size limit would fail to post, so it is
 	// shrunk to fit; local mode prints it whole.
-	comment := output.FormatReviewWithinOptions(results, changedFiles, commentLimit(cfg.Platform), commentOptions(cfg))
+	opts := commentOptions(cfg)
+	opts.HeaderNote = rulesNote
+	comment := output.FormatReviewWithinOptions(results, changedFiles, commentLimit(cfg.Platform), opts)
 
 	if cfg.Local {
 		fmt.Print(comment)
