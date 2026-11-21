@@ -203,3 +203,10 @@ func TestDecodeListEmpty(t *testing.T) {
 		t.Errorf("DecodeList([]) = %v, %v", got, err)
 	}
 }
+
+func TestLoadOffCapitalised(t *testing.T) {
+	got, err := Load([]byte("rules:\n  - path: a.go\n    off: True\n"), SourceRepo)
+	if err != nil || len(got) != 1 || !got[0].Off {
+		t.Errorf("off: True = %+v, %v; want an off entry", got, err)
+	}
+}

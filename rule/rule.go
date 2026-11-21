@@ -245,7 +245,7 @@ func entry(n *yaml.Node, withSource bool) (Entry, error) {
 			if v.Kind != yaml.ScalarNode || v.Tag != "!!bool" {
 				return Entry{}, errors.New("off must be true or false")
 			}
-			e.Off = v.Value == "true"
+			e.Off = strings.EqualFold(v.Value, "true")
 		case key == "source" && withSource:
 			if !isString(v) {
 				return Entry{}, errors.New("source must be a string")
