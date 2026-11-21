@@ -334,7 +334,7 @@ func writeCheckTable(b *strings.Builder, rows []checkRow) {
 // writeNotes writes the notes about the checks (failed checks without a
 // finding, checks over the limit, findings verification dropped), then the
 // skills' other notes, as quotes. With several skills each names its skill.
-func writeNotes(b *strings.Builder, skills []Skill) {
+func writeNotes(b *strings.Builder, skills []Skill, o Options) {
 	var notes []string
 	add := func(s Skill, n string) {
 		prefix := ""
@@ -378,6 +378,18 @@ func writeNotes(b *strings.Builder, skills []Skill) {
 				continue // listed with the check notes above
 			}
 			add(s, n)
+		}
+	}
+	if o.Panel != nil {
+		for _, s := range skills {
+			for _, n := range panelNotes(s, o) {
+				prefix := ""
+				if len(skills) > 1 {
+					prefix = skillRef(s.Name) + ": "
+				}
+				// The names are already inert and the rest is fixed text.
+				notes = append(notes, prefix+n)
+			}
 		}
 	}
 	for _, n := range notes {
@@ -533,4 +545,34 @@ func writeFooter(b *strings.Builder, o Options) {
 	if len(parts) > 0 {
 		fmt.Fprintf(b, "<sub>%s</sub>\n\n", strings.Join(parts, " · "))
 	}
+}
+
+// panelNotes returns the notes about how a skill's review panel ran.
+func panelNotes(s Skill, o Options) []string {
+	if s.Panel == nil {
+		return nil
+	}
+	a, b := wrappedText(o.Panel.A), wrappedText(o.Panel.B)
+	var notes []string
+	switch s.Panel.Mode {
+	case "a_only":
+		notes = append(notes, "Panel: only "+a+" reviewed this; "+b+"'s review failed. "+a+" checked its own blocking findings.")
+	case "b_only":
+		notes = append(notes, "Panel: only "+b+" reviewed this; "+a+"'s review failed. "+b+" checked its own blocking findings.")
+	case "none":
+		notes = append(notes, "Panel: neither model could review this.")
+	case "both":
+		for _, role := range s.Panel.JudgeFailed {
+			switch role {
+			case "a":
+				notes = append(notes, "Panel: "+a+" could not check "+b+"'s blocking findings; they stay blocking.")
+			case "b":
+				notes = append(notes, "Panel: "+b+" could not check "+a+"'s blocking findings; they stay blocking.")
+			}
+		}
+	}
+	if s.Panel.Exact {
+		notes = append(notes, "Panel: the cross-check did not run. Findings were merged by file, line and title, and every blocking finding stays blocking.")
+	}
+	return notes
 }

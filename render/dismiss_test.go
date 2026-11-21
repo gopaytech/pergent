@@ -222,3 +222,25 @@ func TestApplyDismissalsNoFingerprintNoAlso(t *testing.T) {
 		t.Fatalf("got %+v", got[0])
 	}
 }
+
+func TestApplyDismissalsEmptyFingerprintMatchesAlso(t *testing.T) {
+	skills := []Skill{{Name: "s", Verdict: VerdictHasBlockingIssues, Findings: []Finding{{
+		File: "a.go", Line: 1, Severity: Blocking, Title: "T",
+		Panel: &FindingPanel{FoundBy: "both", Also: []string{"fb"}},
+	}}}}
+	got := ApplyDismissals(skills, []Dismissal{{Fingerprint: "fb", Severity: "blocking", By: "x", Reason: "r"}})
+	if len(got[0].Findings) != 0 || len(got[0].Dismissed) != 1 {
+		t.Fatalf("got %+v", got[0])
+	}
+}
+
+func TestApplyDismissalsSuggestionViaAlsoLeavesBlocking(t *testing.T) {
+	skills := []Skill{{Name: "s", Verdict: VerdictHasBlockingIssues, Findings: []Finding{{
+		Fingerprint: "fa", File: "a.go", Line: 1, Severity: Blocking, Title: "T",
+		Panel: &FindingPanel{FoundBy: "both", Also: []string{"fb"}},
+	}}}}
+	got := ApplyDismissals(skills, []Dismissal{{Fingerprint: "fb", Severity: "suggestion", By: "x", Reason: "r"}})
+	if len(got[0].Findings) != 1 || len(got[0].Dismissed) != 0 || got[0].Verdict != VerdictHasBlockingIssues {
+		t.Fatalf("got %+v", got[0])
+	}
+}

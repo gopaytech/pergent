@@ -32,9 +32,10 @@ func dismissalRank(s string) int {
 }
 
 // ApplyDismissals moves each finding a dismissal covers into Skill.Dismissed.
-// A dismissal covers a finding with the same fingerprint whose severity is no
-// higher than the dismissal's, so a suggestion dismissal leaves a blocking
-// finding in place. When several dismissals cover a finding, the first one
+// A dismissal covers a finding with the same fingerprint, or the fingerprint
+// of a finding merged into it (Panel.Also), whose severity is no higher than
+// the dismissal's, so a suggestion dismissal leaves a blocking finding in
+// place. When several dismissals cover a finding, the first one
 // wins.
 //
 // It recomputes the verdict of each skill it changed: a has_blocking_issues

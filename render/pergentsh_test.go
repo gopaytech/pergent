@@ -9,7 +9,7 @@ import (
 	"github.com/gopaytech/pergent/render"
 )
 
-var updateGoldens = flag.Bool("update-goldens", false, "rewrite render/testdata/golden/pergentsh-0.md")
+var updateGoldens = flag.Bool("update-goldens", false, "rewrite the hosted-service and panel goldens")
 
 // TestCommentWithHostedServiceOptions pins, byte for byte, the comment a
 // service that re-renders stored results gets: file links, a dismiss command,
