@@ -867,3 +867,33 @@ func clearTimes(v any) {
 		}
 	}
 }
+
+func TestRunAgent_NoSkillVerifyReachesReview(t *testing.T) {
+	sandboxEnv(t)
+	dir, base, head := agentRepo(t, nil)
+	var stdout, stderr bytes.Buffer
+	var mu sync.Mutex
+	var prefixes []string
+	inner := answerRun(t, finding.Finding{File: "a.go", Line: 3, Severity: finding.Blocking, Title: "Bad", Explanation: "x"})
+	run := func(ctx context.Context, o runner.Options) runner.RunResult {
+		mu.Lock()
+		prefixes = append(prefixes, o.LogPrefix)
+		mu.Unlock()
+		return inner(ctx, o)
+	}
+
+	code := runAgent(context.Background(), agentArgs(dir, base, head, oneSkill(t), "--no-skill-verify"), agentEnv(nil), &stdout, &stderr, run)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr:\n%s", code, stderr.String())
+	}
+	for _, p := range prefixes {
+		if strings.HasSuffix(p, " verify]") {
+			t.Errorf("a verification run started: %v", prefixes)
+		}
+	}
+	r := decodeOnly(t, stdout.Bytes())
+	s, ok := skillNamed(r, "review")
+	if !ok || s.Verdict != "has_blocking_issues" {
+		t.Errorf("skill = %+v, want has_blocking_issues", s)
+	}
+}

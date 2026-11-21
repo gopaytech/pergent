@@ -1114,3 +1114,21 @@ func TestImpactFindingsKeepNoSuggestionOrFix(t *testing.T) {
 		t.Errorf("finding = %+v, want no suggestion or fix, and its lines kept", g)
 	}
 }
+
+func TestSkipSkillVerifyKeepsImpactVerify(t *testing.T) {
+	f := impactFake(t, answer(t, blockingWithRealCaller()), nil)
+	req := impactRequest(t, f, patch("render/r.go", "x"), []LinkedRepo{{Name: "billing", Path: billingClone(t), CanBlock: true}})
+	req.SkipSkillVerify = true
+
+	Run(context.Background(), req)
+
+	var verifies int
+	for _, c := range f.calls {
+		if isCheckVerify(c) {
+			verifies++
+		}
+	}
+	if verifies != 1 {
+		t.Errorf("%d impact verification runs, want 1: %v", verifies, prefixes(f))
+	}
+}

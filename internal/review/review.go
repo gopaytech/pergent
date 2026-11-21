@@ -78,6 +78,11 @@ type Request struct {
 	// none. It is data, not instructions, and is attached to the batch and
 	// cross-batch runs only, never to a verification or repair run.
 	CIResults string
+	// SkipSkillVerify leaves out each skill's verification run, so its
+	// blocking findings come back unjudged: a review panel's member, whose
+	// findings the other model judges. The impact check keeps its own
+	// verification. False (the default) changes nothing.
+	SkipSkillVerify bool
 	// Linked are the repositories the caller cloned and scrubbed, to check the
 	// change against. With any, one more run (ImpactSkill) looks in them for
 	// callers the change breaks, once the skills are done. An entry with an
@@ -612,7 +617,9 @@ func (r *reviewer) reviewSkill(ctx context.Context, s skill.Skill) (res SkillRes
 	if len(r.req.Dismissals[s.Name]) > 0 {
 		res.noteLeftOut(append(leftOut, crossLeftOut...))
 	}
-	r.verify(ctx, s, &res)
+	if !r.req.SkipSkillVerify {
+		r.verify(ctx, s, &res)
+	}
 	// The verdict is computed after verification: findings it drops no
 	// longer block.
 	res.Verdict = verdict(res)

@@ -1338,3 +1338,14 @@ func TestAgent_MetaProviderAndModel(t *testing.T) {
 		t.Errorf("provider_error = %+v, want %+v", r.ProviderError, want)
 	}
 }
+
+func TestParseAgent_NoSkillVerify(t *testing.T) {
+	dir, base, head := agentRepo(t, nil)
+	skills := oneSkill(t)
+	if mustParse(t, agentArgs(dir, base, head, skills)).skipSkillVerify {
+		t.Error("skipSkillVerify is true without the flag")
+	}
+	if !mustParse(t, agentArgs(dir, base, head, skills, "--no-skill-verify")).skipSkillVerify {
+		t.Error("skipSkillVerify is false with --no-skill-verify")
+	}
+}

@@ -85,6 +85,8 @@ type agentInputs struct {
 	// graphPath is --graph, or $PERGENT_GRAPH without the flag.
 	graphPath string
 	scrub     bool
+	// skipSkillVerify is --no-skill-verify.
+	skipSkillVerify bool
 	// $HOME and $XDG_CONFIG_HOME, where opencode finds its global config.
 	home, configHome string
 }
@@ -251,23 +253,24 @@ func runAgent(ctx context.Context, args []string, getenv func(string) string, st
 		len(in.Files), len(in.Skills), in.Review.Concurrency, in.Review.Timeout)
 	meta.Started = clock.begin(in.Review.Timeout)
 	results := review.Run(ctx, review.Request{
-		Skills:       in.Skills,
-		Diff:         in.Diff,
-		RepoPath:     in.RepoPath,
-		Budget:       in.Review.Timeout,
-		Concurrency:  in.Review.Concurrency,
-		MaxTurns:     in.Review.MaxTurns,
-		ContextLimit: in.Review.ContextLimit,
-		Previous:     in.Previous,
-		Carried:      in.Carried,
-		Dismissals:   in.Dismissals,
-		Description:  in.Description,
-		CIResults:    in.CIResults,
-		CheckDeleted: in.Review.CheckDeleted,
-		Linked:       in.Linked,
-		Graph:        in.Graph,
-		Run:          run,
-		Classifier:   &in.Classifier,
+		Skills:          in.Skills,
+		Diff:            in.Diff,
+		RepoPath:        in.RepoPath,
+		Budget:          in.Review.Timeout,
+		Concurrency:     in.Review.Concurrency,
+		MaxTurns:        in.Review.MaxTurns,
+		ContextLimit:    in.Review.ContextLimit,
+		Previous:        in.Previous,
+		Carried:         in.Carried,
+		Dismissals:      in.Dismissals,
+		Description:     in.Description,
+		CIResults:       in.CIResults,
+		SkipSkillVerify: in.skipSkillVerify,
+		CheckDeleted:    in.Review.CheckDeleted,
+		Linked:          in.Linked,
+		Graph:           in.Graph,
+		Run:             run,
+		Classifier:      &in.Classifier,
 		Sandbox: review.Sandbox{
 			Hardened:     true,
 			Instructions: in.Instructions,
@@ -341,6 +344,7 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 	flags.StringVar(&in.graphPath, "graph", getenv("PERGENT_GRAPH"), "A pergent-graph/v1 file of the default branch, outside --repo-path")
 	flags.StringVar(&in.changePath, "change-description", getenv("PERGENT_CHANGE_DESCRIPTION"), "A file holding the change's title and description, attached to the review runs as data")
 	flags.StringVar(&in.linkedPath, "linked-repos", getenv("PERGENT_LINKED_REPOS"), "A JSON file [{\"name\", \"path\", \"watched\", \"can_block\", \"error\"}, ...] of linked repositories the caller cloned; they are scrubbed, and only an impact run reads them")
+	flags.BoolVar(&in.skipSkillVerify, "no-skill-verify", false, "Leave out each skill's verification run (a review panel's member); the impact check still verifies")
 	flags.BoolVar(&in.scrub, "scrub-instructions", false, "Delete every AGENTS.md, CLAUDE.md and CONTEXT.md in --repo-path before reviewing")
 	flags.IntVar(&in.MaxCommentSize, "max-comment-size", 0, "Byte limit for the rendered comment (0: no limit)")
 	flags.StringVar(&resultPath, "result", "", "Write the result JSON to this file, or - for stdout")

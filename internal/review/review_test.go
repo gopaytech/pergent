@@ -1761,3 +1761,30 @@ func TestCIResultsNeverPushFileOutOfReview(t *testing.T) {
 		t.Errorf("failures %+v, want huge.go oversize against the full budget", res[0].Failures)
 	}
 }
+
+func TestSkipSkillVerifyKeepsBlocking(t *testing.T) {
+	f := &fake{}
+	f.respond = func(_ int, c call) runner.RunResult {
+		return completed(answer(t, finding.Finding{File: "a/x.go", Line: 1, Severity: finding.Blocking, Title: "Bad", Explanation: "x"}))
+	}
+	req := newRequest(t, f, patch("a/x.go", "x"), skill.Skill{Name: "code-review", Body: "Review it."})
+	req.Budget = 5 * time.Minute
+	req.Sandbox = Sandbox{Hardened: true}
+	req.SkipSkillVerify = true
+
+	res := Run(context.Background(), req)
+
+	if got := res[0].Verdict; got != HasBlockingIssues {
+		t.Fatalf("verdict = %s, want has_blocking_issues", got)
+	}
+	for _, c := range f.calls {
+		if isVerifyCall(c) || c.opts.LogPrefix == "[code-review verify]" {
+			t.Fatalf("a verification run started: %v", prefixes(f))
+		}
+	}
+	for _, n := range res[0].Notes {
+		if strings.HasPrefix(n, "Verification") {
+			t.Fatalf("note %q, want none", n)
+		}
+	}
+}
