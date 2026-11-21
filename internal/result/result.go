@@ -54,7 +54,18 @@ type Result struct {
 	// billing, quota, then rate_limit), for a caller that moves the review to
 	// another model. Absent when no failure has one.
 	ProviderError *ProviderError `json:"provider_error,omitempty"`
-	Comment       Comment        `json:"comment"`
+	// Rules says this pergent ran with path rules, so a caller can tell "no
+	// file had a rule" from "this pergent does not know rules". Absent from
+	// an error result.
+	Rules   *Rules  `json:"rules,omitempty"`
+	Comment Comment `json:"comment"`
+}
+
+// Rules is the path rule list a review used: whether the built-ins were on,
+// and how many entries it had in all.
+type Rules struct {
+	BuiltIn bool `json:"built_in"`
+	Entries int  `json:"entries"`
 }
 
 // Skill is one skill's review.
@@ -125,6 +136,16 @@ type Files struct {
 	// Renamed the reviewed renames; both are left out when empty.
 	Deleted []string  `json:"deleted,omitempty"`
 	Renamed []Renamed `json:"renamed,omitempty"`
+	// Rules is the path rule of each reviewed file that had one; left out
+	// when none had.
+	Rules []FileRule `json:"rules,omitempty"`
+}
+
+// FileRule is the rule a reviewed file was checked with: "repo:<glob>",
+// "dashboard:<set>:<glob>" or "built-in:<name>".
+type FileRule struct {
+	Path string `json:"path"`
+	Rule string `json:"rule"`
 }
 
 // Renamed is a reviewed file the change renamed: Path is the new path and
@@ -202,6 +223,9 @@ type Meta struct {
 	// Provider and Model are the run's OPENCODE_PROVIDER and OPENCODE_MODEL,
 	// used only in a ProviderError.
 	Provider, Model string
+	// Rules is the path rule list of the review, nil without rule support.
+	// Build copies it into the result.
+	Rules *Rules
 }
 
 // Build converts the skills' results into a completed Result with finding
@@ -227,6 +251,10 @@ func Build(meta Meta, skills []review.SkillResult) Result {
 		r.Skills = append(r.Skills, buildSkill(meta, s, ids, deleted))
 	}
 	r.ProviderError = topProviderError(r.Skills)
+	if meta.Rules != nil {
+		rules := *meta.Rules
+		r.Rules = &rules
+	}
 	return r
 }
 
@@ -310,6 +338,9 @@ func buildSkill(meta Meta, s review.SkillResult, ids map[string]string, deleted 
 	out.Files.Deleted = s.Deleted
 	for _, r := range s.Renamed {
 		out.Files.Renamed = append(out.Files.Renamed, Renamed{Path: r.Path, From: r.From})
+	}
+	for _, fr := range s.FileRules {
+		out.Files.Rules = append(out.Files.Rules, FileRule{Path: fr.Path, Rule: fr.Rule})
 	}
 	for _, sum := range s.Summaries {
 		out.Summaries = append(out.Summaries, Summary{Batch: sum.Batch, Text: sum.Text})
@@ -513,6 +544,13 @@ func redactSkill(s Skill) Skill {
 			renamed[i] = Renamed{Path: redact.String(x.Path), From: redact.String(x.From)}
 		}
 		s.Files.Renamed = renamed
+	}
+	if s.Files.Rules != nil {
+		rules := make([]FileRule, len(s.Files.Rules))
+		for i, x := range s.Files.Rules {
+			rules[i] = FileRule{Path: redact.String(x.Path), Rule: redact.String(x.Rule)}
+		}
+		s.Files.Rules = rules
 	}
 	skipped := make([]Skipped, len(s.Files.Skipped))
 	for i, x := range s.Files.Skipped {
