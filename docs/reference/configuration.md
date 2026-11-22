@@ -20,6 +20,7 @@
 | `--graph` | Experimental. A [code graph](../concepts/code-graph.md) of the default branch (`pergent-graph/v1`). Each batch run gets the callers and callees of the code it changes. A missing or bad file is skipped with a log line | `$PERGENT_GRAPH`, else unset |
 | `--rules` | A JSON list of [path rules](../concepts/rules.md), used in place of `.pergent/rules.yaml` from the base branch. A list that can't be read or used stops pergent | `$PERGENT_RULES`, else unset |
 | `--no-built-in-rules` | Leave the built-in path rules out (`rule/builtin/`) | `false` |
+| `--built-in-rules` | Comma-separated names of the only built-in path rules to load, such as `go,yaml,ts_js` (the `.md` file names in `rule/builtin/`). Order does not matter: `builtin.yaml` order is kept. An unknown name is skipped with a warning. A value with no name loads them all. A config error with `--no-built-in-rules` on. See [Path rules](../concepts/rules.md) | `$PERGENT_BUILT_IN_RULES`, else all |
 | `--repo-path` | Path to repo root | `.` |
 
 ## 🌱 Environment variables
@@ -55,6 +56,7 @@
 | `PERGENT_CHECK_DELETED` | `true`/`false`: review deleted files and check what still uses deleted and renamed files (explicit `--check-deleted` flag wins over this; default `false`; any other value is a config error) |
 | `PERGENT_RULES` | The path rule list, as `--rules` (an explicit `--rules` flag wins over this) |
 | `PERGENT_NO_BUILT_IN_RULES` | `true`/`false`: leave the built-in path rules out (explicit `--no-built-in-rules` flag wins over this; default `false`; any other value is a config error) |
+| `PERGENT_BUILT_IN_RULES` | The built-in rule names to load, as `--built-in-rules` (an explicit `--built-in-rules` flag wins over this, even an empty one). Empty means all. Set together with `PERGENT_NO_BUILT_IN_RULES=true` it is a config error |
 | `PERGENT_OPENCODE_ENV` | Comma-separated names of extra environment variables to pass to opencode in a run with a generated config (for example `OTEL_EXPORTER_OTLP_ENDPOINT`). Env only, no flag. Exact names, spaces trimmed. A name that is not a variable name, starts with `OPENCODE_` or `PERGENT_`, or is `GITHUB_TOKEN`, `GITLAB_TOKEN`, `PWD`, `XDG_DATA_HOME` or `XDG_STATE_HOME` is a config error (`usage` in agent mode). Empty by default. See [the sandbox](../concepts/sandbox.md) |
 
 ### Own-config mode

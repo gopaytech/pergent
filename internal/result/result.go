@@ -64,10 +64,12 @@ type Result struct {
 }
 
 // Rules is the path rule list a review used: whether the built-ins were on,
-// and how many entries it had in all.
+// how many entries it had in all, and, when --built-in-rules chose some, the
+// names of the built-ins in use, in builtin.yaml order.
 type Rules struct {
-	BuiltIn bool `json:"built_in"`
-	Entries int  `json:"entries"`
+	BuiltIn      bool     `json:"built_in"`
+	Entries      int      `json:"entries"`
+	BuiltInNames []string `json:"built_in_names,omitempty"`
 }
 
 // Skill is one skill's review.
@@ -263,6 +265,7 @@ func Build(meta Meta, skills []review.SkillResult) Result {
 	r.ProviderError = topProviderError(r.Skills)
 	if meta.Rules != nil {
 		rules := *meta.Rules
+		rules.BuiltInNames = append([]string(nil), rules.BuiltInNames...)
 		r.Rules = &rules
 	}
 	return r

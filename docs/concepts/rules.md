@@ -41,6 +41,10 @@ A file that matches nothing, or matches an `off` entry, gets no rule. The skill 
 
 The texts are in `rule/builtin/*.md`. The changes from open-code-review: its tool names became opencode's (`read`, `grep`, `glob`), the sentences that say which findings block were removed, because a rule never blocks, and one Go line about open-code-review's own test-file filter was dropped. Words like "blocking I/O" stay, because they describe the code. A repository or rule-set entry for the same file wins over a built-in. `--no-built-in-rules` (or `PERGENT_NO_BUILT_IN_RULES=true`) turns them all off, and `rules: false` in a skill's frontmatter turns every rule off for that skill.
 
+**Choose built-ins.** `--built-in-rules go,yaml` (or `PERGENT_BUILT_IN_RULES=go,yaml`) loads only the built-ins it names, so runs carry less rule text. A name is a file name in `rule/builtin/` without `.md`, such as `go`, `ts_js` or `github_workflows`, and is case-sensitive. The chosen built-ins keep their `builtin.yaml` order, so first match does not change (`github_workflows,yaml` and `yaml,github_workflows` are the same), and a chosen rule keeps every glob of its `{a,b}` entry. Spaces are trimmed and empty items are ignored. A value with no name is the same as no flag: all built-ins load. An explicit flag wins over the variable, even an empty one.
+
+A name this pergent does not know is skipped, never an error, because the caller may be built against a newer pergent. pergent logs one line that names them, for example `warning: --built-in-rules: unknown built-in rules skipped: "scala"`. If no name is known, no built-in rule loads. `--built-in-rules` with `--no-built-in-rules` on (by flag or variable) is a config error, a usage error (exit 2) in agent mode. To load no built-in, use `--no-built-in-rules`, not an empty `--built-in-rules`.
+
 Each rule adds its text to every batch run that has a matching file, and rule text counts in batch sizing, so built-ins make each run longer and can split a change into more batches.
 
 ## Where the rules come from
@@ -80,4 +84,4 @@ The cross-batch run, repair runs and the linked repositories' check get no rules
 ## Where you see them
 
 - The comment's collapsed `Files` list ends with one line, for example `Rules: built-in:go (12 files) · repo internal/api/**/*.go (3 files)`. No line when no file had a rule.
-- The agent result has `files.rules` per skill (`{path, rule}`, with `rule` as `repo:<glob>`, `dashboard:<set>:<glob>` or `built-in:<name>`) and a top-level `rules` object. See the [result schema](../agent-result-schema.md).
+- The agent result has `files.rules` per skill (`{path, rule}`, with `rule` as `repo:<glob>`, `dashboard:<set>:<glob>` or `built-in:<name>`) and a top-level `rules` object. With `--built-in-rules`, its `built_in_names` lists the chosen built-ins in use. See the [result schema](../agent-result-schema.md).

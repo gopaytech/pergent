@@ -95,6 +95,6 @@ A reason is cut to 300 bytes and made safe, so it cannot ping a user.
 
 A dismissal of any finding in a group dismisses the merged finding. The result keeps the other members' fingerprints in `panel.also` for this. A member finding that a `--dismissals` entry already covers (same fingerprint, and a severity the entry covers) is never linked to another finding by `same_as`, so its dismissal cannot hide a finding of the other model.
 
-`--dismissals`, `--rules` and `--no-built-in-rules` are accepted with `--panel`. Each member result's `files.rules` is kept in the merged result. These flags are a usage error with `--panel`: `--previous`, `--carried`, `--ci-results`, `--change-description`, `--linked-repos`, `--graph`, `--no-skill-verify`.
+`--dismissals`, `--rules`, `--no-built-in-rules` and `--built-in-rules` are accepted with `--panel`. Each member result's `files.rules` is kept in the merged result. These flags are a usage error with `--panel`: `--previous`, `--carried`, `--ci-results`, `--change-description`, `--linked-repos`, `--graph`, `--no-skill-verify`.
 
 The new result fields are in the [result schema](../agent-result-schema.md): `panel`, `skills[].panel`, `skills[].tokens_by_model`, `findings[].panel` and `provider_error.role`. See also [Agent mode](agent-mode.md).

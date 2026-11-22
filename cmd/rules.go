@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -60,13 +61,13 @@ func baseRules(repoPath, ref string) ([]rule.Entry, error) {
 // built-ins unless they are off. When the base branch can't be read it logs
 // a warning and returns the comment's note; any other error fails the review.
 func ciRules(cfg config.Config, rulesPath string, logger *log.Logger) (*rule.Resolver, string, error) {
-	builtIn := !cfg.NoBuiltInRules
+	builtIn, _ := builtInList(cfg, logger)
 	if rulesPath != "" {
 		team, err := readRulesList(rulesPath)
 		if err != nil {
 			return nil, "", errors.New(rulesFlagError(rulesPath, err))
 		}
-		return rule.NewResolver(team, builtIn), "", nil
+		return rule.NewResolverWith(team, builtIn), "", nil
 	}
 	var branch string
 	switch {
@@ -85,11 +86,52 @@ func ciRules(cfg config.Config, rulesPath string, logger *log.Logger) (*rule.Res
 	switch {
 	case errors.Is(err, errRulesUnreadable):
 		logger.Printf("warning: %v; reviewing with built-in rules only", err)
-		return rule.NewResolver(nil, builtIn), rulesUnreadableNote, nil
+		return rule.NewResolverWith(nil, builtIn), rulesUnreadableNote, nil
 	case err != nil:
 		return nil, "", err
 	}
-	return rule.NewResolver(team, builtIn), "", nil
+	return rule.NewResolverWith(team, builtIn), "", nil
+}
+
+// builtInList is the built-ins a review uses: none with --no-built-in-rules,
+// only the ones --built-in-rules names when it is given, else all. A name
+// this pergent does not know is skipped with one warning line, never an
+// error: the caller may be built against a newer pergent. names are the
+// chosen built-ins in use, in builtin.yaml order; nil without a choice.
+func builtInList(cfg config.Config, logger *log.Logger) (list []rule.Entry, names []string) {
+	switch {
+	case cfg.NoBuiltInRules:
+		return nil, nil
+	case cfg.BuiltInRules == nil:
+		return rule.Builtin(), nil
+	}
+	list, unknown := rule.SelectBuiltin(cfg.BuiltInRules)
+	if len(unknown) > 0 {
+		quoted := make([]string, len(unknown))
+		for i, n := range unknown {
+			quoted[i] = strconv.Quote(n)
+		}
+		none := ""
+		if len(list) == 0 {
+			none = "; no built-in rule is used"
+		}
+		logger.Printf("warning: --built-in-rules: unknown built-in rules skipped: %s%s", strings.Join(quoted, ", "), none)
+	}
+	for _, e := range list {
+		if !slices.Contains(names, e.Name) {
+			names = append(names, e.Name)
+		}
+	}
+	return list, names
+}
+
+// builtInState is how a log line names the built-ins in use: "on", "off",
+// or the chosen names.
+func builtInState(r *rule.Resolver, names []string) string {
+	if len(names) > 0 {
+		return strings.Join(names, ", ")
+	}
+	return onOff(r.BuiltIn())
 }
 
 // readRulesList reads the rule list of --rules (agent mode, or CI mode in
