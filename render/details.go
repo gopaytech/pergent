@@ -336,7 +336,7 @@ func writeCheckTable(b *strings.Builder, rows []checkRow) {
 // writeNotes writes the notes about the checks (failed checks without a
 // finding, checks over the limit, findings verification dropped), then the
 // skills' other notes, as quotes. With several skills each names its skill.
-func writeNotes(b *strings.Builder, skills []Skill) {
+func writeNotes(b *strings.Builder, skills []Skill, o Options) {
 	var notes []string
 	add := func(s Skill, n string) {
 		prefix := ""
@@ -380,6 +380,21 @@ func writeNotes(b *strings.Builder, skills []Skill) {
 				continue // listed with the check notes above
 			}
 			add(s, n)
+		}
+	}
+	if o.MultiReview != nil {
+		// The names are already inert and the rest is fixed text, so these
+		// notes skip lineText. The skipped notes are about the whole review,
+		// so they have no skill prefix.
+		notes = append(notes, skippedNotes(o)...)
+		for _, s := range skills {
+			prefix := ""
+			if len(skills) > 1 {
+				prefix = skillRef(s.Name) + ": "
+			}
+			for _, n := range multiReviewNotes(s, o) {
+				notes = append(notes, prefix+n)
+			}
 		}
 	}
 	for _, n := range notes {
@@ -606,4 +621,32 @@ func writeFooter(b *strings.Builder, o Options) {
 	if len(parts) > 0 {
 		fmt.Fprintf(b, "<sub>%s</sub>\n\n", strings.Join(parts, " · "))
 	}
+}
+
+// skippedNotes returns one note for each reviewer the caller skipped.
+func skippedNotes(o Options) []string {
+	var notes []string
+	for _, sk := range o.MultiReview.Skipped {
+		n := "Multi review: " + wrappedText(sk.Name) + " was skipped"
+		if reason := reasonText(sk.Reason); reason != "" {
+			n += ": " + reason
+		}
+		notes = append(notes, n+".")
+	}
+	return notes
+}
+
+// multiReviewNotes returns the notes about how a skill's multi review ran.
+func multiReviewNotes(s Skill, o Options) []string {
+	if s.MultiReview == nil {
+		return nil
+	}
+	var notes []string
+	for _, n := range s.MultiReview.Failed {
+		notes = append(notes, "Multi review: "+reviewerName(o, n)+" could not review this.")
+	}
+	if s.MultiReview.Exact {
+		notes = append(notes, "Multi review: the judge did not run. Every blocking finding stays blocking.")
+	}
+	return notes
 }

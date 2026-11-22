@@ -30,8 +30,9 @@ func dismissalRank(s string) int {
 }
 
 // ApplyDismissals moves each finding a dismissal covers into Skill.Dismissed.
-// A dismissal covers a finding with the same fingerprint whose severity is no
-// higher than the dismissal's, so a suggestion dismissal leaves a blocking
+// A dismissal covers a finding whose severity is no higher than the
+// dismissal's when it has the finding's own fingerprint or any fingerprint in
+// the finding's MultiReview.Also, so a suggestion dismissal leaves a blocking
 // finding in place. When several dismissals cover a finding, the first one
 // wins.
 //

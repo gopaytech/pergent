@@ -449,7 +449,7 @@ func render(skills []Skill, o Options, l layout) string {
 			writeDetails(&b, skills, o, l)
 		}
 	}
-	writeNotes(&b, skills)
+	writeNotes(&b, skills, o)
 	writeFooter(&b, o)
 
 	out := neutralizeQuickActions(b.String())
