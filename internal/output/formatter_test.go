@@ -10,6 +10,7 @@ import (
 
 	"github.com/gopaytech/pergent/internal/diff"
 	"github.com/gopaytech/pergent/internal/finding"
+	"github.com/gopaytech/pergent/internal/multireview"
 	"github.com/gopaytech/pergent/internal/review"
 	"github.com/gopaytech/pergent/internal/runner"
 	"github.com/gopaytech/pergent/render"
@@ -617,5 +618,72 @@ func TestToRender_DeletedAndRenamedRedacted(t *testing.T) {
 		if strings.Contains(p, secret) {
 			t.Errorf("path %q holds the token", p)
 		}
+	}
+}
+
+func multiReviewResult(mr *review.SkillMultiReview) []review.SkillResult {
+	return []review.SkillResult{{
+		Skill:   "code-review",
+		Verdict: review.HasBlockingIssues,
+		Findings: []finding.Finding{
+			{File: "main.go", Line: 4, Severity: finding.Blocking, Title: "Nil dereference", Explanation: "p can be nil.", Fingerprint: "fp1"},
+		},
+		MultiReview: mr,
+	}}
+}
+
+func TestFormatMultiReviewPassesFields(t *testing.T) {
+	results := multiReviewResult(&review.SkillMultiReview{
+		Reviewers: []int{1, 2},
+		Tags:      []multireview.Tag{{FoundBy: []int{1, 2}}},
+	})
+	got := FormatReviewWithinOptions(results, nil, 0, Options{MultiReview: &render.MultiReviewNames{
+		Reviewers: []string{"reviewer 1", "reviewer 2"}, Judge: "p/m",
+	}})
+	for _, want := range []string{"found by 2 of 2 reviewers (reviewer 1, reviewer 2)", "Multi review: reviewer 1, reviewer 2 · judge p/m"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("comment misses %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestFormatMultiReviewRedactsReason(t *testing.T) {
+	const key = "sk-opencode-secret-key-1234567890"
+	t.Setenv("OPENCODE_API_KEY", key)
+	results := multiReviewResult(&review.SkillMultiReview{
+		Reviewers: []int{1, 2},
+		Tags: []multireview.Tag{
+			{FoundBy: []int{1, 2}, JudgeDisagreed: true, Reason: "leaks " + key, Also: []string{"a-" + key}},
+			{FoundBy: []int{1}}, // no finding at this index: must not panic
+		},
+	})
+	got := FormatReviewWithinOptions(results, nil, 0, Options{MultiReview: &render.MultiReviewNames{Reviewers: []string{"a", "b"}}})
+	if strings.Contains(got, key) {
+		t.Fatalf("the key is in the comment:\n%s", got)
+	}
+	if block := FindingsBlock(results); strings.Contains(block, key) {
+		t.Fatal("the key is in the findings block")
+	}
+	if !strings.Contains(got, "judge disagreed") {
+		t.Errorf("no judge disagreed lead:\n%s", got)
+	}
+}
+
+func TestFormatMultiReviewDoesNotMutateInput(t *testing.T) {
+	tag := multireview.Tag{FoundBy: []int{1, 2}, Also: []string{"x"}}
+	results := multiReviewResult(&review.SkillMultiReview{Reviewers: []int{1, 2}, Tags: []multireview.Tag{tag}})
+	sk := toRender(results, nil)
+	sk[0].Findings[0].MultiReview.FoundBy[0] = 9
+	sk[0].MultiReview.Reviewers[0] = 9
+	if results[0].MultiReview.Tags[0].FoundBy[0] != 1 || results[0].MultiReview.Reviewers[0] != 1 {
+		t.Fatal("toRender shares slices with its input")
+	}
+}
+
+func TestFormatMultiReviewExactNote(t *testing.T) {
+	results := multiReviewResult(&review.SkillMultiReview{Reviewers: []int{1, 2}, Exact: true, Tags: []multireview.Tag{{FoundBy: []int{1}}}})
+	got := FormatReviewWithinOptions(results, nil, 0, Options{MultiReview: &render.MultiReviewNames{Reviewers: []string{"a", "b"}}})
+	if want := "Multi review: the judge did not run. Every blocking finding stays blocking."; !strings.Contains(got, want) {
+		t.Errorf("comment misses %q:\n%s", want, got)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/gopaytech/pergent/internal/diff"
@@ -102,6 +103,9 @@ type Options struct {
 	// HeaderNote is one line of pergent's own text in italics after the
 	// header, such as "Repository rules could not be read". Never model text.
 	HeaderNote string
+	// MultiReview names the reviewers and the judge of a multi review; nil
+	// writes no multi review text.
+	MultiReview *render.MultiReviewNames
 }
 
 // FormatReview renders the results as one markdown comment: a headline with
@@ -128,7 +132,7 @@ func FormatReviewWithinOptions(results []review.SkillResult, changedFiles []stri
 	for i, f := range changedFiles {
 		files[i] = redact.String(f)
 	}
-	return render.Comment(toRender(results, o.IDs), render.Options{MaxLen: maxLen, ChangedFiles: files, Commit: o.Commit, FileURL: o.FileURL, Version: o.Version, HeaderNote: o.HeaderNote})
+	return render.Comment(toRender(results, o.IDs), render.Options{MaxLen: maxLen, ChangedFiles: files, Commit: o.Commit, FileURL: o.FileURL, Version: o.Version, HeaderNote: o.HeaderNote, MultiReview: o.MultiReview})
 }
 
 // FindingsBlock returns the hidden line that carries the findings to the next
@@ -152,11 +156,17 @@ func toRender(results []review.SkillResult, ids map[string]string) []render.Skil
 			Confidence:       r.Confidence,
 			ConfidenceReason: redact.String(r.ConfidenceReason),
 		}
-		for _, f := range redactFindings(r.Findings) {
+		if m := r.MultiReview; m != nil {
+			s.MultiReview = &render.SkillMultiReview{
+				Reviewers: slices.Clone(m.Reviewers), Failed: slices.Clone(m.Failed), Exact: m.Exact,
+			}
+		}
+		for i, f := range redactFindings(r.Findings) {
 			s.Findings = append(s.Findings, render.Finding{
 				ID: ids[f.Fingerprint], Fingerprint: f.Fingerprint, File: f.File, Line: f.Line, EndLine: f.EndLine,
 				Severity: render.Severity(f.Severity), Title: f.Title, Explanation: f.Explanation, SuggestedFix: f.SuggestedFix,
-				Suggestion: f.Suggestion,
+				Suggestion:  f.Suggestion,
+				MultiReview: findingMultiReview(r.MultiReview, i),
 			})
 		}
 		if s.Findings == nil {
@@ -199,6 +209,24 @@ func toRender(results []review.SkillResult, ids map[string]string) []render.Skil
 		skills[i] = s
 	}
 	return skills
+}
+
+// findingMultiReview converts the merge tag of the finding at index i; nil
+// when the skill has no multi review or no tag for it. The reason and the
+// merged fingerprints are model text, so they are redacted.
+func findingMultiReview(m *review.SkillMultiReview, i int) *render.FindingMultiReview {
+	if m == nil || i >= len(m.Tags) {
+		return nil
+	}
+	t := m.Tags[i]
+	fm := &render.FindingMultiReview{
+		FoundBy: slices.Clone(t.FoundBy), JudgeDisagreed: t.JudgeDisagreed, Reason: redact.String(t.Reason),
+		RatedSuggestionBy: slices.Clone(t.RatedSuggestionBy), Unjudged: t.Unjudged,
+	}
+	for _, a := range t.Also {
+		fm.Also = append(fm.Also, redact.String(a))
+	}
+	return fm
 }
 
 func skipped(s diff.Skip) render.Skipped {
