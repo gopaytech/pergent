@@ -54,6 +54,9 @@ type Result struct {
 	// billing, quota, then rate_limit), for a caller that moves the review to
 	// another model. Absent when no failure has one.
 	ProviderError *ProviderError `json:"provider_error,omitempty"`
+	// MultiReview names the reviewers and the judge of a multi review; absent
+	// without one.
+	MultiReview *MultiReview `json:"multi_review,omitempty"`
 	// Rules says this pergent ran with path rules, so a caller can tell "no
 	// file had a rule" from "this pergent does not know rules". Absent from
 	// an error result.
@@ -87,6 +90,8 @@ type Skill struct {
 	DurationSeconds  float64       `json:"duration_seconds"`
 	Tokens           Tokens        `json:"tokens"`
 	Runs             []Run         `json:"runs,omitempty"`
+	// MultiReview is how a multi review merged this skill; absent otherwise.
+	MultiReview *SkillMultiReview `json:"multi_review,omitempty"`
 }
 
 // Finding is a finding with its short ID.
@@ -104,6 +109,8 @@ type Finding struct {
 	// Linked is the caller in a linked repository that an impact finding
 	// names; omitted on every other finding.
 	Linked *finding.Caller `json:"linked,omitempty"`
+	// MultiReview is what a multi review's merge says about the finding.
+	MultiReview *FindingMultiReview `json:"multi_review,omitempty"`
 }
 
 // Summary is the model's summary of one batch.
@@ -482,6 +489,12 @@ func redactResult(r Result) Result {
 		r.Error = &e
 	}
 	r.ProviderError = redactProviderError(r.ProviderError)
+	if r.MultiReview != nil {
+		m := *r.MultiReview
+		m.Judge.Provider = redact.String(m.Judge.Provider)
+		m.Judge.Model = redact.String(m.Judge.Model)
+		r.MultiReview = &m
+	}
 	if r.Skills != nil {
 		skills := make([]Skill, len(r.Skills))
 		for i, s := range r.Skills {
@@ -504,6 +517,15 @@ func redactSkill(s Skill) Skill {
 		f.Explanation = redact.String(f.Explanation)
 		f.SuggestedFix = redact.String(f.SuggestedFix)
 		f.Suggestion = redact.String(f.Suggestion)
+		if f.MultiReview != nil {
+			// A copy: the pointer is shared with the result Build made.
+			fm := *f.MultiReview
+			fm.Reason = redact.String(fm.Reason)
+			if fm.Also != nil {
+				fm.Also = redactStrings(fm.Also)
+			}
+			f.MultiReview = &fm
+		}
 		if f.Linked != nil {
 			// A copy: the pointer is shared with the finding Build read.
 			c := *f.Linked
@@ -583,6 +605,17 @@ func redactSkill(s Skill) Skill {
 	}
 	s.Failures = failures
 	s.Notes = redactStrings(s.Notes)
+	if s.MultiReview != nil {
+		sm := *s.MultiReview
+		sm.Judge = redact.String(sm.Judge)
+		if sm.JudgeCause != nil {
+			c := *sm.JudgeCause
+			c.Message = redact.String(c.Message)
+			c.ProviderError = redactProviderError(c.ProviderError)
+			sm.JudgeCause = &c
+		}
+		s.MultiReview = &sm
+	}
 	return s
 }
 
