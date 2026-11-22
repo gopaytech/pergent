@@ -333,9 +333,11 @@ func writeCheckTable(b *strings.Builder, rows []checkRow) {
 	b.WriteString("\n")
 }
 
-// writeNotes writes the notes about the checks (failed checks without a
-// finding, checks over the limit, findings verification dropped), then the
-// skills' other notes, as quotes. With several skills each names its skill.
+// writeNotes writes the notes as quotes: the multi review's skipped reviewers,
+// the notes about the checks (failed checks without a finding, checks over
+// the limit, findings verification dropped), the skills' other notes, then
+// each skill's multi review notes. With several skills each skill note names
+// its skill.
 func writeNotes(b *strings.Builder, skills []Skill, o Options) {
 	var notes []string
 	add := func(s Skill, n string) {
@@ -344,6 +346,11 @@ func writeNotes(b *strings.Builder, skills []Skill, o Options) {
 			prefix = skillRef(s.Name) + ": "
 		}
 		notes = append(notes, prefix+lineText(n))
+	}
+	if o.MultiReview != nil {
+		// The skipped notes are about the whole review, so they come first and
+		// have no skill prefix. The names are already inert.
+		notes = append(notes, skippedNotes(o)...)
 	}
 	for _, s := range skills {
 		if len(s.Checks) == 0 {
@@ -384,9 +391,7 @@ func writeNotes(b *strings.Builder, skills []Skill, o Options) {
 	}
 	if o.MultiReview != nil {
 		// The names are already inert and the rest is fixed text, so these
-		// notes skip lineText. The skipped notes are about the whole review,
-		// so they have no skill prefix.
-		notes = append(notes, skippedNotes(o)...)
+		// notes skip lineText.
 		for _, s := range skills {
 			prefix := ""
 			if len(skills) > 1 {
@@ -627,8 +632,9 @@ func writeFooter(b *strings.Builder, o Options) {
 func skippedNotes(o Options) []string {
 	var notes []string
 	for _, sk := range o.MultiReview.Skipped {
-		n := "Multi review: " + wrappedText(sk.Name) + " was skipped"
-		if reason := reasonText(sk.Reason); reason != "" {
+		n := "Multi review: " + multiReviewText(sk.Name) + " was skipped"
+		// The note ends with its own ".", so a reason's last "." goes.
+		if reason := strings.TrimSuffix(reasonText(sk.Reason), "."); reason != "" {
 			n += ": " + reason
 		}
 		notes = append(notes, n+".")
@@ -643,7 +649,7 @@ func multiReviewNotes(s Skill, o Options) []string {
 	}
 	var notes []string
 	for _, n := range s.MultiReview.Failed {
-		notes = append(notes, "Multi review: "+reviewerName(o, n)+" could not review this.")
+		notes = append(notes, "Multi review: "+reviewerName(o, n, multiReviewText)+" could not review this.")
 	}
 	if s.MultiReview.Exact {
 		notes = append(notes, "Multi review: the judge did not run. Every blocking finding stays blocking.")

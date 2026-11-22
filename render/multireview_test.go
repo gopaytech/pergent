@@ -241,19 +241,124 @@ func TestMultiReviewNotesHavePrefixWithTwoSkills(t *testing.T) {
 		oneFinding("two", &render.SkillMultiReview{Reviewers: []int{1}, Exact: true},
 			&render.FindingMultiReview{FoundBy: []int{1}}),
 	}
+	skills[0].Notes = []string{"A note of its own."}
 	got := render.Comment(skills, render.Options{MultiReview: multiReviewNames()})
 	skipped := "> Multi review: glm was skipped: out of tokens.\n"
+	own := "> `one`: A note of its own.\n"
 	failed := "> `one`: Multi review: kimi could not review this.\n"
 	exact := "> `two`: Multi review: the judge did not run. Every blocking finding stays blocking.\n"
-	for _, want := range []string{skipped, failed, exact} {
+	for _, want := range []string{skipped, own, failed, exact} {
 		if strings.Count(got, want) != 1 {
 			t.Errorf("want %q once:\n%s", want, got)
 		}
 	}
-	if !(strings.Index(got, skipped) < strings.Index(got, failed) && strings.Index(got, failed) < strings.Index(got, exact)) {
+	if !(strings.Index(got, skipped) < strings.Index(got, own) && strings.Index(got, own) < strings.Index(got, failed) &&
+		strings.Index(got, failed) < strings.Index(got, exact)) {
 		t.Errorf("notes out of order:\n%s", got)
 	}
 	if strings.Contains(got, "`one`: Multi review: glm") || strings.Contains(got, "`two`: Multi review: glm") {
 		t.Errorf("skipped note has a skill prefix:\n%s", got)
+	}
+}
+
+// summaryLines returns the <summary> lines of the comment.
+func summaryLines(c string) []string {
+	var out []string
+	for _, l := range strings.Split(c, "\n") {
+		if strings.Contains(l, "<summary>") {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// hostileNameComment is a comment whose reviewer 1 has the given name, with
+// a finding that reviewer found alone and one it found with reviewer 2.
+func hostileNameComment(name string) string {
+	s := oneFinding("code-review", &render.SkillMultiReview{Reviewers: []int{1, 2}, Failed: []int{1}},
+		&render.FindingMultiReview{FoundBy: []int{1}, RatedSuggestionBy: []int{1}})
+	s.Findings = append(s.Findings, render.Finding{ID: "f2", Fingerprint: "fp2", File: "b.go", Line: 2,
+		Severity: render.Blocking, Title: "B", MultiReview: &render.FindingMultiReview{FoundBy: []int{1, 2}}})
+	return render.Comment([]render.Skill{s}, render.Options{MultiReview: &render.MultiReviewNames{
+		Reviewers: []string{name, "b"}, Judge: name,
+		Skipped: []render.SkippedReviewer{{Name: name, Reason: name}},
+	}})
+}
+
+// A name with a code span is not Markdown in the <summary> line, which is
+// HTML: it must be escaped there like the title.
+func TestMultiReviewNameInSummaryIsEscaped(t *testing.T) {
+	got := hostileNameComment("x `</summary></details><img src=a>` y")
+	// A Markdown line keeps the name's code span, where a tag is code, not
+	// HTML; the layout tags in it are still escaped, as in skillRef.
+	for _, l := range strings.Split(got, "\n") {
+		if strings.Contains(l, "<img") && (strings.Contains(l, "<summary>") ||
+			strings.Count(l, "<img") != strings.Count(l, "`&lt;/summary>&lt;/details><img src=a>`")) {
+			t.Errorf("live <img: %q", l)
+		}
+	}
+	if n, m := strings.Count(got, "</summary>"), strings.Count(got, "<summary>"); n != m {
+		t.Errorf("%d </summary> for %d <summary>:\n%s", n, m, got)
+	}
+	if strings.Count(got, "</details>") != strings.Count(got, "<details") {
+		t.Errorf("a </details> with no <details:\n%s", got)
+	}
+	var found int
+	for _, l := range summaryLines(got) {
+		if !strings.Contains(l, "found by") {
+			continue
+		}
+		found++
+		if !strings.Contains(l, "x `&lt;/summary&gt;&lt;/details&gt;&lt;img src=a&gt;` y") {
+			t.Errorf("name not escaped in the summary line: %q", l)
+		}
+	}
+	if found != 2 {
+		t.Errorf("want 2 found by rows, got %d:\n%s", found, got)
+	}
+}
+
+func TestMultiReviewNameCommentIsInert(t *testing.T) {
+	got := hostileNameComment("x `<!--` y")
+	// Only the comment's own 2: the marker at the top and the findings block.
+	if n := strings.Count(got, "<!--"); n != 2 {
+		t.Errorf("%d <!-- in the comment, want 2:\n%s", n, got)
+	}
+	for _, l := range summaryLines(got) {
+		if strings.Contains(l, "found by") && !strings.Contains(l, "x `&lt;!--` y") {
+			t.Errorf("name not escaped in the summary line: %q", l)
+		}
+	}
+}
+
+func TestMultiReviewNameInSummaryBreaksMentions(t *testing.T) {
+	got := hostileNameComment("@someone")
+	if strings.Contains(got, "@someone") {
+		t.Errorf("raw mention:\n%s", got)
+	}
+	for _, l := range summaryLines(got) {
+		if strings.Contains(l, "found by") && !strings.Contains(l, "@\u200dsomeone") {
+			t.Errorf("no joiner in the summary line: %q", l)
+		}
+	}
+}
+
+func TestMultiReviewNoReviewerNamesWritesNoMetaPart(t *testing.T) {
+	s := oneFinding("code-review", &render.SkillMultiReview{Reviewers: []int{1, 2}},
+		&render.FindingMultiReview{FoundBy: []int{1, 2}})
+	got := render.Comment([]render.Skill{s}, render.Options{MultiReview: &render.MultiReviewNames{Judge: "j"}})
+	if strings.Contains(got, "<sub>") && strings.Contains(got, "Multi review:") && strings.Contains(got, "judge j") {
+		t.Errorf("meta part with no names:\n%s", got)
+	}
+}
+
+func TestMultiReviewSkippedReasonEndsWithOneDot(t *testing.T) {
+	s := oneFinding("code-review", &render.SkillMultiReview{Reviewers: []int{1}},
+		&render.FindingMultiReview{FoundBy: []int{1}})
+	got := render.Comment([]render.Skill{s}, render.Options{MultiReview: &render.MultiReviewNames{
+		Reviewers: []string{"a"}, Skipped: []render.SkippedReviewer{{Name: "c", Reason: "out of tokens."}},
+	}})
+	if !strings.Contains(got, "> Multi review: c was skipped: out of tokens.\n") {
+		t.Errorf("skipped note:\n%s", got)
 	}
 }

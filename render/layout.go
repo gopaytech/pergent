@@ -453,22 +453,29 @@ func openAttr(open bool) string {
 // shows.
 const maxReasonBytes = 300
 
-// reviewerName returns the inert name of reviewer n (1-based), or
-// "reviewer <n>" when the caller gave no name for it.
-func reviewerName(o Options, n int) string {
+// multiReviewText makes a name or a reason inert for a Markdown line of
+// multi review text: wrappedText, then neutralizeComments, so a code span in
+// caller text can't hold an HTML comment or a layout tag, as in skillRef.
+func multiReviewText(s string) string { return neutralizeComments(wrappedText(s)) }
+
+// reviewerName returns the name of reviewer n (1-based) through inert, the
+// rule of the line it goes in, or "reviewer <n>" when the caller gave no
+// name for it.
+func reviewerName(o Options, n int, inert func(string) string) string {
 	if o.MultiReview != nil && n >= 1 && n <= len(o.MultiReview.Reviewers) {
-		if name := wrappedText(o.MultiReview.Reviewers[n-1]); name != "" {
+		if name := inert(o.MultiReview.Reviewers[n-1]); name != "" {
 			return name
 		}
 	}
 	return fmt.Sprintf("reviewer %d", n)
 }
 
-// reviewerNames returns the inert names of the reviewers ns, joined with ", ".
-func reviewerNames(o Options, ns []int) string {
+// reviewerNames returns the names of the reviewers ns through inert, joined
+// with ", ".
+func reviewerNames(o Options, ns []int, inert func(string) string) string {
 	names := make([]string, len(ns))
 	for i, n := range ns {
-		names[i] = reviewerName(o, n)
+		names[i] = reviewerName(o, n, inert)
 	}
 	return strings.Join(names, ", ")
 }
@@ -476,33 +483,34 @@ func reviewerNames(o Options, ns []int) string {
 // reasonText returns a caller's or model's reason on one line, cut to
 // maxReasonBytes and made inert. It is "" when there is no reason.
 func reasonText(s string) string {
-	return wrappedText(strings.TrimSpace(cutBytes(oneLine(s), maxReasonBytes)))
+	return multiReviewText(strings.TrimSpace(cutBytes(oneLine(s), maxReasonBytes)))
 }
 
 // multiReviewMeta returns the meta part that names the reviewers and the
 // judge, "" without a multi review.
 func multiReviewMeta(o Options) string {
-	if o.MultiReview == nil {
+	if o.MultiReview == nil || len(o.MultiReview.Reviewers) == 0 {
 		return ""
 	}
 	ns := make([]int, len(o.MultiReview.Reviewers))
 	for i := range ns {
 		ns[i] = i + 1
 	}
-	part := "Multi review: " + reviewerNames(o, ns)
-	if judge := wrappedText(o.MultiReview.Judge); judge != "" {
+	part := "Multi review: " + reviewerNames(o, ns, multiReviewText)
+	if judge := multiReviewText(o.MultiReview.Judge); judge != "" {
 		part += " · judge " + judge
 	}
 	return part
 }
 
 // foundBy returns the row suffix that says which of the skill's total
-// reviewers found a finding.
+// reviewers found a finding. The suffix is in the <summary> line, which is
+// HTML, not Markdown, so each name is escaped like the title in that line.
 func foundBy(o Options, ns []int, total int) string {
 	if len(ns) == 1 {
-		return " · found by " + reviewerName(o, ns[0])
+		return " · found by " + reviewerName(o, ns[0], findingTitleHTML)
 	}
-	return fmt.Sprintf(" · found by %d of %d reviewers (%s)", len(ns), total, reviewerNames(o, ns))
+	return fmt.Sprintf(" · found by %d of %d reviewers (%s)", len(ns), total, reviewerNames(o, ns, findingTitleHTML))
 }
 
 // multiReviewLead returns the lead lines a finding's multi review result adds
@@ -521,7 +529,7 @@ func multiReviewLead(f Finding, o Options) []string {
 		lead = append(lead, "_"+line+"_")
 	}
 	if len(m.RatedSuggestionBy) > 0 {
-		lead = append(lead, "_"+reviewerNames(o, m.RatedSuggestionBy)+" rated it a suggestion_")
+		lead = append(lead, "_"+reviewerNames(o, m.RatedSuggestionBy, multiReviewText)+" rated it a suggestion_")
 	}
 	if m.Unjudged {
 		lead = append(lead, "_the judge could not check this finding; it stays blocking._")
