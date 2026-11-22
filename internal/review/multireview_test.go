@@ -1254,3 +1254,19 @@ func TestRunMultiReviewImpactHalfRunIsKept(t *testing.T) {
 		t.Errorf("multi review %+v, verdict %s", mr, res.Verdict)
 	}
 }
+
+// TestRunMultiReviewImpactOneUsableVerdictFromFindings: the one usable
+// reviewer's impact check says no_blocking_issues but holds a blocking
+// finding (an unknown severity is read as blocking). The verdict is worked
+// out again from the findings, so it is never a pass.
+func TestRunMultiReviewImpactOneUsableVerdictFromFindings(t *testing.T) {
+	odd := reviewerResult(find11)
+	odd.Verdict = NoBlockingIssues
+	f := &judgeFake{t: t}
+	res := runImpact(t, f, multiImpactRequest(t, f, odd, failedResult("boom")))
+
+	checkBlocking(t, res, 1)
+	if res.Verdict != HasBlockingIssues {
+		t.Errorf("verdict = %s, want %s", res.Verdict, HasBlockingIssues)
+	}
+}

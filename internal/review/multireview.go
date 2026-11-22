@@ -431,6 +431,9 @@ func multiImpact(rvs []Reviewer) SkillResult {
 		res, n := single(ImpactSkill, rvs)
 		if n != 0 {
 			tagAll(&res, n)
+			// Worked out from the findings, as in every other path: the
+			// reviewer's own verdict can disagree with them.
+			res.Verdict = verdict(res)
 		}
 		return res
 	}
