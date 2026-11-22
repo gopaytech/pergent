@@ -1423,6 +1423,19 @@ func TestParseAgent_MultiReviewEmptyReviewer(t *testing.T) {
 	}
 }
 
+// An empty --mr-dismissals is a usage error, as an empty --reviewer is:
+// leaving the flag out is "none", an empty value is a caller's mistake.
+func TestParseAgent_MultiReviewEmptyMRDismissals(t *testing.T) {
+	_, e := parseAgent(multiArgs("--multi-review", "--reviewer", "a.json", "--mr-dismissals", ""), agentEnv(nil))
+	if e == nil || e.Code != result.CodeUsage || e.Message != "--mr-dismissals is empty" {
+		t.Errorf("error = %+v, want usage", e)
+	}
+	in, e := parseAgent(multiArgs("--multi-review", "--reviewer", "a.json"), agentEnv(nil))
+	if e != nil || in.mrDismissalsPath != "" {
+		t.Errorf("no flag: error %+v, mrDismissalsPath %q", e, in.mrDismissalsPath)
+	}
+}
+
 func TestParseAgent_MultiReviewRefusesReviewInputs(t *testing.T) {
 	for _, f := range []string{"--previous", "--carried", "--ci-results", "--change-description", "--linked-repos", "--graph", "--no-skill-verify"} {
 		args := multiArgs("--multi-review", "--reviewer", "a.json", f)
@@ -1529,6 +1542,7 @@ func TestPrepareAgent_MRDismissals(t *testing.T) {
 		{"two", `[{"fingerprint": "fp1", "severity": "blocking"}, {"fingerprint": "fp2", "severity": "suggestion", "by": "x"}]`,
 			[]render.Dismissal{{Fingerprint: "fp1", Severity: "blocking"}, {Fingerprint: "fp2", Severity: "suggestion"}}},
 		{"empty", `[]`, nil},
+		{"null", `null`, nil},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			writeFile(t, dir, c.name+".json", c.body)

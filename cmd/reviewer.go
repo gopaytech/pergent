@@ -1,19 +1,27 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"os"
 	"syscall"
+	"time"
 
 	"github.com/gopaytech/pergent/internal/diff"
 	"github.com/gopaytech/pergent/internal/finding"
+	"github.com/gopaytech/pergent/internal/redact"
 	"github.com/gopaytech/pergent/internal/result"
 	"github.com/gopaytech/pergent/internal/review"
+	"github.com/gopaytech/pergent/render"
 )
+
+// noUsableReviewer is the usage error of a judge Job with nothing to merge.
+const noUsableReviewer = "--multi-review needs at least one usable reviewer result"
 
 // readReviewer reads a reviewer's agent result. It is usable when it
 // decodes, has schema_version 1 and status completed; otherwise reason says
@@ -171,4 +179,63 @@ func reviewerSeverity(s string) finding.Severity {
 		return finding.Suggestion
 	}
 	return finding.Blocking
+}
+
+// readReviewerFile reads reviewer n's result and logs why it can't be used:
+// it can't be read, or it is not a review of in's base and head.
+func readReviewerFile(path string, n int, in *agentInputs, logger *log.Logger) *result.Result {
+	r, reason := readReviewer(path)
+	if r != nil {
+		if reason = reviewerMismatch(r, in.Base, in.Head); reason != "" {
+			r = nil
+		}
+	}
+	if r == nil {
+		logger.Printf("multi review: reviewer %d can't be used: %s", n, redact.String(reason))
+	}
+	return r
+}
+
+// runMultiReview reviews nothing: it merges the reviewers and returns the
+// result to deliver, or an error result.
+func runMultiReview(ctx context.Context, in *agentInputs, meta result.Meta, run review.RunFunc, logger *log.Logger) (result.Result, *result.Error) {
+	m := result.MultiReview{Judge: result.MultiJudge{Judged: !in.noJudge}}
+	if !in.noJudge {
+		m.Judge.Provider, m.Judge.Model = meta.Provider, meta.Model
+	}
+	names := &render.MultiReviewNames{}
+	if !in.noJudge {
+		names.Judge = meta.Provider + "/" + meta.Model
+	}
+	var reviewers []review.Reviewer
+	usable := 0
+	for i, path := range in.reviewerPaths {
+		n := i + 1
+		r := readReviewerFile(path, n, in, logger)
+		if r != nil {
+			usable++
+		}
+		m.Reviewers = append(m.Reviewers, result.MultiReviewer{Number: n, Usable: r != nil})
+		reviewers = append(reviewers, review.Reviewer{Number: n, Skills: reviewerSkills(r)})
+		names.Reviewers = append(names.Reviewers, fmt.Sprintf("reviewer %d", n))
+	}
+	if usable == 0 {
+		return result.Result{}, &result.Error{Code: result.CodeUsage, Message: noUsableReviewer}
+	}
+
+	logger.Printf("Merging the multi review (%d of %d reviewers usable) for %d skill(s), up to %d opencode runs at once, within %s",
+		usable, len(in.reviewerPaths), len(in.Skills), in.Review.Concurrency, in.Review.Timeout)
+	// The judge run gets the environment's OPENCODE_API_KEY and nothing
+	// else. Every dismissal render applies is known, so a judge link never
+	// joins a finding render will dismiss.
+	req := agentRequest(in, run)
+	req.MRDismissals = in.mrDismissals
+	results := review.RunMultiReview(ctx, review.MultiReviewRequest{Request: req, Reviewers: reviewers, NoJudge: in.noJudge})
+	meta.Finished = time.Now()
+	meta.Budget = in.Review.Timeout
+	logFailures(results, logger)
+
+	res := result.BuildMultiReview(meta, m, results)
+	res.Comment = agentComment(in, results, res, names)
+	return res, nil
 }

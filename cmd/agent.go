@@ -286,7 +286,15 @@ func runAgent(ctx context.Context, args []string, getenv func(string) string, st
 
 	meta.Started = clock.begin(in.Review.Timeout)
 	meta.Rules = &result.Rules{BuiltIn: in.Rules.BuiltIn(), Entries: in.Rules.Entries(), BuiltInNames: in.builtInNames}
-	res := reviewChange(ctx, &in, meta, run, logger)
+	var res result.Result
+	if in.multiReview {
+		var e *result.Error
+		if res, e = runMultiReview(ctx, &in, meta, run, logger); e != nil {
+			return failWith(e)
+		}
+	} else {
+		res = reviewChange(ctx, &in, meta, run, logger)
+	}
 
 	data, err := result.Encode(res)
 	if err != nil {
@@ -319,7 +327,7 @@ func reviewChange(ctx context.Context, in *agentInputs, meta result.Meta, run re
 	meta.Budget = in.Review.Timeout
 	logFailures(results, logger)
 	res := result.Build(meta, results)
-	res.Comment = agentComment(in, results, res)
+	res.Comment = agentComment(in, results, res, nil)
 	return res
 }
 
@@ -359,8 +367,9 @@ func logFailures(results []review.SkillResult, logger *log.Logger) {
 	}
 }
 
-// agentComment is the comment of res, built from results.
-func agentComment(in *agentInputs, results []review.SkillResult, res result.Result) result.Comment {
+// agentComment is the comment of res, built from results. names are the
+// multi review's reviewers and judge, nil for a review.
+func agentComment(in *agentInputs, results []review.SkillResult, res result.Result, names *render.MultiReviewNames) result.Comment {
 	// The comment shows the IDs Build assigned.
 	ids := map[string]string{}
 	for _, s := range res.Skills {
@@ -370,7 +379,7 @@ func agentComment(in *agentInputs, results []review.SkillResult, res result.Resu
 	}
 	return result.Comment{
 		Markdown: output.FormatReviewWithinOptions(results, in.Files, in.MaxCommentSize,
-			output.Options{IDs: ids, Commit: in.Head, Version: "v" + version}),
+			output.Options{IDs: ids, Commit: in.Head, Version: "v" + version, MultiReview: names}),
 		FindingsBlock: output.FindingsBlock(results),
 	}
 }
@@ -488,6 +497,10 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 			return usage("--multi-review requires at least one --reviewer")
 		case n > multireview.MaxReviewers:
 			return usage("--multi-review takes at most %d --reviewer files, got %d", multireview.MaxReviewers, n)
+		}
+		// Leaving --mr-dismissals out is none; an empty value is a mistake.
+		if set["mr-dismissals"] && in.mrDismissalsPath == "" {
+			return usage("--mr-dismissals is empty")
 		}
 		for i, p := range in.reviewerPaths {
 			if p == "" {
