@@ -25,12 +25,14 @@ import (
 	"github.com/gopaytech/pergent/internal/config"
 	"github.com/gopaytech/pergent/internal/diff"
 	"github.com/gopaytech/pergent/internal/finding"
+	"github.com/gopaytech/pergent/internal/multireview"
 	"github.com/gopaytech/pergent/internal/output"
 	"github.com/gopaytech/pergent/internal/platform"
 	"github.com/gopaytech/pergent/internal/redact"
 	"github.com/gopaytech/pergent/internal/result"
 	"github.com/gopaytech/pergent/internal/review"
 	"github.com/gopaytech/pergent/internal/skill"
+	"github.com/gopaytech/pergent/render"
 	"github.com/gopaytech/pergent/rule"
 	"github.com/gopaytech/pergent/scope"
 )
@@ -97,9 +99,32 @@ type agentInputs struct {
 	scrub        bool
 	// skipSkillVerify is --no-skill-verify.
 	skipSkillVerify bool
+	// Multi review merge step (--multi-review). Reviewer n's agent result is
+	// reviewerPaths[n-1]. noJudge is --no-judge: merge with no model run.
+	multiReview   bool
+	reviewerPaths reviewerFlag
+	noJudge       bool
+	// mrDismissalsPath is --mr-dismissals. mrDismissals are the merge
+	// request's dismissals it holds, with only Fingerprint and Severity set:
+	// a judge never links a finding one covers.
+	mrDismissalsPath string
+	mrDismissals     []render.Dismissal
 	// $HOME and $XDG_CONFIG_HOME, where opencode finds its global config.
 	home, configHome string
 }
+
+// reviewerFlag is the repeated --reviewer flag, in flag order.
+type reviewerFlag []string
+
+func (r *reviewerFlag) String() string { return strings.Join(*r, ",") }
+func (r *reviewerFlag) Set(value string) error {
+	*r = append(*r, value)
+	return nil
+}
+
+// multiReviewRefused are the review inputs a multi review merge step does
+// not take.
+var multiReviewRefused = []string{"previous", "carried", "ci-results", "change-description", "linked-repos", "graph", "no-skill-verify"}
 
 // ciOnlyFlags are CI-mode flags that agent mode refuses.
 var ciOnlyFlags = map[string]bool{"local": true, "platform": true, "previous-review": true, "base-branch": true}
@@ -406,6 +431,10 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 	flags.IntVar(&conc, "concurrency", 0, "Max opencode runs in flight at once (default 4)")
 	flags.DurationVar(&timeout, "timeout", 0, "Max wall-clock time for the whole review (default 10m)")
 	flags.BoolVar(&checkDeleted, "check-deleted", false, "Review deleted files and check what still uses deleted and renamed files (off by default)")
+	flags.BoolVar(&in.multiReview, "multi-review", false, "Merge the --reviewer results into one result, with one judge run per skill on the OPENCODE_* model")
+	flags.Var(&in.reviewerPaths, "reviewer", "A reviewer's agent result, outside --repo-path; repeat it in reviewer order (1 to 5)")
+	flags.BoolVar(&in.noJudge, "no-judge", false, "With --multi-review: run no model; merge by file, line and title")
+	flags.StringVar(&in.mrDismissalsPath, "mr-dismissals", "", "With --multi-review: a JSON file [{\"fingerprint\", \"severity\"}, ...] of the merge request's dismissals; a judge never links a finding one covers")
 	// CI-mode flags, defined only to refuse them by name.
 	flags.BoolVar(&local, "local", false, "CI mode only")
 	flags.StringVar(&platformFlag, "platform", "", "CI mode only")
@@ -446,6 +475,37 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 	if len(ciFlags) > 0 {
 		return usage("%s can't be used with pergent agent: CI mode only", strings.Join(ciFlags, ", "))
 	}
+	if in.multiReview {
+		for _, n := range multiReviewRefused {
+			if set[n] {
+				return usage("--%s can't be used with --multi-review", n)
+			}
+		}
+		// An env default is not the caller's choice for a judge Job.
+		in.changePath, in.ciPath, in.linkedPath, in.graphPath = "", "", "", ""
+		switch n := len(in.reviewerPaths); {
+		case n == 0:
+			return usage("--multi-review requires at least one --reviewer")
+		case n > multireview.MaxReviewers:
+			return usage("--multi-review takes at most %d --reviewer files, got %d", multireview.MaxReviewers, n)
+		}
+		for i, p := range in.reviewerPaths {
+			if p == "" {
+				return usage("--reviewer %d is empty", i+1)
+			}
+			for j := range i {
+				if samePath(in.reviewerPaths[j], p) {
+					return usage("--reviewer %d and --reviewer %d name the same file", j+1, i+1)
+				}
+			}
+		}
+	} else {
+		for _, n := range []string{"reviewer", "no-judge", "mr-dismissals"} {
+			if set[n] {
+				return usage("--%s needs --multi-review", n)
+			}
+		}
+	}
 	if resultPath == "" && resultURL == "" {
 		return usage("at least one of --result or --result-url is required")
 	}
@@ -471,7 +531,8 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 	if in.MaxCommentSize < 0 {
 		return usage("--max-comment-size must be 0 or more, got %d", in.MaxCommentSize)
 	}
-	if getenv("OPENCODE_PROVIDER") == "" || getenv("OPENCODE_MODEL") == "" {
+	// --no-judge runs no model; it implies --multi-review here.
+	if !in.noJudge && (getenv("OPENCODE_PROVIDER") == "" || getenv("OPENCODE_MODEL") == "") {
 		return usage("agent mode requires OPENCODE_PROVIDER and OPENCODE_MODEL")
 	}
 	if _, err := config.ExtraEnvNames(getenv(config.ExtraEnvVar)); err != nil {
@@ -588,6 +649,16 @@ func prepareAgent(in *agentInputs, logger *log.Logger) *result.Error {
 		in.Dismissals = readDismissals(in.dismissalsPath, logger)
 		logDismissals(in.Dismissals, logger)
 	}
+	if in.mrDismissalsPath != "" {
+		// Never a warning: with a dismissal the judge does not know of, a
+		// link could join a finding render will dismiss, a false pass.
+		ds, err := readMRDismissals(in.mrDismissalsPath)
+		if err != nil {
+			return fail(result.CodeUsage, "--mr-dismissals %s: %v", in.mrDismissalsPath, err)
+		}
+		in.mrDismissals = ds
+		logger.Printf("merge request dismissals: %d", len(ds))
+	}
 	if in.changePath != "" {
 		in.Description = readChangeDescription(in.changePath, logger)
 	}
@@ -649,7 +720,8 @@ func gitVersionError(version string, major, minor int, err error) *result.Error 
 
 // trustedInputsOutside refuses a trusted input (--instructions, --skills-dir,
 // a path --skill, --previous, --carried, --dismissals, --change-description,
-// --ci-results, --linked-repos, --graph) that resolves to somewhere inside the checkout:
+// --ci-results, --linked-repos, --graph, --rules, each --reviewer,
+// --mr-dismissals) that resolves to somewhere inside the checkout:
 // the change under review could have written it. A --skills-dir above the
 // checkout is refused too, since LoadDir would read the checkout's top-level
 // files as skills. So are a --result file in the checkout, where the change
@@ -720,6 +792,12 @@ func trustedInputs(in *agentInputs) []trustedInput {
 	}
 	if in.rulesPath != "" {
 		inputs = append(inputs, trustedInput{"--rules", in.rulesPath})
+	}
+	for i, p := range in.reviewerPaths {
+		inputs = append(inputs, trustedInput{fmt.Sprintf("--reviewer %d", i+1), p})
+	}
+	if in.mrDismissalsPath != "" {
+		inputs = append(inputs, trustedInput{"--mr-dismissals", in.mrDismissalsPath})
 	}
 	if in.home != "" {
 		inputs = append(inputs, trustedInput{"$HOME", in.home})
@@ -1055,6 +1133,34 @@ func readDismissals(path string, logger *log.Logger) map[string][]finding.Reject
 		return nil
 	}
 	return dismissals
+}
+
+// readMRDismissals reads the merge request's dismissals: a JSON list of
+// {"fingerprint", "severity"}, severity blocking or suggestion. An empty list
+// is none. Any other file is an error, never ignored.
+func readMRDismissals(path string) ([]render.Dismissal, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading: %w", pathCause(err))
+	}
+	var rows []struct {
+		Fingerprint string `json:"fingerprint"`
+		Severity    string `json:"severity"`
+	}
+	if err := json.Unmarshal(data, &rows); err != nil {
+		return nil, fmt.Errorf("decoding: %w", err)
+	}
+	var ds []render.Dismissal
+	for i, r := range rows {
+		if r.Fingerprint == "" {
+			return nil, fmt.Errorf("dismissal %d has no fingerprint", i+1)
+		}
+		if r.Severity != "blocking" && r.Severity != "suggestion" {
+			return nil, fmt.Errorf("dismissal %d has severity %q, want blocking or suggestion", i+1, r.Severity)
+		}
+		ds = append(ds, render.Dismissal{Fingerprint: r.Fingerprint, Severity: r.Severity})
+	}
+	return ds, nil
 }
 
 // readChangeDescription reads the change's title and description. A review is

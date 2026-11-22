@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -19,6 +20,7 @@ import (
 	"github.com/gopaytech/pergent/internal/platform"
 	"github.com/gopaytech/pergent/internal/result"
 	"github.com/gopaytech/pergent/internal/runner"
+	"github.com/gopaytech/pergent/render"
 )
 
 // gitIn runs git in dir with a fixed identity and no user or system config.
@@ -1347,5 +1349,232 @@ func TestParseAgent_NoSkillVerify(t *testing.T) {
 	}
 	if !mustParse(t, agentArgs(dir, base, head, skills, "--no-skill-verify")).skipSkillVerify {
 		t.Error("skipSkillVerify is false with --no-skill-verify")
+	}
+}
+
+// multiArgs are agent-mode arguments for a judge Job, with extra appended.
+func multiArgs(extra ...string) []string {
+	sha := strings.Repeat("a", 40)
+	return append([]string{"--repo-path", "/r", "--base", sha, "--head", sha, "--skill", "code-review", "--result", "-"}, extra...)
+}
+
+func TestParseAgent_MultiReview(t *testing.T) {
+	env := agentEnv(map[string]string{"PERGENT_CHANGE_DESCRIPTION": "/env/c.md", "PERGENT_CI_RESULTS": "/env/ci",
+		"PERGENT_LINKED_REPOS": "/env/l", "PERGENT_GRAPH": "/env/g", "PERGENT_DISMISSALS": "/env/d.json"})
+	in, e := parseAgent(multiArgs("--multi-review", "--reviewer", "c.json", "--reviewer", "a.json", "--reviewer", "b.json"), env)
+	if e != nil {
+		t.Fatalf("parseAgent() error: %+v", e)
+	}
+	if !in.multiReview || in.noJudge {
+		t.Errorf("multiReview = %v, noJudge = %v, want true, false", in.multiReview, in.noJudge)
+	}
+	if want := []string{"c.json", "a.json", "b.json"}; !slices.Equal(in.reviewerPaths, want) {
+		t.Errorf("reviewerPaths = %q, want %q in flag order", in.reviewerPaths, want)
+	}
+	if in.changePath != "" || in.ciPath != "" || in.linkedPath != "" || in.graphPath != "" {
+		t.Errorf("env paths not cleared: %q %q %q %q", in.changePath, in.ciPath, in.linkedPath, in.graphPath)
+	}
+	if in.dismissalsPath != "/env/d.json" {
+		t.Errorf("dismissalsPath = %q, want the env default kept", in.dismissalsPath)
+	}
+	if got := in.reviewerPaths.String(); got != "c.json,a.json,b.json" {
+		t.Errorf("reviewerPaths.String() = %q", got)
+	}
+}
+
+func TestParseAgent_MultiReviewNeedsReviewer(t *testing.T) {
+	_, e := parseAgent(multiArgs("--multi-review"), agentEnv(nil))
+	if e == nil || e.Code != result.CodeUsage || e.Message != "--multi-review requires at least one --reviewer" {
+		t.Errorf("error = %+v, want usage", e)
+	}
+}
+
+func TestParseAgent_MultiReviewAtMostFive(t *testing.T) {
+	args := multiArgs("--multi-review")
+	for i := range 6 {
+		args = append(args, "--reviewer", fmt.Sprintf("r%d.json", i+1))
+	}
+	_, e := parseAgent(args, agentEnv(nil))
+	if e == nil || e.Code != result.CodeUsage || e.Message != "--multi-review takes at most 5 --reviewer files, got 6" {
+		t.Errorf("error = %+v, want usage", e)
+	}
+	if _, e := parseAgent(args[:len(args)-2], agentEnv(nil)); e != nil {
+		t.Errorf("5 files: error = %+v", e)
+	}
+}
+
+func TestParseAgent_MultiReviewSameFile(t *testing.T) {
+	for _, b := range []string{"a.json", "./a.json", "x/../a.json"} {
+		_, e := parseAgent(multiArgs("--multi-review", "--reviewer", "a.json", "--reviewer", b), agentEnv(nil))
+		if e == nil || e.Code != result.CodeUsage || e.Message != "--reviewer 1 and --reviewer 2 name the same file" {
+			t.Errorf("--reviewer %s: error = %+v, want usage", b, e)
+		}
+	}
+	_, e := parseAgent(multiArgs("--multi-review", "--reviewer", "a.json", "--reviewer", "b.json", "--reviewer", "./b.json"), agentEnv(nil))
+	if e == nil || e.Code != result.CodeUsage || e.Message != "--reviewer 2 and --reviewer 3 name the same file" {
+		t.Errorf("2 and 3: error = %+v, want usage", e)
+	}
+}
+
+func TestParseAgent_MultiReviewEmptyReviewer(t *testing.T) {
+	_, e := parseAgent(multiArgs("--multi-review", "--reviewer", ""), agentEnv(nil))
+	if e == nil || e.Code != result.CodeUsage || e.Message != "--reviewer 1 is empty" {
+		t.Errorf("error = %+v, want usage", e)
+	}
+}
+
+func TestParseAgent_MultiReviewRefusesReviewInputs(t *testing.T) {
+	for _, f := range []string{"--previous", "--carried", "--ci-results", "--change-description", "--linked-repos", "--graph", "--no-skill-verify"} {
+		args := multiArgs("--multi-review", "--reviewer", "a.json", f)
+		if f != "--no-skill-verify" {
+			args = append(args, "x")
+		}
+		_, e := parseAgent(args, agentEnv(nil))
+		if e == nil || e.Code != result.CodeUsage || e.Message != f+" can't be used with --multi-review" {
+			t.Errorf("%s: error = %+v", f, e)
+		}
+	}
+	// An env default is cleared, not refused.
+	env := agentEnv(map[string]string{"PERGENT_CHANGE_DESCRIPTION": "/env/c.md", "PERGENT_CI_RESULTS": "/env/ci",
+		"PERGENT_LINKED_REPOS": "/env/l", "PERGENT_GRAPH": "/env/g"})
+	in, e := parseAgent(multiArgs("--multi-review", "--reviewer", "a.json"), env)
+	if e != nil {
+		t.Fatalf("env defaults: error = %+v", e)
+	}
+	if in.changePath != "" || in.ciPath != "" || in.linkedPath != "" || in.graphPath != "" {
+		t.Errorf("env paths not cleared: %q %q %q %q", in.changePath, in.ciPath, in.linkedPath, in.graphPath)
+	}
+}
+
+func TestParseAgent_ReviewerWithoutMultiReview(t *testing.T) {
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--reviewer", "a.json"}, "--reviewer needs --multi-review"},
+		{[]string{"--no-judge"}, "--no-judge needs --multi-review"},
+		{[]string{"--mr-dismissals", "d.json"}, "--mr-dismissals needs --multi-review"},
+	} {
+		_, e := parseAgent(multiArgs(c.args...), agentEnv(nil))
+		if e == nil || e.Code != result.CodeUsage || e.Message != c.want {
+			t.Errorf("%q: error = %+v, want %q", c.args, e, c.want)
+		}
+	}
+}
+
+func TestParseAgent_NoJudgeNeedsNoModel(t *testing.T) {
+	noModel := agentEnv(map[string]string{"OPENCODE_PROVIDER": "", "OPENCODE_MODEL": ""})
+	in, e := parseAgent(multiArgs("--multi-review", "--no-judge", "--reviewer", "a.json"), noModel)
+	if e != nil {
+		t.Fatalf("--no-judge without a model: error = %+v", e)
+	}
+	if !in.noJudge {
+		t.Error("noJudge is false with --no-judge")
+	}
+	_, e = parseAgent(multiArgs("--multi-review", "--reviewer", "a.json"), noModel)
+	if e == nil || e.Code != result.CodeUsage || e.Message != "agent mode requires OPENCODE_PROVIDER and OPENCODE_MODEL" {
+		t.Errorf("without --no-judge: error = %+v, want usage", e)
+	}
+}
+
+func TestParseAgent_OldPanelFlagsAreGone(t *testing.T) {
+	for _, args := range [][]string{{"--panel"}, {"--panel-a", "x"}, {"--panel-b", "x"}, {"--panel-no-judge"}} {
+		_, e := parseAgent(multiArgs(args...), agentEnv(nil))
+		if e == nil || e.Code != result.CodeUsage || !strings.Contains(e.Message, strings.TrimPrefix(args[0], "-")) {
+			t.Errorf("%q: error = %+v, want usage naming the flag", args, e)
+		}
+	}
+}
+
+func TestPrepareAgent_ReviewerInsideCheckout(t *testing.T) {
+	repo, base, head := agentRepo(t, nil)
+	writeFile(t, repo, "inside/a.json", "{}")
+	outside := filepath.Join(t.TempDir(), "o.json")
+	in, e := parseAgent(agentArgs(repo, base, head, oneSkill(t), "--multi-review",
+		"--reviewer", outside, "--reviewer", filepath.Join(repo, "inside", "a.json")), agentEnv(nil))
+	if e != nil {
+		t.Fatalf("parseAgent() error: %+v", e)
+	}
+	e = prepareAgent(&in, quietLog)
+	if e == nil || e.Code != result.CodeUsage || !strings.Contains(e.Message, "--reviewer 2 ") || !strings.Contains(e.Message, "is inside --repo-path") {
+		t.Errorf("prepareAgent() error = %+v, want usage naming --reviewer 2", e)
+	}
+}
+
+func TestPrepareAgent_MRDismissalsInsideCheckout(t *testing.T) {
+	repo, base, head := agentRepo(t, nil)
+	writeFile(t, repo, "inside/d.json", "[]")
+	in, e := parseAgent(agentArgs(repo, base, head, oneSkill(t), "--multi-review",
+		"--reviewer", filepath.Join(t.TempDir(), "a.json"), "--mr-dismissals", filepath.Join(repo, "inside", "d.json")), agentEnv(nil))
+	if e != nil {
+		t.Fatalf("parseAgent() error: %+v", e)
+	}
+	if in.mrDismissalsPath == "" {
+		t.Fatal("mrDismissalsPath is empty with --mr-dismissals")
+	}
+	e = prepareAgent(&in, quietLog)
+	if e == nil || e.Code != result.CodeUsage || !strings.Contains(e.Message, "--mr-dismissals ") || !strings.Contains(e.Message, "is inside --repo-path") {
+		t.Errorf("prepareAgent() error = %+v, want usage naming --mr-dismissals", e)
+	}
+}
+
+func TestPrepareAgent_MRDismissals(t *testing.T) {
+	repo, base, head := agentRepo(t, nil)
+	dir := t.TempDir()
+	reviewer := filepath.Join(dir, "a.json")
+	for _, c := range []struct {
+		name, body string
+		want       []render.Dismissal
+	}{
+		{"two", `[{"fingerprint": "fp1", "severity": "blocking"}, {"fingerprint": "fp2", "severity": "suggestion", "by": "x"}]`,
+			[]render.Dismissal{{Fingerprint: "fp1", Severity: "blocking"}, {Fingerprint: "fp2", Severity: "suggestion"}}},
+		{"empty", `[]`, nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			writeFile(t, dir, c.name+".json", c.body)
+			in := mustParse(t, agentArgs(repo, base, head, oneSkill(t), "--multi-review", "--reviewer", reviewer,
+				"--mr-dismissals", filepath.Join(dir, c.name+".json")))
+			if e := prepareAgent(&in, quietLog); e != nil {
+				t.Fatalf("prepareAgent() error: %+v", e)
+			}
+			if !slices.Equal(in.mrDismissals, c.want) {
+				t.Errorf("mrDismissals = %+v, want %+v", in.mrDismissals, c.want)
+			}
+		})
+	}
+	// No flag: none, and no error.
+	in := mustParse(t, agentArgs(repo, base, head, oneSkill(t), "--multi-review", "--reviewer", reviewer))
+	if e := prepareAgent(&in, quietLog); e != nil || in.mrDismissals != nil {
+		t.Errorf("no flag: error %+v, mrDismissals %+v", e, in.mrDismissals)
+	}
+}
+
+func TestPrepareAgent_MRDismissalsBad(t *testing.T) {
+	repo, base, head := agentRepo(t, nil)
+	dir := t.TempDir()
+	reviewer := filepath.Join(dir, "a.json")
+	for _, c := range []struct{ name, body, want string }{
+		{"missing", "", "reading"},
+		{"notjson", `[{not json`, "decoding"},
+		{"object", `{"fingerprint": "fp1", "severity": "blocking"}`, "decoding"},
+		{"nofingerprint", `[{"fingerprint": "", "severity": "blocking"}]`, "dismissal 1 has no fingerprint"},
+		{"severity", `[{"fingerprint": "fp1", "severity": "blocking"}, {"fingerprint": "fp2", "severity": "high"}]`,
+			`dismissal 2 has severity "high", want blocking or suggestion`},
+		{"noseverity", `[{"fingerprint": "fp1"}]`, `dismissal 1 has severity "", want blocking or suggestion`},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			path := filepath.Join(dir, c.name+".json")
+			if c.name != "missing" {
+				writeFile(t, dir, c.name+".json", c.body)
+			}
+			in := mustParse(t, agentArgs(repo, base, head, oneSkill(t), "--multi-review", "--reviewer", reviewer, "--mr-dismissals", path))
+			e := prepareAgent(&in, quietLog)
+			if e == nil || e.Code != result.CodeUsage || !strings.HasPrefix(e.Message, "--mr-dismissals ") || !strings.Contains(e.Message, c.want) {
+				t.Errorf("prepareAgent() error = %+v, want usage naming --mr-dismissals and %q", e, c.want)
+			}
+			if in.mrDismissals != nil {
+				t.Errorf("mrDismissals = %+v, want nil", in.mrDismissals)
+			}
+		})
 	}
 }
