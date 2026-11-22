@@ -90,11 +90,3 @@ func TestRedact_ResultToken(t *testing.T) {
 		t.Errorf("String() leaked the result token: %q", got)
 	}
 }
-
-func TestStringRedactsPanelKey(t *testing.T) {
-	t.Setenv("PERGENT_PANEL_B_API_KEY", "sk-panel-b-0123456789")
-	got := String("failed with sk-panel-b-0123456789")
-	if strings.Contains(got, "sk-panel-b") {
-		t.Errorf("String() = %q, still holds the key", got)
-	}
-}

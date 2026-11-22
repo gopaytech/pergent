@@ -115,9 +115,6 @@ func writeMeta(b *strings.Builder, skills []Skill, o Options, blocking, suggesti
 	if blocking > 0 && failed > 0 {
 		parts = append(parts, plural(failed, "skill")+" failed")
 	}
-	if o.Panel != nil {
-		parts = append(parts, "Panel: "+wrappedText(o.Panel.A)+" (A) + "+wrappedText(o.Panel.B)+" (B)")
-	}
 	if o.MetaNote != "" {
 		parts = append(parts, oneLine(o.MetaNote))
 	}
@@ -197,8 +194,6 @@ type findingRow struct {
 	Finding
 	skill   string
 	deleted bool // the file is one a skill reviewed as deleted
-	// panelMode is the skill's panel mode, "" without a panel.
-	panelMode string
 }
 
 // writeFindings writes the inline note and the findings list: every finding
@@ -208,16 +203,12 @@ func writeFindings(b *strings.Builder, skills []Skill, o Options, l layout) {
 	inline := 0
 	deleted := deletedFiles(skills)
 	for _, s := range skills {
-		mode := ""
-		if s.Panel != nil {
-			mode = s.Panel.Mode
-		}
 		for _, f := range s.Findings {
 			if f.Fingerprint != "" && o.Inline[f.Fingerprint] {
 				inline++
 				continue
 			}
-			row := findingRow{Finding: f, skill: s.Name, deleted: deleted[f.File], panelMode: mode}
+			row := findingRow{Finding: f, skill: s.Name, deleted: deleted[f.File]}
 			if row.deleted {
 				// Exact replacement text for a removed line has nothing to replace.
 				row.Suggestion = ""
@@ -372,16 +363,6 @@ func writeFindingRow(b *strings.Builder, r findingRow, o Options, withSkill, ope
 		icon, open = "❌", " open"
 	}
 	fmt.Fprintf(b, "<details%s><summary>%s <b>%s</b>%s", open, icon, findingTitleHTML(f.Title), locationPart(f, o, r.deleted))
-	if o.Panel != nil && r.panelMode == "both" && f.Panel != nil {
-		switch f.Panel.FoundBy {
-		case "both":
-			b.WriteString(" · found by both")
-		case "a":
-			b.WriteString(" · found by A")
-		case "b":
-			b.WriteString(" · found by B")
-		}
-	}
 	if withSkill {
 		fmt.Fprintf(b, " · <code>%s</code>", escapeSummary(r.skill))
 	}
@@ -396,7 +377,6 @@ func writeFindingRow(b *strings.Builder, r findingRow, o Options, withSkill, ope
 	if note := o.FindingNote[f.Fingerprint]; note != "" {
 		lead = append(lead, "_"+wrappedText(note)+"_")
 	}
-	lead = append(lead, panelLead(f, o)...)
 	if f.Explanation != "" {
 		lead = append(lead, modelText(f.Explanation))
 	}
@@ -453,41 +433,4 @@ func openAttr(open bool) string {
 		return " open"
 	}
 	return ""
-}
-
-// maxPanelReason is the most bytes of a model's reason a comment shows.
-const maxPanelReason = 300
-
-// panelName returns the caller's name for a panel role: "a" or "b".
-func panelName(o Options, role string) string {
-	if o.Panel == nil {
-		return ""
-	}
-	if role == "b" {
-		return o.Panel.B
-	}
-	return o.Panel.A
-}
-
-// panelLead returns the lead lines a finding's panel result adds to its row.
-func panelLead(f Finding, o Options) []string {
-	if o.Panel == nil || f.Panel == nil {
-		return nil
-	}
-	var lead []string
-	p := f.Panel
-	if p.DisagreedBy != "" {
-		line := wrappedText(panelName(o, p.DisagreedBy)) + " disagreed"
-		if reason := strings.TrimSpace(cutBytes(oneLine(p.Reason), maxPanelReason)); reason != "" {
-			line += ": " + wrappedText(reason)
-		}
-		lead = append(lead, "_"+line+"_")
-	}
-	if p.RatedSuggestionBy != "" {
-		lead = append(lead, "_"+wrappedText(panelName(o, p.RatedSuggestionBy))+" rated it a suggestion_")
-	}
-	if p.UnjudgedBy != "" {
-		lead = append(lead, "_"+wrappedText(panelName(o, p.UnjudgedBy))+" could not check this finding; it stays blocking._")
-	}
-	return lead
 }

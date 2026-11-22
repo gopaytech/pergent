@@ -1,35 +1,26 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
-	"log"
 	"os"
 	"syscall"
-	"time"
 
 	"github.com/gopaytech/pergent/internal/diff"
 	"github.com/gopaytech/pergent/internal/finding"
-	"github.com/gopaytech/pergent/internal/panel"
-	"github.com/gopaytech/pergent/internal/redact"
 	"github.com/gopaytech/pergent/internal/result"
 	"github.com/gopaytech/pergent/internal/review"
-	"github.com/gopaytech/pergent/render"
 )
 
-// noUsableMember is the usage error of a merge with nothing to merge.
-const noUsableMember = "--panel needs at least one usable member result"
-
-// readMember reads a member's agent result. It is usable when it decodes,
-// has schema_version 1 and status completed; otherwise reason says why, for
-// the log (never the result). A file over the result size limit is not read:
-// no member writes one. Only a regular file is opened, so a FIFO cannot
-// block the merge.
-func readMember(path string) (r *result.Result, reason string) {
+// readReviewer reads a reviewer's agent result. It is usable when it
+// decodes, has schema_version 1 and status completed; otherwise reason says
+// why, for the log (never the result). A file over the result size limit is
+// not read: no reviewer writes one. Only a regular file is opened, so a FIFO
+// cannot block the judge.
+func readReviewer(path string) (r *result.Result, reason string) {
 	st, err := os.Stat(path)
 	if err != nil {
 		return nil, fmt.Sprintf("reading %q: %v", path, pathCause(err))
@@ -81,9 +72,9 @@ func pathCause(err error) error {
 	return err
 }
 
-// memberMismatch says why a member's result is not a review of base..head,
-// or "" when it is one.
-func memberMismatch(r *result.Result, base, head string) string {
+// reviewerMismatch says why a reviewer's agent result is not a review of
+// base..head, or "" when it is one.
+func reviewerMismatch(r *result.Result, base, head string) string {
 	switch {
 	case r.Head != head:
 		return fmt.Sprintf("head %q, want %q", r.Head, head)
@@ -93,12 +84,12 @@ func memberMismatch(r *result.Result, base, head string) string {
 	return ""
 }
 
-// memberSkills converts a member result's skills for review.RunPanel: every
+// reviewerSkills converts the skills of a reviewer's agent result: every
 // skill of a usable result, nil for an unusable one. A skill with a failure,
 // a batch that did not finish, a file not reviewed or a verdict pergent does
-// not know is failed, so the panel never uses it. So is a skill the result
-// holds twice.
-func memberSkills(r *result.Result) map[string]review.SkillResult {
+// not know is failed, so it is never used. So is a skill the result holds
+// twice.
+func reviewerSkills(r *result.Result) map[string]review.SkillResult {
 	if r == nil {
 		return nil
 	}
@@ -109,15 +100,16 @@ func memberSkills(r *result.Result) map[string]review.SkillResult {
 			skills[s.Name] = prev
 			continue
 		}
-		skills[s.Name] = memberSkill(s)
+		skills[s.Name] = reviewerSkill(s)
 	}
 	return skills
 }
 
-// memberSkill is one skill of a member's result as a review result. The
-// tokens, runs and duration stay with the member: the merge reports its own.
-// A failure keeps its text but not its cause, which the member reported.
-func memberSkill(s result.Skill) review.SkillResult {
+// reviewerSkill is one skill of a reviewer's agent result as a review
+// result. The tokens, runs and duration stay with the reviewer: the judge
+// reports its own. A failure keeps its text but not its cause, which the
+// reviewer reported.
+func reviewerSkill(s result.Skill) review.SkillResult {
 	res := review.SkillResult{
 		Skill:            s.Name,
 		Verdict:          review.Verdict(s.Verdict),
@@ -132,7 +124,7 @@ func memberSkill(s result.Skill) review.SkillResult {
 	}
 	for _, f := range s.Findings {
 		res.Findings = append(res.Findings, finding.Finding{
-			File: f.File, Line: f.Line, EndLine: f.EndLine, Severity: memberSeverity(f.Severity),
+			File: f.File, Line: f.Line, EndLine: f.EndLine, Severity: reviewerSeverity(f.Severity),
 			Title: f.Title, Explanation: f.Explanation, SuggestedFix: f.SuggestedFix, Suggestion: f.Suggestion,
 			Fingerprint: f.Fingerprint, Linked: f.Linked,
 		})
@@ -161,7 +153,7 @@ func memberSkill(s result.Skill) review.SkillResult {
 	}
 	switch res.Verdict {
 	case review.NoBlockingIssues, review.HasBlockingIssues:
-		// A file the member did not review is a batch that failed, even when
+		// A file the reviewer did not review is a batch that failed, even when
 		// the result reports no failure for it.
 		if len(res.Failures) > 0 || res.BatchesFinished < res.Batches || len(s.Files.NotReviewed) > 0 {
 			res.Verdict = review.Failed
@@ -172,67 +164,11 @@ func memberSkill(s result.Skill) review.SkillResult {
 	return res
 }
 
-// memberSeverity is a member finding's severity: a suggestion only when it
+// reviewerSeverity is a reviewer finding's severity: a suggestion only when it
 // says so, so an unknown severity is never dropped to a suggestion.
-func memberSeverity(s string) finding.Severity {
+func reviewerSeverity(s string) finding.Severity {
 	if finding.Severity(s) == finding.Suggestion {
 		return finding.Suggestion
 	}
 	return finding.Blocking
-}
-
-// readPanelMember reads one member's result, and logs why it can't be
-// used: it can't be read, or it is not a review of in's base and head.
-func readPanelMember(path, role string, in *agentInputs, logger *log.Logger) *result.Result {
-	r, reason := readMember(path)
-	if r != nil {
-		if reason = memberMismatch(r, in.Base, in.Head); reason != "" {
-			r = nil
-		}
-	}
-	if r == nil {
-		logger.Printf("panel: member %s can't be used: %s", role, redact.String(reason))
-	}
-	return r
-}
-
-// runPanel reviews nothing: it merges the members and returns the result to
-// deliver, or an error result.
-func runPanel(ctx context.Context, in *agentInputs, meta result.Meta, run review.RunFunc, logger *log.Logger) (result.Result, *result.Error) {
-	a := readPanelMember(in.panelAPath, panel.A, in, logger)
-	b := readPanelMember(in.panelBPath, panel.B, in, logger)
-	var mode string
-	switch {
-	case a != nil && b != nil:
-		mode = review.PanelBoth
-	case a != nil:
-		mode = review.PanelAOnly
-	case b != nil:
-		mode = review.PanelBOnly
-	default:
-		return result.Result{}, &result.Error{Code: result.CodeUsage, Message: noUsableMember}
-	}
-
-	logger.Printf("Merging the review panel (%s) for %d skill(s), up to %d opencode runs at once, within %s",
-		mode, len(in.Skills), in.Review.Concurrency, in.Review.Timeout)
-	results := review.RunPanel(ctx, review.PanelRequest{
-		Request: agentRequest(in, run),
-		A:       review.Member{Role: panel.A, Model: in.panelA, Key: in.panelAKey, Skills: memberSkills(a)},
-		B:       review.Member{Role: panel.B, Model: in.panelB, Key: in.panelBKey, Skills: memberSkills(b)},
-		NoJudge: in.panelNoJudge,
-	})
-	meta.Finished = time.Now()
-	meta.Budget = in.Review.Timeout
-	logFailures(results, logger)
-
-	p := result.Panel{
-		A:      result.PanelMember{Provider: in.panelA.Provider, Model: in.panelA.Model},
-		B:      result.PanelMember{Provider: in.panelB.Provider, Model: in.panelB.Model},
-		Mode:   mode,
-		Judged: !in.panelNoJudge,
-	}
-	res := result.BuildPanel(meta, p, results)
-	names := &render.PanelNames{A: in.panelA.Provider + "/" + in.panelA.Model, B: in.panelB.Provider + "/" + in.panelB.Model}
-	res.Comment = agentComment(in, results, res, names)
-	return res, nil
 }

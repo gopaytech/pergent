@@ -31,7 +31,6 @@ import (
 	"github.com/gopaytech/pergent/internal/result"
 	"github.com/gopaytech/pergent/internal/review"
 	"github.com/gopaytech/pergent/internal/skill"
-	"github.com/gopaytech/pergent/render"
 	"github.com/gopaytech/pergent/rule"
 	"github.com/gopaytech/pergent/scope"
 )
@@ -100,20 +99,7 @@ type agentInputs struct {
 	skipSkillVerify bool
 	// $HOME and $XDG_CONFIG_HOME, where opencode finds its global config.
 	home, configHome string
-
-	// Review panel merge step (--panel). panelAPath and panelBPath are the
-	// two members' agent results. panelA is model A, from OPENCODE_*, and
-	// panelB model B, from PERGENT_PANEL_B_*; panelAKey and panelBKey are
-	// their keys: never logged or written anywhere.
-	panel                  bool
-	panelAPath, panelBPath string
-	panelNoJudge           bool
-	panelA, panelB         config.Model
-	panelAKey, panelBKey   string
 }
-
-// panelRefused are the review inputs a panel merge step does not take.
-var panelRefused = []string{"previous", "carried", "ci-results", "change-description", "linked-repos", "graph", "no-skill-verify"}
 
 // ciOnlyFlags are CI-mode flags that agent mode refuses.
 var ciOnlyFlags = map[string]bool{"local": true, "platform": true, "previous-review": true, "base-branch": true}
@@ -275,15 +261,7 @@ func runAgent(ctx context.Context, args []string, getenv func(string) string, st
 
 	meta.Started = clock.begin(in.Review.Timeout)
 	meta.Rules = &result.Rules{BuiltIn: in.Rules.BuiltIn(), Entries: in.Rules.Entries(), BuiltInNames: in.builtInNames}
-	var res result.Result
-	if in.panel {
-		var e *result.Error
-		if res, e = runPanel(ctx, &in, meta, run, logger); e != nil {
-			return failWith(e)
-		}
-	} else {
-		res = reviewChange(ctx, &in, meta, run, logger)
-	}
+	res := reviewChange(ctx, &in, meta, run, logger)
 
 	data, err := result.Encode(res)
 	if err != nil {
@@ -316,20 +294,16 @@ func reviewChange(ctx context.Context, in *agentInputs, meta result.Meta, run re
 	meta.Budget = in.Review.Timeout
 	logFailures(results, logger)
 	res := result.Build(meta, results)
-	res.Comment = agentComment(in, results, res, nil)
+	res.Comment = agentComment(in, results, res)
 	return res
 }
 
-// agentRequest is the review request both a review and a panel merge make:
-// the change, the skills, the limits and the hardened sandbox.
+// agentRequest is the review request of agent mode: the change, the skills,
+// the limits and the hardened sandbox.
 func agentRequest(in *agentInputs, run review.RunFunc) review.Request {
 	// Agent mode uses no platform token, so one left in the environment is
-	// kept from opencode too. So is model B's key: only a run on model B
-	// gets it, as its OPENCODE_API_KEY.
+	// kept from opencode too.
 	exclude := []string{"PERGENT_RESULT_TOKEN", "GITHUB_TOKEN", "GITLAB_TOKEN"}
-	if in.panel {
-		exclude = append(exclude, "PERGENT_PANEL_B_API_KEY")
-	}
 	return review.Request{
 		Skills:       in.Skills,
 		Diff:         in.Diff,
@@ -360,9 +334,8 @@ func logFailures(results []review.SkillResult, logger *log.Logger) {
 	}
 }
 
-// agentComment is the comment of res, built from results; names are a
-// review panel's models, nil without one.
-func agentComment(in *agentInputs, results []review.SkillResult, res result.Result, names *render.PanelNames) result.Comment {
+// agentComment is the comment of res, built from results.
+func agentComment(in *agentInputs, results []review.SkillResult, res result.Result) result.Comment {
 	// The comment shows the IDs Build assigned.
 	ids := map[string]string{}
 	for _, s := range res.Skills {
@@ -372,7 +345,7 @@ func agentComment(in *agentInputs, results []review.SkillResult, res result.Resu
 	}
 	return result.Comment{
 		Markdown: output.FormatReviewWithinOptions(results, in.Files, in.MaxCommentSize,
-			output.Options{IDs: ids, Commit: in.Head, Version: "v" + version, Panel: names}),
+			output.Options{IDs: ids, Commit: in.Head, Version: "v" + version}),
 		FindingsBlock: output.FindingsBlock(results),
 	}
 }
@@ -422,7 +395,7 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 	flags.StringVar(&builtInRules, "built-in-rules", "", "Comma-separated names of the only built-in path rules to load, such as go,yaml (default: all; $PERGENT_BUILT_IN_RULES)")
 	flags.StringVar(&in.changePath, "change-description", getenv("PERGENT_CHANGE_DESCRIPTION"), "A file holding the change's title and description, attached to the review runs as data")
 	flags.StringVar(&in.linkedPath, "linked-repos", getenv("PERGENT_LINKED_REPOS"), "A JSON file [{\"name\", \"path\", \"watched\", \"can_block\", \"error\"}, ...] of linked repositories the caller cloned; they are scrubbed, and only an impact run reads them")
-	flags.BoolVar(&in.skipSkillVerify, "no-skill-verify", false, "Leave out each skill's verification run (a review panel's member); the impact check still verifies")
+	flags.BoolVar(&in.skipSkillVerify, "no-skill-verify", false, "Leave out each skill's verification run; the impact check still verifies")
 	flags.BoolVar(&in.scrub, "scrub-instructions", false, "Delete every AGENTS.md, CLAUDE.md and CONTEXT.md in --repo-path before reviewing")
 	flags.IntVar(&in.MaxCommentSize, "max-comment-size", 0, "Byte limit for the rendered comment (0: no limit)")
 	flags.StringVar(&resultPath, "result", "", "Write the result JSON to this file, or - for stdout")
@@ -433,10 +406,6 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 	flags.IntVar(&conc, "concurrency", 0, "Max opencode runs in flight at once (default 4)")
 	flags.DurationVar(&timeout, "timeout", 0, "Max wall-clock time for the whole review (default 10m)")
 	flags.BoolVar(&checkDeleted, "check-deleted", false, "Review deleted files and check what still uses deleted and renamed files (off by default)")
-	flags.BoolVar(&in.panel, "panel", false, "Merge two members' results into one review panel result")
-	flags.StringVar(&in.panelAPath, "panel-a", "", "A member's agent result, outside --repo-path")
-	flags.StringVar(&in.panelBPath, "panel-b", "", "A member's agent result, outside --repo-path")
-	flags.BoolVar(&in.panelNoJudge, "panel-no-judge", false, "With --panel: run no model; merge by file, line and title")
 	// CI-mode flags, defined only to refuse them by name.
 	flags.BoolVar(&local, "local", false, "CI mode only")
 	flags.StringVar(&platformFlag, "platform", "", "CI mode only")
@@ -476,37 +445,6 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 	})
 	if len(ciFlags) > 0 {
 		return usage("%s can't be used with pergent agent: CI mode only", strings.Join(ciFlags, ", "))
-	}
-	if in.panel {
-		for _, n := range panelRefused {
-			if set[n] {
-				return usage("--%s can't be used with --panel", n)
-			}
-		}
-		// An env default is not the caller's choice for the panel.
-		in.changePath, in.ciPath, in.linkedPath, in.graphPath = "", "", "", ""
-		if in.panelAPath == "" || in.panelBPath == "" {
-			return usage("--panel requires --panel-a and --panel-b")
-		}
-		if samePath(in.panelAPath, in.panelBPath) {
-			return usage("--panel-a and --panel-b name the same file")
-		}
-		in.panelB = config.Model{Provider: getenv("PERGENT_PANEL_B_PROVIDER"), Model: getenv("PERGENT_PANEL_B_MODEL"),
-			BaseURL: getenv("PERGENT_PANEL_B_BASE_URL"), NPM: getenv("PERGENT_PANEL_B_NPM")}
-		in.panelBKey = getenv("PERGENT_PANEL_B_API_KEY")
-		// Model A is the environment's, as config.EnvModel reads it.
-		in.panelA = config.Model{Provider: getenv("OPENCODE_PROVIDER"), Model: getenv("OPENCODE_MODEL"),
-			BaseURL: getenv("OPENCODE_BASE_URL"), NPM: getenv("OPENCODE_NPM")}
-		in.panelAKey = getenv("OPENCODE_API_KEY")
-		if in.panelB.Provider == "" || in.panelB.Model == "" {
-			return usage("--panel requires PERGENT_PANEL_B_PROVIDER and PERGENT_PANEL_B_MODEL")
-		}
-	} else {
-		for _, n := range []string{"panel-a", "panel-b", "panel-no-judge"} {
-			if set[n] {
-				return usage("--%s needs --panel", n)
-			}
-		}
 	}
 	if resultPath == "" && resultURL == "" {
 		return usage("at least one of --result or --result-url is required")
@@ -782,12 +720,6 @@ func trustedInputs(in *agentInputs) []trustedInput {
 	}
 	if in.rulesPath != "" {
 		inputs = append(inputs, trustedInput{"--rules", in.rulesPath})
-	}
-	if in.panelAPath != "" {
-		inputs = append(inputs, trustedInput{"--panel-a", in.panelAPath})
-	}
-	if in.panelBPath != "" {
-		inputs = append(inputs, trustedInput{"--panel-b", in.panelBPath})
 	}
 	if in.home != "" {
 		inputs = append(inputs, trustedInput{"$HOME", in.home})

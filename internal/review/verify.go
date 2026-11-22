@@ -135,9 +135,9 @@ func (r *reviewer) verify(ctx context.Context, s skill.Skill, res *SkillResult) 
 	r.verifyWith(ctx, s, res, runMode{})
 }
 
-// verifyWith is verify with a run mode: a panel member's model and key. It
-// reports whether the run started and failed, with the run's cause (nil when
-// none was reported), so a panel can carry a provider error with its role.
+// verifyWith is verify with a run mode. It reports whether the run started
+// and failed, with the run's cause (nil when none was reported), so a caller
+// can carry a provider error.
 func (r *reviewer) verifyWith(ctx context.Context, s skill.Skill, res *SkillResult, mode runMode) (failed bool, cause *runner.Cause) {
 	var blocking []verifyFinding
 	for _, f := range res.Findings {
@@ -237,10 +237,9 @@ func (r *reviewer) verifyWith(ctx context.Context, s skill.Skill, res *SkillResu
 	return false, nil
 }
 
-// attachContext adds to a run that checks findings (verification or a panel
-// judge) what it gets beyond the findings: where the diffs are, the deleted
-// files and renames, the diffs of the deleted files a blocking finding in
-// res.Findings is on, the skill's blocking dismissals, with rejected as
+// attachContext adds to a verification run what it gets beyond the
+// findings: where the diffs are, the deleted files and renames, the diffs of
+// the deleted files a blocking finding in res.Findings is on, the skill's blocking dismissals, with rejected as
 // their sentence, and the rules of the files the blocking findings in
 // res.Findings are on, with rules as their sentence. The files are written
 // in dir. What else cannot be attached adds its note to res and the run goes

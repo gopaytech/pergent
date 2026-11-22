@@ -71,8 +71,7 @@ func Fingerprint(skill, file, title string) string {
 }
 
 // Key is the exact-match identity of a finding: its file, its line and its
-// title, case and spacing ignored. Dedup keeps one finding per key, and a
-// review panel merges by it when no cross-check answer can be used.
+// title, case and spacing ignored. Dedup keeps one finding per key.
 func Key(f Finding) string {
 	return fmt.Sprintf("%s\x00%d\x00%s", f.File, f.Line, normalize(f.Title))
 }

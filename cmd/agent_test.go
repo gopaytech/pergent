@@ -14,7 +14,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gopaytech/pergent/internal/config"
 	"github.com/gopaytech/pergent/internal/diff"
 	"github.com/gopaytech/pergent/internal/finding"
 	"github.com/gopaytech/pergent/internal/platform"
@@ -1348,115 +1347,5 @@ func TestParseAgent_NoSkillVerify(t *testing.T) {
 	}
 	if !mustParse(t, agentArgs(dir, base, head, skills, "--no-skill-verify")).skipSkillVerify {
 		t.Error("skipSkillVerify is false with --no-skill-verify")
-	}
-}
-
-func panelEnv(extra map[string]string) func(string) string {
-	env := map[string]string{"PERGENT_PANEL_B_PROVIDER": "openai", "PERGENT_PANEL_B_MODEL": "model-b"}
-	for k, v := range extra {
-		env[k] = v
-	}
-	return agentEnv(env)
-}
-
-func panelArgs(extra ...string) []string {
-	sha := strings.Repeat("a", 40)
-	return append([]string{"--repo-path", "/r", "--base", sha, "--head", sha, "--skill", "code-review", "--result", "-"}, extra...)
-}
-
-func TestParseAgent_Panel(t *testing.T) {
-	env := panelEnv(map[string]string{"PERGENT_PANEL_B_BASE_URL": "http://b", "PERGENT_PANEL_B_NPM": "pkg", "PERGENT_PANEL_B_API_KEY": "k-b",
-		"PERGENT_CHANGE_DESCRIPTION": "/env/c.md", "PERGENT_CI_RESULTS": "/env/ci", "PERGENT_LINKED_REPOS": "/env/l", "PERGENT_GRAPH": "/env/g",
-		"PERGENT_DISMISSALS": "/env/d.json"})
-	in, e := parseAgent(panelArgs("--panel", "--panel-a", "a.json", "--panel-b", "b.json", "--panel-no-judge"), env)
-	if e != nil {
-		t.Fatalf("parseAgent() error: %+v", e)
-	}
-	if !in.panel || !in.panelNoJudge || in.panelAPath != "a.json" || in.panelBPath != "b.json" {
-		t.Errorf("panel fields = %v %v %q %q", in.panel, in.panelNoJudge, in.panelAPath, in.panelBPath)
-	}
-	if in.panelB != (config.Model{Provider: "openai", Model: "model-b", BaseURL: "http://b", NPM: "pkg"}) || in.panelBKey != "k-b" {
-		t.Errorf("panelB = %+v key %q", in.panelB, in.panelBKey)
-	}
-	if in.changePath != "" || in.ciPath != "" || in.linkedPath != "" || in.graphPath != "" {
-		t.Errorf("env paths not cleared: %q %q %q %q", in.changePath, in.ciPath, in.linkedPath, in.graphPath)
-	}
-	if in.dismissalsPath != "/env/d.json" {
-		t.Errorf("dismissalsPath = %q, want the env default kept", in.dismissalsPath)
-	}
-}
-
-func TestParseAgent_PanelNeedsBothFiles(t *testing.T) {
-	_, e := parseAgent(panelArgs("--panel", "--panel-a", "a.json"), panelEnv(nil))
-	if e == nil || e.Code != result.CodeUsage || !strings.Contains(e.Message, "--panel-b") {
-		t.Errorf("error = %+v, want usage naming --panel-b", e)
-	}
-}
-
-func TestParseAgent_PanelSameFile(t *testing.T) {
-	for _, b := range []string{"a.json", "./a.json", "x/../a.json"} {
-		_, e := parseAgent(panelArgs("--panel", "--panel-a", "a.json", "--panel-b", b), panelEnv(nil))
-		if e == nil || e.Code != result.CodeUsage || e.Message != "--panel-a and --panel-b name the same file" {
-			t.Errorf("--panel-b %s: error = %+v, want usage", b, e)
-		}
-	}
-	if _, e := parseAgent(panelArgs("--panel", "--panel-a", "a.json", "--panel-b", "b.json"), panelEnv(nil)); e != nil {
-		t.Errorf("two files: error = %+v", e)
-	}
-}
-
-func TestParseAgent_PanelNeedsModelB(t *testing.T) {
-	for _, miss := range []string{"PERGENT_PANEL_B_MODEL", "PERGENT_PANEL_B_PROVIDER"} {
-		_, e := parseAgent(panelArgs("--panel", "--panel-a", "a.json", "--panel-b", "b.json"), panelEnv(map[string]string{miss: ""}))
-		if e == nil || e.Code != result.CodeUsage || !strings.Contains(e.Message, "--panel requires PERGENT_PANEL_B_PROVIDER and PERGENT_PANEL_B_MODEL") {
-			t.Errorf("without %s: error = %+v", miss, e)
-		}
-	}
-}
-
-func TestParseAgent_PanelRefusesReviewInputs(t *testing.T) {
-	for _, f := range []string{"--previous", "--carried", "--ci-results", "--change-description", "--linked-repos", "--graph", "--no-skill-verify"} {
-		args := panelArgs("--panel", "--panel-a", "a.json", "--panel-b", "b.json", f)
-		if f != "--no-skill-verify" {
-			args = append(args, "x")
-		}
-		_, e := parseAgent(args, panelEnv(nil))
-		if e == nil || e.Code != result.CodeUsage || !strings.Contains(e.Message, f+" can't be used with --panel") {
-			t.Errorf("%s: error = %+v", f, e)
-		}
-	}
-}
-
-func TestParseAgent_PanelFilesWithoutPanel(t *testing.T) {
-	for _, f := range []string{"--panel-a", "--panel-b"} {
-		_, e := parseAgent(panelArgs(f, "a.json"), panelEnv(nil))
-		if e == nil || e.Code != result.CodeUsage || !strings.Contains(e.Message, f) {
-			t.Errorf("%s: error = %+v", f, e)
-		}
-	}
-	_, e := parseAgent(panelArgs("--panel-no-judge"), panelEnv(nil))
-	if e == nil || e.Code != result.CodeUsage {
-		t.Errorf("--panel-no-judge alone: error = %+v", e)
-	}
-}
-
-func TestPrepareAgent_PanelInputInsideCheckout(t *testing.T) {
-	repo, base, head := agentRepo(t, nil)
-	skills := oneSkill(t)
-	for _, f := range []string{"--panel-a", "--panel-b"} {
-		writeFile(t, repo, "inside/a.json", "{}")
-		other := filepath.Join(t.TempDir(), "o.json")
-		in, e := parseAgent(agentArgs(repo, base, head, skills, "--panel", "--panel-a", filepath.Join(repo, "inside", "a.json"), "--panel-b", other), panelEnv(nil))
-		if f == "--panel-b" {
-			in, e = parseAgent(agentArgs(repo, base, head, skills, "--panel", "--panel-b", filepath.Join(repo, "inside", "a.json"), "--panel-a", other), panelEnv(nil))
-		}
-		if e != nil {
-			t.Fatalf("parseAgent() error: %+v", e)
-		}
-		e = prepareAgent(&in, quietLog)
-		if e == nil || e.Code != result.CodeUsage || !strings.Contains(e.Message, f) || !strings.Contains(e.Message, "is inside --repo-path") {
-			t.Errorf("%s: prepareAgent() error = %+v", f, e)
-		}
-		os.RemoveAll(filepath.Join(repo, "inside"))
 	}
 }
