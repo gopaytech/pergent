@@ -54,8 +54,9 @@ type Result struct {
 	// billing, quota, then rate_limit), for a caller that moves the review to
 	// another model. Absent when no failure has one.
 	ProviderError *ProviderError `json:"provider_error,omitempty"`
-	// Panel names the review panel's two models; absent without a panel.
-	Panel *Panel `json:"panel,omitempty"`
+	// MultiReview names the reviewers and the judge of a multi review; absent
+	// without one.
+	MultiReview *MultiReview `json:"multi_review,omitempty"`
 	// Rules says this pergent ran with path rules, so a caller can tell "no
 	// file had a rule" from "this pergent does not know rules". Absent from
 	// an error result.
@@ -89,9 +90,8 @@ type Skill struct {
 	DurationSeconds  float64       `json:"duration_seconds"`
 	Tokens           Tokens        `json:"tokens"`
 	Runs             []Run         `json:"runs,omitempty"`
-	// Panel and TokensByModel are set only for a review panel's skill.
-	Panel         *SkillPanel   `json:"panel,omitempty"`
-	TokensByModel []ModelTokens `json:"tokens_by_model,omitempty"`
+	// MultiReview is how a multi review merged this skill; absent otherwise.
+	MultiReview *SkillMultiReview `json:"multi_review,omitempty"`
 }
 
 // Finding is a finding with its short ID.
@@ -109,8 +109,8 @@ type Finding struct {
 	// Linked is the caller in a linked repository that an impact finding
 	// names; omitted on every other finding.
 	Linked *finding.Caller `json:"linked,omitempty"`
-	// Panel is what a review panel's merge says about the finding.
-	Panel *FindingPanel `json:"panel,omitempty"`
+	// MultiReview is what a multi review's merge says about the finding.
+	MultiReview *FindingMultiReview `json:"multi_review,omitempty"`
 }
 
 // Summary is the model's summary of one batch.
@@ -199,8 +199,8 @@ type ProviderError struct {
 	Status   int    `json:"status,omitempty"`
 	Provider string `json:"provider,omitempty"`
 	Model    string `json:"model,omitempty"`
-	// Role is the panel model ("a" or "b") of a judge run's error; empty
-	// for every other provider error.
+	// Role names the run of a multi review the error came from; empty
+	// otherwise.
 	Role string `json:"role,omitempty"`
 }
 
@@ -489,11 +489,11 @@ func redactResult(r Result) Result {
 		r.Error = &e
 	}
 	r.ProviderError = redactProviderError(r.ProviderError)
-	if r.Panel != nil {
-		p := *r.Panel
-		p.A = PanelMember{Provider: redact.String(p.A.Provider), Model: redact.String(p.A.Model)}
-		p.B = PanelMember{Provider: redact.String(p.B.Provider), Model: redact.String(p.B.Model)}
-		r.Panel = &p
+	if r.MultiReview != nil {
+		m := *r.MultiReview
+		m.Judge.Provider = redact.String(m.Judge.Provider)
+		m.Judge.Model = redact.String(m.Judge.Model)
+		r.MultiReview = &m
 	}
 	if r.Skills != nil {
 		skills := make([]Skill, len(r.Skills))
@@ -517,13 +517,14 @@ func redactSkill(s Skill) Skill {
 		f.Explanation = redact.String(f.Explanation)
 		f.SuggestedFix = redact.String(f.SuggestedFix)
 		f.Suggestion = redact.String(f.Suggestion)
-		if f.Panel != nil {
-			fp := *f.Panel
-			fp.Reason = redact.String(fp.Reason)
-			if fp.Also != nil {
-				fp.Also = redactStrings(fp.Also)
+		if f.MultiReview != nil {
+			// A copy: the pointer is shared with the result Build made.
+			fm := *f.MultiReview
+			fm.Reason = redact.String(fm.Reason)
+			if fm.Also != nil {
+				fm.Also = redactStrings(fm.Also)
 			}
-			f.Panel = &fp
+			f.MultiReview = &fm
 		}
 		if f.Linked != nil {
 			// A copy: the pointer is shared with the finding Build read.
@@ -604,30 +605,16 @@ func redactSkill(s Skill) Skill {
 	}
 	s.Failures = failures
 	s.Notes = redactStrings(s.Notes)
-	if s.Panel != nil {
-		sp := *s.Panel
-		if sp.Judges != nil {
-			judges := make([]PanelJudge, len(sp.Judges))
-			for i, j := range sp.Judges {
-				if j.Cause != nil {
-					c := *j.Cause
-					c.Message = redact.String(c.Message)
-					c.ProviderError = redactProviderError(c.ProviderError)
-					j.Cause = &c
-				}
-				judges[i] = j
-			}
-			sp.Judges = judges
+	if s.MultiReview != nil {
+		sm := *s.MultiReview
+		sm.Judge = redact.String(sm.Judge)
+		if sm.JudgeCause != nil {
+			c := *sm.JudgeCause
+			c.Message = redact.String(c.Message)
+			c.ProviderError = redactProviderError(c.ProviderError)
+			sm.JudgeCause = &c
 		}
-		s.Panel = &sp
-	}
-	if s.TokensByModel != nil {
-		tbm := make([]ModelTokens, len(s.TokensByModel))
-		for i, m := range s.TokensByModel {
-			m.Provider, m.Model = redact.String(m.Provider), redact.String(m.Model)
-			tbm[i] = m
-		}
-		s.TokensByModel = tbm
+		s.MultiReview = &sm
 	}
 	return s
 }

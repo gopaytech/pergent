@@ -115,8 +115,8 @@ func writeMeta(b *strings.Builder, skills []Skill, o Options, blocking, suggesti
 	if blocking > 0 && failed > 0 {
 		parts = append(parts, plural(failed, "skill")+" failed")
 	}
-	if o.Panel != nil {
-		parts = append(parts, "Panel: "+wrappedText(o.Panel.A)+" (A) + "+wrappedText(o.Panel.B)+" (B)")
+	if part := multiReviewMeta(o); part != "" {
+		parts = append(parts, part)
 	}
 	if o.MetaNote != "" {
 		parts = append(parts, oneLine(o.MetaNote))
@@ -197,8 +197,9 @@ type findingRow struct {
 	Finding
 	skill   string
 	deleted bool // the file is one a skill reviewed as deleted
-	// panelMode is the skill's panel mode, "" without a panel.
-	panelMode string
+	// skillReviewers is the number of reviewers whose findings the skill's
+	// multi review used (see multiReviewers), 0 without a multi review.
+	skillReviewers int
 }
 
 // writeFindings writes the inline note and the findings list: every finding
@@ -208,16 +209,16 @@ func writeFindings(b *strings.Builder, skills []Skill, o Options, l layout) {
 	inline := 0
 	deleted := deletedFiles(skills)
 	for _, s := range skills {
-		mode := ""
-		if s.Panel != nil {
-			mode = s.Panel.Mode
+		reviewers := 0
+		if s.MultiReview != nil {
+			reviewers = multiReviewers(s)
 		}
 		for _, f := range s.Findings {
 			if f.Fingerprint != "" && o.Inline[f.Fingerprint] {
 				inline++
 				continue
 			}
-			row := findingRow{Finding: f, skill: s.Name, deleted: deleted[f.File], panelMode: mode}
+			row := findingRow{Finding: f, skill: s.Name, deleted: deleted[f.File], skillReviewers: reviewers}
 			if row.deleted {
 				// Exact replacement text for a removed line has nothing to replace.
 				row.Suggestion = ""
@@ -372,15 +373,8 @@ func writeFindingRow(b *strings.Builder, r findingRow, o Options, withSkill, ope
 		icon, open = "❌", " open"
 	}
 	fmt.Fprintf(b, "<details%s><summary>%s <b>%s</b>%s", open, icon, findingTitleHTML(f.Title), locationPart(f, o, r.deleted))
-	if o.Panel != nil && r.panelMode == "both" && f.Panel != nil {
-		switch f.Panel.FoundBy {
-		case "both":
-			b.WriteString(" · found by both")
-		case "a":
-			b.WriteString(" · found by A")
-		case "b":
-			b.WriteString(" · found by B")
-		}
+	if o.MultiReview != nil && r.skillReviewers >= 2 && f.MultiReview != nil && len(f.MultiReview.FoundBy) > 0 {
+		b.WriteString(foundBy(o, f.MultiReview.FoundBy, r.skillReviewers))
 	}
 	if withSkill {
 		fmt.Fprintf(b, " · <code>%s</code>", escapeSummary(r.skill))
@@ -396,7 +390,7 @@ func writeFindingRow(b *strings.Builder, r findingRow, o Options, withSkill, ope
 	if note := o.FindingNote[f.Fingerprint]; note != "" {
 		lead = append(lead, "_"+wrappedText(note)+"_")
 	}
-	lead = append(lead, panelLead(f, o)...)
+	lead = append(lead, multiReviewLead(f, o)...)
 	if f.Explanation != "" {
 		lead = append(lead, modelText(f.Explanation))
 	}
@@ -455,39 +449,105 @@ func openAttr(open bool) string {
 	return ""
 }
 
-// maxPanelReason is the most bytes of a model's reason a comment shows.
-const maxPanelReason = 300
+// maxReasonBytes is the most bytes of a judge's or a skip reason a comment
+// shows.
+const maxReasonBytes = 300
 
-// panelName returns the caller's name for a panel role: "a" or "b".
-func panelName(o Options, role string) string {
-	if o.Panel == nil {
-		return ""
+// multiReviewText makes a name or a reason inert for a Markdown line of
+// multi review text: wrappedText, then neutralizeComments, so a code span in
+// caller text can't hold an HTML comment or a layout tag, as in skillRef.
+func multiReviewText(s string) string { return neutralizeComments(wrappedText(s)) }
+
+// reviewerName returns the name of reviewer n (1-based) through inert, the
+// rule of the line it goes in, or "reviewer <n>" when the caller gave no
+// name for it.
+func reviewerName(o Options, n int, inert func(string) string) string {
+	if o.MultiReview != nil && n >= 1 && n <= len(o.MultiReview.Reviewers) {
+		if name := inert(o.MultiReview.Reviewers[n-1]); name != "" {
+			return name
+		}
 	}
-	if role == "b" {
-		return o.Panel.B
-	}
-	return o.Panel.A
+	return fmt.Sprintf("reviewer %d", n)
 }
 
-// panelLead returns the lead lines a finding's panel result adds to its row.
-func panelLead(f Finding, o Options) []string {
-	if o.Panel == nil || f.Panel == nil {
+// reviewerNames returns the names of the reviewers ns through inert, joined
+// with ", ".
+func reviewerNames(o Options, ns []int, inert func(string) string) string {
+	names := make([]string, len(ns))
+	for i, n := range ns {
+		names[i] = reviewerName(o, n, inert)
+	}
+	return strings.Join(names, ", ")
+}
+
+// reasonText returns a caller's or model's reason on one line, cut to
+// maxReasonBytes and made inert. It is "" when there is no reason.
+func reasonText(s string) string {
+	return multiReviewText(strings.TrimSpace(cutBytes(oneLine(s), maxReasonBytes)))
+}
+
+// multiReviewMeta returns the meta part that names the reviewers and the
+// judge, "" without a multi review.
+func multiReviewMeta(o Options) string {
+	if o.MultiReview == nil || len(o.MultiReview.Reviewers) == 0 {
+		return ""
+	}
+	ns := make([]int, len(o.MultiReview.Reviewers))
+	for i := range ns {
+		ns[i] = i + 1
+	}
+	part := "Multi review: " + reviewerNames(o, ns, multiReviewText)
+	if judge := multiReviewText(o.MultiReview.Judge); judge != "" {
+		part += " · judge " + judge
+	}
+	return part
+}
+
+// multiReviewers is the number of reviewers whose findings s's multi review
+// used: the usable ones, and each failed one that a finding is found by. A
+// reviewer that failed after some batches still gives its blocking findings.
+func multiReviewers(s Skill) int {
+	n := len(s.MultiReview.Reviewers)
+	for _, r := range s.MultiReview.Failed {
+		if slices.ContainsFunc(s.Findings, func(f Finding) bool {
+			return f.MultiReview != nil && slices.Contains(f.MultiReview.FoundBy, r)
+		}) {
+			n++
+		}
+	}
+	return n
+}
+
+// foundBy returns the row suffix that says which of the skill's total
+// reviewers found a finding. The suffix is in the <summary> line, which is
+// HTML, not Markdown, so each name is escaped like the title in that line.
+func foundBy(o Options, ns []int, total int) string {
+	if len(ns) == 1 {
+		return " · found by " + reviewerName(o, ns[0], findingTitleHTML)
+	}
+	return fmt.Sprintf(" · found by %d of %d reviewers (%s)", len(ns), total, reviewerNames(o, ns, findingTitleHTML))
+}
+
+// multiReviewLead returns the lead lines a finding's multi review result adds
+// to its row.
+func multiReviewLead(f Finding, o Options) []string {
+	if o.MultiReview == nil || f.MultiReview == nil {
 		return nil
 	}
 	var lead []string
-	p := f.Panel
-	if p.DisagreedBy != "" {
-		line := wrappedText(panelName(o, p.DisagreedBy)) + " disagreed"
-		if reason := strings.TrimSpace(cutBytes(oneLine(p.Reason), maxPanelReason)); reason != "" {
-			line += ": " + wrappedText(reason)
+	m := f.MultiReview
+	if m.JudgeDisagreed {
+		line := "judge disagreed"
+		if reason := reasonText(m.Reason); reason != "" {
+			line += ": " + reason
 		}
 		lead = append(lead, "_"+line+"_")
 	}
-	if p.RatedSuggestionBy != "" {
-		lead = append(lead, "_"+wrappedText(panelName(o, p.RatedSuggestionBy))+" rated it a suggestion_")
+	if len(m.RatedSuggestionBy) > 0 {
+		lead = append(lead, "_"+reviewerNames(o, m.RatedSuggestionBy, multiReviewText)+" rated it a suggestion_")
 	}
-	if p.UnjudgedBy != "" {
-		lead = append(lead, "_"+wrappedText(panelName(o, p.UnjudgedBy))+" could not check this finding; it stays blocking._")
+	if m.Unjudged {
+		lead = append(lead, "_the judge could not check this finding; it stays blocking._")
 	}
 	return lead
 }

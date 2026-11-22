@@ -1,7 +1,5 @@
 package render
 
-import "slices"
-
 // Dismissal sets aside the findings with one fingerprint, up to a severity.
 type Dismissal struct {
 	Fingerprint string
@@ -32,10 +30,10 @@ func dismissalRank(s string) int {
 }
 
 // ApplyDismissals moves each finding a dismissal covers into Skill.Dismissed.
-// A dismissal covers a finding with the same fingerprint, or the fingerprint
-// of a finding merged into it (Panel.Also), whose severity is no higher than
-// the dismissal's, so a suggestion dismissal leaves a blocking finding in
-// place. When several dismissals cover a finding, the first one
+// A dismissal covers a finding whose severity is no higher than the
+// dismissal's when it has the finding's own fingerprint or any fingerprint in
+// the finding's MultiReview.Also, so a suggestion dismissal leaves a blocking
+// finding in place. When several dismissals cover a finding, the first one
 // wins.
 //
 // It recomputes the verdict of each skill it changed: a has_blocking_issues
@@ -72,26 +70,42 @@ func ApplyDismissals(skills []Skill, ds []Dismissal) []Skill {
 	return out
 }
 
-// covering returns the first dismissal that covers f, by its own fingerprint
-// or by one of the findings merged into it. A finding with neither can't be
-// dismissed.
+// covering returns the first dismissal that covers f. A merged finding stands
+// for a group, so a dismissal of any fingerprint in the group (f's own, or one
+// in MultiReview.Also) covers it.
 func covering(ds []Dismissal, f Finding) (Dismissal, bool) {
-	var also []string
-	if f.Panel != nil {
-		also = f.Panel.Also
-	}
-	if f.Fingerprint == "" && len(also) == 0 {
-		return Dismissal{}, false
-	}
 	for _, d := range ds {
-		if d.Fingerprint == "" {
+		if covers(d, f.Fingerprint, f.Severity) {
+			return d, true
+		}
+		if f.MultiReview == nil {
 			continue
 		}
-		if (d.Fingerprint == f.Fingerprint || slices.Contains(also, d.Fingerprint)) && severityRank(f.Severity) <= dismissalRank(d.Severity) {
-			return d, true
+		for _, fp := range f.MultiReview.Also {
+			if covers(d, fp, f.Severity) {
+				return d, true
+			}
 		}
 	}
 	return Dismissal{}, false
+}
+
+// Covers reports whether a dismissal in ds covers a finding with this
+// fingerprint and severity, by the rule ApplyDismissals uses: the same
+// fingerprint, and a severity no higher than the dismissal's. A finding
+// without a fingerprint can't be dismissed.
+func Covers(ds []Dismissal, fingerprint string, sev Severity) bool {
+	for _, d := range ds {
+		if covers(d, fingerprint, sev) {
+			return true
+		}
+	}
+	return false
+}
+
+// covers is the one rule of what a dismissal covers.
+func covers(d Dismissal, fingerprint string, sev Severity) bool {
+	return fingerprint != "" && d.Fingerprint == fingerprint && severityRank(sev) <= dismissalRank(d.Severity)
 }
 
 func hasBlocking(fs []Finding) bool {

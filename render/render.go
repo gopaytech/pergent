@@ -59,37 +59,65 @@ type Finding struct {
 	SuggestedFix string
 	Suggestion   string // exact replacement text for the lines Line to EndLine; the comment shows an escaped copy
 
-	// Panel is what a review panel says about the finding; nil for a review
-	// without a panel.
-	Panel *FindingPanel `json:",omitempty"`
+	// MultiReview says which reviewers found this finding and how the judge
+	// merged it. Nil means the review was not a multi review. Omitted from
+	// JSON when nil.
+	MultiReview *FindingMultiReview `json:",omitempty"`
 }
 
-// FindingPanel is what a review panel says about a finding: which model
-// found it (FoundBy "a", "b" or "both"), the fingerprints of the other
-// findings merged into it (Also), and why its severity is what it is. The
-// roles name the models of Options.Panel; Reason is model text.
-type FindingPanel struct {
-	FoundBy           string
-	Also              []string `json:",omitempty"`
-	DisagreedBy       string   `json:",omitempty"`
-	Reason            string   `json:",omitempty"`
-	RatedSuggestionBy string   `json:",omitempty"`
-	UnjudgedBy        string   `json:",omitempty"`
+// FindingMultiReview is how a multi review merged one finding.
+//
+// Reason is judge (model) text, and reviewer names are caller text. The
+// comment code must make both inert, like HeaderNote, and must not write
+// them as raw Markdown.
+type FindingMultiReview struct {
+	// FoundBy lists the reviewers that found it, as 1-based reviewer numbers.
+	// Reviewer n has the name MultiReviewNames.Reviewers[n-1].
+	FoundBy []int
+	// Also holds the fingerprints of the other findings the judge merged into
+	// this one. A dismissal of any of them dismisses this finding.
+	Also []string `json:",omitempty"`
+	// JudgeDisagreed is true when the judge rated this finding differently
+	// from the reviewers.
+	JudgeDisagreed bool `json:",omitempty"`
+	// Reason is the judge's reason. Model text, not escaped here.
+	Reason string `json:",omitempty"`
+	// RatedSuggestionBy lists the reviewers (1-based) that rated the finding
+	// a suggestion, not blocking.
+	RatedSuggestionBy []int `json:",omitempty"`
+	// Unjudged is true when no judge result was used for this finding.
+	Unjudged bool `json:",omitempty"`
 }
 
-// SkillPanel is how a review panel merged a skill: Mode is "both",
-// "a_only", "b_only" or "none"; JudgeFailed lists the models whose judge run
-// failed or was skipped, so it checked nothing; Exact says the findings were
-// merged by file, line and title.
-type SkillPanel struct {
-	Mode        string
-	JudgeFailed []string `json:",omitempty"`
-	Exact       bool     `json:",omitempty"`
+// SkillMultiReview is how a multi review covered one skill.
+type SkillMultiReview struct {
+	// Reviewers lists the reviewers (1-based numbers) whose answers were used.
+	Reviewers []int
+	// Failed lists the reviewers (1-based) that failed for this skill. One
+	// can still be in a finding's FoundBy: its blocking findings from the
+	// batches that finished are merged. It then counts in "of <N> reviewers".
+	Failed []int `json:",omitempty"`
+	// Exact is true when the merge is exact, not judged.
+	Exact bool `json:",omitempty"`
 }
 
-// PanelNames are the names a comment uses for the two models of a review
-// panel. They are the caller's text, made inert like HeaderNote.
-type PanelNames struct{ A, B string }
+// MultiReviewNames names the reviewers and the judge of a multi review. All
+// names and skip reasons are caller or model text, so the comment code must
+// make them inert, like HeaderNote.
+type MultiReviewNames struct {
+	// Reviewers[n-1] is the name of reviewer n.
+	Reviewers []string
+	// Judge is the name of the judge.
+	Judge string
+	// Skipped lists the reviewers that did not run.
+	Skipped []SkippedReviewer
+}
+
+// SkippedReviewer is a reviewer that did not run, and why.
+type SkippedReviewer struct {
+	Name   string
+	Reason string // caller or model text, not escaped here
+}
 
 // Check is one item of a skill's checklist.
 type Check struct {
@@ -179,8 +207,9 @@ type Skill struct {
 	// Dismissed holds the findings ApplyDismissals set aside.
 	Dismissed []DismissedFinding
 
-	// Panel is how a review panel merged this skill; nil without a panel.
-	Panel *SkillPanel `json:",omitempty"`
+	// MultiReview says which reviewers covered this skill. Nil means the
+	// review was not a multi review. Omitted from JSON when nil.
+	MultiReview *SkillMultiReview `json:",omitempty"`
 }
 
 // FileRule is the rule a reviewed file was checked with.
@@ -255,9 +284,10 @@ type Options struct {
 	// the size limit: its step 5 can cut the failed checks, with a note, in any
 	// layout. No layout can hide them. Short wins over it.
 	Layout []Block
-	// Panel names the two models of a review panel. Nil writes no panel
-	// text, so a comment without it is the comment of before.
-	Panel *PanelNames
+	// MultiReview names the reviewers and the judge. Nil writes no multi
+	// review text. Its text is caller or model text, so the comment code must
+	// make it inert, like HeaderNote.
+	MultiReview *MultiReviewNames
 }
 
 // failedPrefix starts the report of a failed batch.

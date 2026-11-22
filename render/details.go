@@ -333,9 +333,11 @@ func writeCheckTable(b *strings.Builder, rows []checkRow) {
 	b.WriteString("\n")
 }
 
-// writeNotes writes the notes about the checks (failed checks without a
-// finding, checks over the limit, findings verification dropped), then the
-// skills' other notes, as quotes. With several skills each names its skill.
+// writeNotes writes the notes as quotes: the multi review's skipped reviewers,
+// the notes about the checks (failed checks without a finding, checks over
+// the limit, findings verification dropped), the skills' other notes, then
+// each skill's multi review notes. With several skills each skill note names
+// its skill.
 func writeNotes(b *strings.Builder, skills []Skill, o Options) {
 	var notes []string
 	add := func(s Skill, n string) {
@@ -344,6 +346,11 @@ func writeNotes(b *strings.Builder, skills []Skill, o Options) {
 			prefix = skillRef(s.Name) + ": "
 		}
 		notes = append(notes, prefix+lineText(n))
+	}
+	if o.MultiReview != nil {
+		// The skipped notes are about the whole review, so they come first and
+		// have no skill prefix. The names are already inert.
+		notes = append(notes, skippedNotes(o)...)
 	}
 	for _, s := range skills {
 		if len(s.Checks) == 0 {
@@ -382,14 +389,15 @@ func writeNotes(b *strings.Builder, skills []Skill, o Options) {
 			add(s, n)
 		}
 	}
-	if o.Panel != nil {
+	if o.MultiReview != nil {
+		// The names are already inert and the rest is fixed text, so these
+		// notes skip lineText.
 		for _, s := range skills {
-			for _, n := range panelNotes(s, o) {
-				prefix := ""
-				if len(skills) > 1 {
-					prefix = skillRef(s.Name) + ": "
-				}
-				// The names are already inert and the rest is fixed text.
+			prefix := ""
+			if len(skills) > 1 {
+				prefix = skillRef(s.Name) + ": "
+			}
+			for _, n := range multiReviewNotes(s, o) {
 				notes = append(notes, prefix+n)
 			}
 		}
@@ -620,41 +628,31 @@ func writeFooter(b *strings.Builder, o Options) {
 	}
 }
 
-// panelNotes returns the notes about how a skill's review panel ran.
-func panelNotes(s Skill, o Options) []string {
-	if s.Panel == nil {
+// skippedNotes returns one note for each reviewer the caller skipped.
+func skippedNotes(o Options) []string {
+	var notes []string
+	for _, sk := range o.MultiReview.Skipped {
+		n := "Multi review: " + multiReviewText(sk.Name) + " was skipped"
+		// The note ends with its own ".", so a reason's last "." goes.
+		if reason := strings.TrimSuffix(reasonText(sk.Reason), "."); reason != "" {
+			n += ": " + reason
+		}
+		notes = append(notes, n+".")
+	}
+	return notes
+}
+
+// multiReviewNotes returns the notes about how a skill's multi review ran.
+func multiReviewNotes(s Skill, o Options) []string {
+	if s.MultiReview == nil {
 		return nil
 	}
-	a, b := wrappedText(o.Panel.A), wrappedText(o.Panel.B)
 	var notes []string
-	// only is the note of a skill one model reviewed. With Exact, no run
-	// checked that model's blocking findings.
-	only := func(one, other string) string {
-		n := "Panel: only " + one + " reviewed this; " + other + "'s review failed."
-		if !s.Panel.Exact {
-			n += " " + one + " checked its own blocking findings."
-		}
-		return n
+	for _, n := range s.MultiReview.Failed {
+		notes = append(notes, "Multi review: "+reviewerName(o, n, multiReviewText)+" could not review this.")
 	}
-	switch s.Panel.Mode {
-	case "a_only":
-		notes = append(notes, only(a, b))
-	case "b_only":
-		notes = append(notes, only(b, a))
-	case "none":
-		notes = append(notes, "Panel: neither model could review this.")
-	case "both":
-		for _, role := range s.Panel.JudgeFailed {
-			switch role {
-			case "a":
-				notes = append(notes, "Panel: "+a+" could not check "+b+"'s blocking findings; they stay blocking.")
-			case "b":
-				notes = append(notes, "Panel: "+b+" could not check "+a+"'s blocking findings; they stay blocking.")
-			}
-		}
-	}
-	if s.Panel.Exact {
-		notes = append(notes, "Panel: the cross-check did not run. Findings were merged by file, line and title, and every blocking finding stays blocking.")
+	if s.MultiReview.Exact {
+		notes = append(notes, "Multi review: the judge did not run. Every blocking finding stays blocking.")
 	}
 	return notes
 }

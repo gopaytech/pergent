@@ -1192,7 +1192,7 @@ func TestRunEnvIsAddedLast(t *testing.T) {
 		t.Skip("fake opencode is a shell script")
 	}
 	t.Setenv("OPENCODE_API_KEY", "key-a")
-	t.Setenv("PERGENT_PANEL_B_API_KEY", "key-b")
+	t.Setenv("OTHER_API_KEY", "key-b")
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, "env.txt")
 	fixture, err := filepath.Abs(filepath.Join("testdata", "completed.ndjson"))
@@ -1211,7 +1211,7 @@ func TestRunEnvIsAddedLast(t *testing.T) {
 
 	res := Run(context.Background(), Options{
 		ConfigPath: "/tmp/config.json", RepoPath: t.TempDir(), Timeout: time.Minute, Message: "m",
-		ExcludeEnv: []string{"OPENCODE_API_KEY", "PERGENT_PANEL_B_API_KEY"},
+		ExcludeEnv: []string{"OPENCODE_API_KEY", "OTHER_API_KEY"},
 		Env:        []string{"OPENCODE_API_KEY=key-b"},
 	})
 	if res.Status != StatusCompleted {
@@ -1222,7 +1222,7 @@ func TestRunEnvIsAddedLast(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := string(data)
-	if !strings.Contains(env, "OPENCODE_API_KEY=key-b\n") || strings.Contains(env, "key-a") || strings.Contains(env, "PERGENT_PANEL_B_API_KEY") {
+	if !strings.Contains(env, "OPENCODE_API_KEY=key-b\n") || strings.Contains(env, "key-a") || strings.Contains(env, "OTHER_API_KEY") {
 		t.Fatalf("env:\n%s", env)
 	}
 }

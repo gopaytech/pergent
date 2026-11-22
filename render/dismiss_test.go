@@ -202,13 +202,35 @@ func TestDismissedMentionsAreBroken(t *testing.T) {
 	}
 }
 
-func TestApplyDismissalsMatchesAnyMember(t *testing.T) {
+func TestApplyDismissalsMatchesAnyMergedFinding(t *testing.T) {
 	skills := []Skill{{Name: "s", Verdict: VerdictHasBlockingIssues, Findings: []Finding{{
-		Fingerprint: "fa", File: "a.go", Line: 1, Severity: Blocking, Title: "T",
-		Panel: &FindingPanel{FoundBy: "both", Also: []string{"fb"}},
+		Fingerprint: "f1", File: "a.go", Line: 1, Severity: Blocking, Title: "T",
+		MultiReview: &FindingMultiReview{FoundBy: []int{1, 3}, Also: []string{"f3"}},
 	}}}}
-	got := ApplyDismissals(skills, []Dismissal{{Fingerprint: "fb", Severity: "blocking", By: "x", Reason: "r"}})
+	got := ApplyDismissals(skills, []Dismissal{{Fingerprint: "f3", Severity: "blocking", By: "x", Reason: "r"}})
 	if len(got[0].Findings) != 0 || len(got[0].Dismissed) != 1 || got[0].Verdict != VerdictNoBlockingIssues {
+		t.Fatalf("got %+v", got[0])
+	}
+}
+
+func TestApplyDismissalsEmptyFingerprintMatchesAlso(t *testing.T) {
+	skills := []Skill{{Name: "s", Verdict: VerdictHasBlockingIssues, Findings: []Finding{{
+		File: "a.go", Line: 1, Severity: Blocking, Title: "T",
+		MultiReview: &FindingMultiReview{FoundBy: []int{1, 2}, Also: []string{"f2"}},
+	}}}}
+	got := ApplyDismissals(skills, []Dismissal{{Fingerprint: "f2", Severity: "blocking", By: "x", Reason: "r"}})
+	if len(got[0].Findings) != 0 || len(got[0].Dismissed) != 1 {
+		t.Fatalf("got %+v", got[0])
+	}
+}
+
+func TestApplyDismissalsSuggestionViaAlsoLeavesBlocking(t *testing.T) {
+	skills := []Skill{{Name: "s", Verdict: VerdictHasBlockingIssues, Findings: []Finding{{
+		Fingerprint: "f1", File: "a.go", Line: 1, Severity: Blocking, Title: "T",
+		MultiReview: &FindingMultiReview{FoundBy: []int{1, 2}, Also: []string{"f2"}},
+	}}}}
+	got := ApplyDismissals(skills, []Dismissal{{Fingerprint: "f2", Severity: "suggestion", By: "x", Reason: "r"}})
+	if len(got[0].Findings) != 1 || len(got[0].Dismissed) != 0 || got[0].Verdict != VerdictHasBlockingIssues {
 		t.Fatalf("got %+v", got[0])
 	}
 }
@@ -223,24 +245,32 @@ func TestApplyDismissalsNoFingerprintNoAlso(t *testing.T) {
 	}
 }
 
-func TestApplyDismissalsEmptyFingerprintMatchesAlso(t *testing.T) {
-	skills := []Skill{{Name: "s", Verdict: VerdictHasBlockingIssues, Findings: []Finding{{
-		File: "a.go", Line: 1, Severity: Blocking, Title: "T",
-		Panel: &FindingPanel{FoundBy: "both", Also: []string{"fb"}},
-	}}}}
-	got := ApplyDismissals(skills, []Dismissal{{Fingerprint: "fb", Severity: "blocking", By: "x", Reason: "r"}})
-	if len(got[0].Findings) != 0 || len(got[0].Dismissed) != 1 {
-		t.Fatalf("got %+v", got[0])
-	}
-}
-
-func TestApplyDismissalsSuggestionViaAlsoLeavesBlocking(t *testing.T) {
-	skills := []Skill{{Name: "s", Verdict: VerdictHasBlockingIssues, Findings: []Finding{{
-		Fingerprint: "fa", File: "a.go", Line: 1, Severity: Blocking, Title: "T",
-		Panel: &FindingPanel{FoundBy: "both", Also: []string{"fb"}},
-	}}}}
-	got := ApplyDismissals(skills, []Dismissal{{Fingerprint: "fb", Severity: "suggestion", By: "x", Reason: "r"}})
-	if len(got[0].Findings) != 1 || len(got[0].Dismissed) != 0 || got[0].Verdict != VerdictHasBlockingIssues {
-		t.Fatalf("got %+v", got[0])
+func TestCovers(t *testing.T) {
+	blocking := []Dismissal{{Fingerprint: "fp", Severity: "blocking"}}
+	suggestion := []Dismissal{{Fingerprint: "fp", Severity: "suggestion"}}
+	for _, tc := range []struct {
+		name string
+		ds   []Dismissal
+		fp   string
+		sev  Severity
+		want bool
+	}{
+		{"empty fingerprint", []Dismissal{{Fingerprint: "", Severity: "blocking"}}, "", Blocking, false},
+		{"blocking over blocking", blocking, "fp", Blocking, true},
+		{"blocking over suggestion", blocking, "fp", Suggestion, true},
+		{"suggestion over suggestion", suggestion, "fp", Suggestion, true},
+		{"suggestion over blocking", suggestion, "fp", Blocking, false},
+		{"unknown severity", []Dismissal{{Fingerprint: "fp", Severity: "other"}}, "fp", Suggestion, false},
+		{"other fingerprint", blocking, "fq", Blocking, false},
+		{"none", nil, "fp", Blocking, false},
+	} {
+		if got := Covers(tc.ds, tc.fp, tc.sev); got != tc.want {
+			t.Errorf("%s: Covers = %v, want %v", tc.name, got, tc.want)
+		}
+		// ApplyDismissals gives the same answer.
+		s := []Skill{{Name: "s", Verdict: VerdictHasBlockingIssues, Findings: []Finding{{Fingerprint: tc.fp, Severity: tc.sev, Title: "t"}}}}
+		if got := len(ApplyDismissals(s, tc.ds)[0].Dismissed) == 1; got != tc.want {
+			t.Errorf("%s: ApplyDismissals dismissed = %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }

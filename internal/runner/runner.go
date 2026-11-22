@@ -60,8 +60,7 @@ type Options struct {
 	// environment (e.g. secrets only pergent itself needs).
 	ExcludeEnv []string
 	// Env are NAME=value entries added to opencode's environment last, after
-	// ExcludeEnv is removed: a review panel's run on its second model gets
-	// that model's key as OPENCODE_API_KEY here. Never logged.
+	// ExcludeEnv is removed. Never logged.
 	Env []string
 	// LogPrefix, when set, is written as "<prefix> " before every progress
 	// line of the run.
@@ -104,8 +103,7 @@ var allowedEnvNames = []string{
 }
 
 // CloudEnvPrefixes are the cloud-provider prefixes a run keeps, so a provider
-// that signs in with the caller's cloud credentials still can. A review
-// panel's run on model B removes them: they are model A's.
+// that signs in with the caller's cloud credentials still can.
 var CloudEnvPrefixes = []string{"AWS_", "GOOGLE_", "VERTEX_", "AZURE_", "CLOUDFLARE_"}
 
 // allowedEnvPrefixes are the cloud-provider and locale prefixes kept as well.

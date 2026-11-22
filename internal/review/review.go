@@ -23,10 +23,10 @@ import (
 	"github.com/gopaytech/pergent/internal/diff"
 	"github.com/gopaytech/pergent/internal/finding"
 	"github.com/gopaytech/pergent/internal/graphpack"
-	"github.com/gopaytech/pergent/internal/panel"
 	"github.com/gopaytech/pergent/internal/redact"
 	"github.com/gopaytech/pergent/internal/runner"
 	"github.com/gopaytech/pergent/internal/skill"
+	"github.com/gopaytech/pergent/render"
 	"github.com/gopaytech/pergent/rule"
 )
 
@@ -60,8 +60,14 @@ type Request struct {
 	Carried map[string][]string
 	// Dismissals holds, by skill name, the findings people rejected in earlier
 	// reviews. A skill's list is attached to its batch runs, its cross-batch
-	// run and, for the blocking entries, its verification run.
+	// run and, for the blocking entries, its verification run and a multi
+	// review's judge run. It is never applied as a dismissal.
 	Dismissals map[string][]finding.Rejected
+	// MRDismissals are the merge request's stored dismissals, the ones render
+	// applies to the result. They are used only so a multi review judge link
+	// never joins a finding render will dismiss. They are never sent to a
+	// model. Nil changes nothing.
+	MRDismissals []render.Dismissal
 	// CheckDeleted reviews the files the change deletes in each skill's
 	// batches, like any changed file, and has the runs check what still refers
 	// to them. One run per skill (its first batch, or a run with no diff when it
@@ -81,8 +87,7 @@ type Request struct {
 	// cross-batch runs only, never to a verification or repair run.
 	CIResults string
 	// SkipSkillVerify leaves out each skill's verification run, so its
-	// blocking findings come back unjudged: a review panel's member, whose
-	// findings the other model judges. The impact check keeps its own
+	// blocking findings come back unjudged. The impact check keeps its own
 	// verification. False (the default) changes nothing.
 	SkipSkillVerify bool
 	// Linked are the repositories the caller cloned and scrubbed, to check the
@@ -92,10 +97,9 @@ type Request struct {
 	// refused while Linked is not empty. Nil changes nothing.
 	Linked []LinkedRepo
 	// Rules gives each file its path rule. A skill's batch runs get the rules
-	// of their files (file-rules.md), its verification run (and a review
-	// panel's judge runs) those of the blocking findings' files it checks,
-	// and rule text counts in batch sizing; a skill with
-	// NoRules gets none. Rules never change what is blocking. Nil changes
+	// of their files (file-rules.md), its verification run those of the
+	// blocking findings' files it checks, and rule text counts in batch
+	// sizing; a skill with NoRules gets none. Rules never change what is blocking. Nil changes
 	// nothing.
 	Rules *rule.Resolver
 	// Graph is a code graph of the default branch. Each batch run with a diff
@@ -182,8 +186,8 @@ type SkillResult struct {
 	Runs []RunUsage
 	// Duration is how long the skill's review took.
 	Duration time.Duration
-	// Panel is how a review panel merged the skill; nil outside a panel.
-	Panel *SkillPanel
+	// MultiReview is how a multi review merged the skill; nil outside one.
+	MultiReview *SkillMultiReview
 }
 
 // BatchChecks is the checklist the model reported for one batch.
@@ -1043,35 +1047,6 @@ type runMode struct {
 	// noInstructions leaves out Sandbox.Instructions, which are for reviews of
 	// this repository. The impact run gets none.
 	noInstructions bool
-	// member is the model and key of a review panel's run. Nil is the
-	// environment's.
-	member *Member
-}
-
-// Member is one model of a review panel: its role (panel.A or panel.B), its
-// model and its key, and its review by skill name (nil: its result can't be
-// used). The key reaches only the runs on this model.
-type Member struct {
-	Role   string
-	Model  config.Model
-	Key    string
-	Skills map[string]SkillResult
-}
-
-// cloudEnvNames returns the names in env that have a cloud-provider prefix
-// a run keeps (runner.CloudEnvPrefixes).
-func cloudEnvNames(env []string) []string {
-	var names []string
-	for _, kv := range env {
-		name, _, _ := strings.Cut(kv, "=")
-		for _, p := range runner.CloudEnvPrefixes {
-			if strings.HasPrefix(name, p) {
-				names = append(names, name)
-				break
-			}
-		}
-	}
-	return names
 }
 
 // runWithPrompt is run with an explicit agent prompt in place of the
@@ -1100,15 +1075,7 @@ func (r *reviewer) runWith(ctx context.Context, s skill.Skill, label, prompt str
 		Linked:       mode.linked,
 	}
 	var logPrefix string
-	var excludeEnv, env []string
-	role := ""
-	if m := mode.member; m != nil {
-		// The run's key is set as OPENCODE_API_KEY for this run only. Neither
-		// key name is left in the environment the sandbox passes on.
-		opts.Model = &m.Model
-		env = []string{"OPENCODE_API_KEY=" + m.Key}
-		role = m.Role
-	}
+	var excludeEnv []string
 	if sb.Hardened {
 		opts.Prompt = strings.TrimRight(prompt, "\n") + "\n\n" + untrustedSection + "\n"
 		opts.ExplicitInstructions = true
@@ -1119,14 +1086,6 @@ func (r *reviewer) runWith(ctx context.Context, s skill.Skill, label, prompt str
 		opts.DenySecretFiles = true
 		logPrefix = fmt.Sprintf("[%s %s]", s.Name, label)
 		excludeEnv = sb.ExcludeEnv
-		if mode.member != nil {
-			excludeEnv = append(slices.Clone(excludeEnv), "OPENCODE_API_KEY", "PERGENT_PANEL_B_API_KEY")
-		}
-	}
-	if m := mode.member; m != nil && m.Role == panel.B {
-		// A run on model B gets B's key only. The cloud credentials in the
-		// environment are model A's, so they are removed too.
-		excludeEnv = append(slices.Clone(excludeEnv), cloudEnvNames(os.Environ())...)
 	}
 	configPath, cleanup, err := config.GenerateOpenCodeConfigWith(opts)
 	if err != nil {
@@ -1174,10 +1133,9 @@ func (r *reviewer) runWith(ctx context.Context, s skill.Skill, label, prompt str
 		StepLimit:    stepLimit,
 		ContextLimit: ctxLimit,
 		ExcludeEnv:   excludeEnv,
-		Env:          env,
 		LogPrefix:    logPrefix,
 	})
-	recordRun(ctx, label, role, len(opts.Prompt), files, run)
+	recordRun(ctx, label, len(opts.Prompt), files, run)
 	return run, nil
 }
 

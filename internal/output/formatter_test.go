@@ -5,13 +5,12 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
-	"slices"
 	"strings"
 	"testing"
 
 	"github.com/gopaytech/pergent/internal/diff"
 	"github.com/gopaytech/pergent/internal/finding"
-	"github.com/gopaytech/pergent/internal/panel"
+	"github.com/gopaytech/pergent/internal/multireview"
 	"github.com/gopaytech/pergent/internal/review"
 	"github.com/gopaytech/pergent/internal/runner"
 	"github.com/gopaytech/pergent/render"
@@ -622,68 +621,69 @@ func TestToRender_DeletedAndRenamedRedacted(t *testing.T) {
 	}
 }
 
-// TestFormatPanelSkippedJudge: a judge skipped for budget gets the note a
-// failed one gets, unless the merge is exact, whose own note says no
-// cross-check ran (--panel-no-judge skips both judges).
-func TestFormatPanelSkippedJudge(t *testing.T) {
-	for _, exact := range []bool{false, true} {
-		results := []review.SkillResult{{
-			Skill: "code-review", Verdict: review.NoBlockingIssues, Findings: []finding.Finding{},
-			Panel: &review.SkillPanel{Mode: "both", Exact: exact,
-				Judges: []review.JudgeRun{{Role: "b", Status: review.JudgeSkipped}, {Role: "a", Status: review.JudgeOK}}},
-		}}
-		sk := toRender(results, nil)[0]
-		var want []string
-		if !exact {
-			want = []string{"b"}
-		}
-		if !slices.Equal(sk.Panel.JudgeFailed, want) {
-			t.Errorf("exact %v: JudgeFailed = %v, want %v", exact, sk.Panel.JudgeFailed, want)
-		}
-		got := FormatReviewWithinOptions(results, nil, 0, Options{Panel: &render.PanelNames{A: "model-a", B: "model-b"}})
-		if note := "model-b could not check model-a's blocking findings"; strings.Contains(got, note) == exact {
-			t.Errorf("exact %v: note %q shown = %v, want %v:\n%s", exact, note, exact, !exact, got)
+func multiReviewResult(mr *review.SkillMultiReview) []review.SkillResult {
+	return []review.SkillResult{{
+		Skill:   "code-review",
+		Verdict: review.HasBlockingIssues,
+		Findings: []finding.Finding{
+			{File: "main.go", Line: 4, Severity: finding.Blocking, Title: "Nil dereference", Explanation: "p can be nil.", Fingerprint: "fp1"},
+		},
+		MultiReview: mr,
+	}}
+}
+
+func TestFormatMultiReviewPassesFields(t *testing.T) {
+	results := multiReviewResult(&review.SkillMultiReview{
+		Reviewers: []int{1, 2},
+		Tags:      []multireview.Tag{{FoundBy: []int{1, 2}}},
+	})
+	got := FormatReviewWithinOptions(results, nil, 0, Options{MultiReview: &render.MultiReviewNames{
+		Reviewers: []string{"reviewer 1", "reviewer 2"}, Judge: "p/m",
+	}})
+	for _, want := range []string{"found by 2 of 2 reviewers (reviewer 1, reviewer 2)", "Multi review: reviewer 1, reviewer 2 · judge p/m"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("comment misses %q:\n%s", want, got)
 		}
 	}
 }
 
-func TestFormatPanelPassesFields(t *testing.T) {
-	key := "sk-panel-b-0123456789"
-	t.Setenv("PERGENT_PANEL_B_API_KEY", key)
-	results := []review.SkillResult{{
-		Skill:   "code-review",
-		Verdict: review.NoBlockingIssues,
-		Findings: []finding.Finding{
-			{File: "main.go", Line: 3, Severity: finding.Blocking, Title: "Nil dereference", Explanation: "p can be nil."},
-			{File: "util.go", Line: 7, Severity: finding.Suggestion, Title: "Leak", Explanation: "Never closed."},
+func TestFormatMultiReviewRedactsReason(t *testing.T) {
+	const key = "sk-opencode-secret-key-1234567890"
+	t.Setenv("OPENCODE_API_KEY", key)
+	results := multiReviewResult(&review.SkillMultiReview{
+		Reviewers: []int{1, 2},
+		Tags: []multireview.Tag{
+			{FoundBy: []int{1, 2}, JudgeDisagreed: true, Reason: "leaks " + key, Also: []string{"a-" + key}},
+			{FoundBy: []int{1}}, // no finding at this index: must not panic
 		},
-		Panel: &review.SkillPanel{
-			Mode:   "both",
-			Judges: []review.JudgeRun{{Role: "a", Status: review.JudgeFailed}, {Role: "b", Status: review.JudgeSkipped}},
-			Tags: []panel.Tag{
-				{FoundBy: "both"},
-				{FoundBy: "a", DisagreedBy: "b", Reason: "not real, key " + key, Also: []string{"fp-" + key}},
-			},
-		},
-	}}
-	names := &render.PanelNames{A: "anthropic/model-a", B: "openai/model-b"}
-	got := FormatReviewWithinOptions(results, nil, 0, Options{Panel: names})
-	for _, want := range []string{"found by both", "anthropic/model-a", "openai/model-b", "could not check"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("comment lacks %q:\n%s", want, got)
-		}
-	}
+	})
+	got := FormatReviewWithinOptions(results, nil, 0, Options{MultiReview: &render.MultiReviewNames{Reviewers: []string{"a", "b"}}})
 	if strings.Contains(got, key) {
-		t.Errorf("a key reached the comment:\n%s", got)
+		t.Fatalf("the key is in the comment:\n%s", got)
 	}
-	sk := toRender(results, nil)[0]
-	if sk.Panel == nil || !slices.Equal(sk.Panel.JudgeFailed, []string{"a", "b"}) {
-		t.Errorf("JudgeFailed = %+v, want the failed judge a and the skipped judge b", sk.Panel)
+	if block := FindingsBlock(results); strings.Contains(block, key) {
+		t.Fatal("the key is in the findings block")
 	}
-	if p := sk.Findings[1].Panel; p == nil || strings.Contains(p.Reason+p.Also[0], key) || p.DisagreedBy != "b" {
-		t.Errorf("finding panel = %+v", p)
+	if !strings.Contains(got, "judge disagreed") {
+		t.Errorf("no judge disagreed lead:\n%s", got)
 	}
-	if plain := FormatReview(results, nil); strings.Contains(plain, "found by") {
-		t.Errorf("a comment without Options.Panel shows panel text:\n%s", plain)
+}
+
+func TestFormatMultiReviewDoesNotMutateInput(t *testing.T) {
+	tag := multireview.Tag{FoundBy: []int{1, 2}, Also: []string{"x"}}
+	results := multiReviewResult(&review.SkillMultiReview{Reviewers: []int{1, 2}, Tags: []multireview.Tag{tag}})
+	sk := toRender(results, nil)
+	sk[0].Findings[0].MultiReview.FoundBy[0] = 9
+	sk[0].MultiReview.Reviewers[0] = 9
+	if results[0].MultiReview.Tags[0].FoundBy[0] != 1 || results[0].MultiReview.Reviewers[0] != 1 {
+		t.Fatal("toRender shares slices with its input")
+	}
+}
+
+func TestFormatMultiReviewExactNote(t *testing.T) {
+	results := multiReviewResult(&review.SkillMultiReview{Reviewers: []int{1, 2}, Exact: true, Tags: []multireview.Tag{{FoundBy: []int{1}}}})
+	got := FormatReviewWithinOptions(results, nil, 0, Options{MultiReview: &render.MultiReviewNames{Reviewers: []string{"a", "b"}}})
+	if want := "Multi review: the judge did not run. Every blocking finding stays blocking."; !strings.Contains(got, want) {
+		t.Errorf("comment misses %q:\n%s", want, got)
 	}
 }
