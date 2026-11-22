@@ -95,7 +95,7 @@ func TestMain_MultiReviewKeys(t *testing.T) {
 	}
 	out := filepath.Join(t.TempDir(), "r.json")
 	args, err := json.Marshal([]string{"--repo-path", dir, "--base", base, "--head", head, "--skills-dir", oneSkill(t),
-		"--result", out, "--multi-review", "--reviewer", files[0], "--reviewer", files[1]})
+		"--result", out, "--multi-review", "--reviewer", files[0], "--reviewer", files[1], "--mr-dismissals", noMRDismissals(t)})
 	if err != nil {
 		t.Fatal(err)
 	}

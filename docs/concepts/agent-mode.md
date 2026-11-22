@@ -53,7 +53,7 @@ stdout carries only the result, and only with `--result -`; all logs go to stder
 | `--multi-review` | **Experimental.** Merge the `--reviewer` results into one result, with one judge run per skill on the `OPENCODE_*` model. It reviews nothing itself: see [Multi review](multi-review.md). Needs at least one `--reviewer`. With it, `--previous`, `--carried`, `--ci-results`, `--change-description`, `--linked-repos`, `--graph` and `--no-skill-verify` are a usage error. `--dismissals` and `--rules` are accepted | `false` |
 | `--reviewer` | A reviewer's agent result, outside `--repo-path`. Repeat it 1 to 5 times; the n-th is reviewer n. Needs `--multi-review` | unset |
 | `--no-judge` | With `--multi-review`: run no model; merge by file, line and title | `false` |
-| `--mr-dismissals` | With `--multi-review`: a JSON file `[{"fingerprint": "...", "severity": "blocking"\|"suggestion"}, ...]` of the merge request's stored dismissals, outside `--repo-path`. A judge never links a finding one of them covers. A file that can't be read or used, or an empty value, is a usage error | unset |
+| `--mr-dismissals` | With `--multi-review`: a JSON file `[{"fingerprint": "...", "severity": "blocking"\|"suggestion"}, ...]` of the merge request's stored dismissals, outside `--repo-path`. A judge never links a finding one of them covers, so pass every dismissal the comment applies. Required with `--multi-review` unless `--no-judge` is set (a file with `[]` for none). A missing flag, a file that can't be read or used, or an empty value is a usage error | unset |
 
 At least one of `--result` and `--result-url` is required; both can be used together. `--local`, `--platform`, `--previous-review` and `--base-branch` are CI-mode flags and are a usage error here.
 

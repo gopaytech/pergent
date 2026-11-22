@@ -294,10 +294,25 @@ func runMultiAgent(t *testing.T, env func(string) string, files []reviewerFile, 
 	for _, f := range files {
 		args = append(args, "--reviewer", f(t, base, head))
 	}
+	// A judge Job needs --mr-dismissals: the merge request has none here.
+	if !slices.Contains(extra, "--no-judge") && !slices.Contains(extra, "--mr-dismissals") {
+		args = append(args, "--mr-dismissals", noMRDismissals(t))
+	}
 	args = append(args, extra...)
 	var stdout, stderr bytes.Buffer
 	code := runAgent(context.Background(), args, env, &stdout, &stderr, runs.run)
 	return code, srv, stderr.String()
+}
+
+// noMRDismissals is an --mr-dismissals file outside the checkout with no
+// dismissals.
+func noMRDismissals(t *testing.T) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "mr-dismissals.json")
+	if err := os.WriteFile(p, []byte("[]"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return p
 }
 
 // checkRunEnv checks that each run gets no key of its own: opencode keeps

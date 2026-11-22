@@ -1361,7 +1361,7 @@ func multiArgs(extra ...string) []string {
 func TestParseAgent_MultiReview(t *testing.T) {
 	env := agentEnv(map[string]string{"PERGENT_CHANGE_DESCRIPTION": "/env/c.md", "PERGENT_CI_RESULTS": "/env/ci",
 		"PERGENT_LINKED_REPOS": "/env/l", "PERGENT_GRAPH": "/env/g", "PERGENT_DISMISSALS": "/env/d.json"})
-	in, e := parseAgent(multiArgs("--multi-review", "--reviewer", "c.json", "--reviewer", "a.json", "--reviewer", "b.json"), env)
+	in, e := parseAgent(multiArgs("--multi-review", "--reviewer", "c.json", "--reviewer", "a.json", "--reviewer", "b.json", "--mr-dismissals", "m.json"), env)
 	if e != nil {
 		t.Fatalf("parseAgent() error: %+v", e)
 	}
@@ -1390,7 +1390,7 @@ func TestParseAgent_MultiReviewNeedsReviewer(t *testing.T) {
 }
 
 func TestParseAgent_MultiReviewAtMostFive(t *testing.T) {
-	args := multiArgs("--multi-review")
+	args := multiArgs("--multi-review", "--mr-dismissals", "m.json")
 	for i := range 6 {
 		args = append(args, "--reviewer", fmt.Sprintf("r%d.json", i+1))
 	}
@@ -1423,16 +1423,30 @@ func TestParseAgent_MultiReviewEmptyReviewer(t *testing.T) {
 	}
 }
 
-// An empty --mr-dismissals is a usage error, as an empty --reviewer is:
-// leaving the flag out is "none", an empty value is a caller's mistake.
+// An empty --mr-dismissals is a usage error, as an empty --reviewer is.
 func TestParseAgent_MultiReviewEmptyMRDismissals(t *testing.T) {
 	_, e := parseAgent(multiArgs("--multi-review", "--reviewer", "a.json", "--mr-dismissals", ""), agentEnv(nil))
 	if e == nil || e.Code != result.CodeUsage || e.Message != "--mr-dismissals is empty" {
 		t.Errorf("error = %+v, want usage", e)
 	}
-	in, e := parseAgent(multiArgs("--multi-review", "--reviewer", "a.json"), agentEnv(nil))
+}
+
+// A judge Job must name the merge request's dismissals: a forgotten flag
+// would read as "none", and a judge link could then join a finding the
+// comment dismisses. --no-judge links nothing, so it does not need them.
+func TestParseAgent_MultiReviewNeedsMRDismissals(t *testing.T) {
+	_, e := parseAgent(multiArgs("--multi-review", "--reviewer", "a.json"), agentEnv(nil))
+	want := "--multi-review requires --mr-dismissals (an empty [] when the merge request has no dismissals)"
+	if e == nil || e.Code != result.CodeUsage || e.Message != want {
+		t.Errorf("error = %+v, want %q", e, want)
+	}
+	in, e := parseAgent(multiArgs("--multi-review", "--no-judge", "--reviewer", "a.json"), agentEnv(nil))
 	if e != nil || in.mrDismissalsPath != "" {
-		t.Errorf("no flag: error %+v, mrDismissalsPath %q", e, in.mrDismissalsPath)
+		t.Errorf("--no-judge: error %+v, mrDismissalsPath %q", e, in.mrDismissalsPath)
+	}
+	in, e = parseAgent(multiArgs("--multi-review", "--reviewer", "a.json", "--mr-dismissals", "d.json"), agentEnv(nil))
+	if e != nil || in.mrDismissalsPath != "d.json" {
+		t.Errorf("with the flag: error %+v, mrDismissalsPath %q", e, in.mrDismissalsPath)
 	}
 }
 
@@ -1450,7 +1464,7 @@ func TestParseAgent_MultiReviewRefusesReviewInputs(t *testing.T) {
 	// An env default is cleared, not refused.
 	env := agentEnv(map[string]string{"PERGENT_CHANGE_DESCRIPTION": "/env/c.md", "PERGENT_CI_RESULTS": "/env/ci",
 		"PERGENT_LINKED_REPOS": "/env/l", "PERGENT_GRAPH": "/env/g"})
-	in, e := parseAgent(multiArgs("--multi-review", "--reviewer", "a.json"), env)
+	in, e := parseAgent(multiArgs("--multi-review", "--reviewer", "a.json", "--mr-dismissals", "m.json"), env)
 	if e != nil {
 		t.Fatalf("env defaults: error = %+v", e)
 	}
@@ -1484,7 +1498,7 @@ func TestParseAgent_NoJudgeNeedsNoModel(t *testing.T) {
 	if !in.noJudge {
 		t.Error("noJudge is false with --no-judge")
 	}
-	_, e = parseAgent(multiArgs("--multi-review", "--reviewer", "a.json"), noModel)
+	_, e = parseAgent(multiArgs("--multi-review", "--reviewer", "a.json", "--mr-dismissals", "m.json"), noModel)
 	if e == nil || e.Code != result.CodeUsage || e.Message != "agent mode requires OPENCODE_PROVIDER and OPENCODE_MODEL" {
 		t.Errorf("without --no-judge: error = %+v, want usage", e)
 	}
@@ -1503,7 +1517,7 @@ func TestPrepareAgent_ReviewerInsideCheckout(t *testing.T) {
 	repo, base, head := agentRepo(t, nil)
 	writeFile(t, repo, "inside/a.json", "{}")
 	outside := filepath.Join(t.TempDir(), "o.json")
-	in, e := parseAgent(agentArgs(repo, base, head, oneSkill(t), "--multi-review",
+	in, e := parseAgent(agentArgs(repo, base, head, oneSkill(t), "--multi-review", "--no-judge",
 		"--reviewer", outside, "--reviewer", filepath.Join(repo, "inside", "a.json")), agentEnv(nil))
 	if e != nil {
 		t.Fatalf("parseAgent() error: %+v", e)
@@ -1556,8 +1570,8 @@ func TestPrepareAgent_MRDismissals(t *testing.T) {
 			}
 		})
 	}
-	// No flag: none, and no error.
-	in := mustParse(t, agentArgs(repo, base, head, oneSkill(t), "--multi-review", "--reviewer", reviewer))
+	// No flag with --no-judge: none, and no error.
+	in := mustParse(t, agentArgs(repo, base, head, oneSkill(t), "--multi-review", "--no-judge", "--reviewer", reviewer))
 	if e := prepareAgent(&in, quietLog); e != nil || in.mrDismissals != nil {
 		t.Errorf("no flag: error %+v, mrDismissals %+v", e, in.mrDismissals)
 	}

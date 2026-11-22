@@ -34,7 +34,7 @@ The judge Job needs no reviewer's key: the judge does every check. No run gets a
 | `--multi-review` | Merge the `--reviewer` results into one result, with one judge run per skill on the `OPENCODE_*` model |
 | `--reviewer <file>` | A reviewer's agent result. Repeat it 1 to 5 times, in reviewer order. A trusted input: it must be outside `--repo-path` |
 | `--no-judge` | Run no model. Merge by file, line and title (an exact merge) |
-| `--mr-dismissals <file>` | The merge request's stored dismissals, as JSON `[{"fingerprint": "...", "severity": "blocking"}, ...]`, where `severity` is `blocking` or `suggestion`. A trusted input: it must be outside `--repo-path`. A judge never links a finding that one of these entries covers (see [Dismissals](#dismissals)). Leave the flag out, or pass a file with `[]` or `null`, for none |
+| `--mr-dismissals <file>` | The merge request's stored dismissals, as JSON `[{"fingerprint": "...", "severity": "blocking"}, ...]`, where `severity` is `blocking` or `suggestion`. A trusted input: it must be outside `--repo-path`. A judge never links a finding that one of these entries covers (see [Dismissals](#dismissals)). Required unless `--no-judge` is set. Pass every dismissal the comment applies, including the ones it matches through `multi_review.also`. With none, pass a file with `[]` or `null` |
 
 `--reviewer`, `--no-judge` and `--mr-dismissals` need `--multi-review`.
 
@@ -53,6 +53,7 @@ Usage errors (exit 2):
 | `--reviewer <n> is empty` | An empty path |
 | `--reviewer <i> and --reviewer <j> name the same file` | The same file twice |
 | `--reviewer needs --multi-review`, `--no-judge needs --multi-review`, `--mr-dismissals needs --multi-review` | The flag without `--multi-review` |
+| `--multi-review requires --mr-dismissals (an empty [] when the merge request has no dismissals)` | No `--mr-dismissals` and no `--no-judge`. A forgotten file would read as "no dismissals", and a judge link could then hide a real finding |
 | `--mr-dismissals is empty` | `--mr-dismissals ""` |
 | `--mr-dismissals <file>: <reason>` | The file can't be read, is not a JSON list, or has an entry with no fingerprint or with another severity. This is never a warning: with a dismissal the judge does not know of, a link could join a finding that the comment will dismiss |
 | `--reviewer <n> <file> is inside --repo-path: ...` | A reviewer file in the checkout. `--mr-dismissals` gets the same check |
@@ -150,7 +151,7 @@ The judge's reason and a skip reason are put on one line and cut to 300 bytes. T
 
 A merged finding stands for its group. The result keeps the fingerprints of the group's other findings in `multi_review.also`. A dismissal of the finding's own fingerprint, or of any fingerprint in `also`, dismisses it, by the usual rule: a `suggestion` dismissal does not dismiss a blocking finding.
 
-A finding that an `--mr-dismissals` entry covers is never linked to another one. An entry covers a finding with the same stored fingerprint and a severity no higher than the entry's. So a dismissal can't hide a real finding of another reviewer.
+A finding that an `--mr-dismissals` entry covers is never linked to another one. An entry covers a finding with the same stored fingerprint and a severity no higher than the entry's. So a dismissal can't hide a real finding of another reviewer, as long as `--mr-dismissals` holds every dismissal the comment applies. That is why the flag is required for a judge Job.
 
 `--dismissals` is only the teaching set: the judge gets its blocking entries as `rejected-findings.json`, but they never stop a link. The comment does not apply them, so a finding they match is not dismissed. If they stopped links, 2 reviewers' copies of one blocking finding could be split into 2 groups of 1, and the judge could demote both.
 

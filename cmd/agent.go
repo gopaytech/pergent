@@ -104,9 +104,10 @@ type agentInputs struct {
 	multiReview   bool
 	reviewerPaths reviewerFlag
 	noJudge       bool
-	// mrDismissalsPath is --mr-dismissals. mrDismissals are the merge
-	// request's dismissals it holds, with only Fingerprint and Severity set:
-	// a judge never links a finding one covers.
+	// mrDismissalsPath is --mr-dismissals, required with --multi-review
+	// unless --no-judge. mrDismissals are the merge request's dismissals it
+	// holds, with only Fingerprint and Severity set: a judge never links a
+	// finding one covers.
 	mrDismissalsPath string
 	mrDismissals     []render.Dismissal
 	// $HOME and $XDG_CONFIG_HOME, where opencode finds its global config.
@@ -443,7 +444,7 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 	flags.BoolVar(&in.multiReview, "multi-review", false, "Merge the --reviewer results into one result, with one judge run per skill on the OPENCODE_* model")
 	flags.Var(&in.reviewerPaths, "reviewer", "A reviewer's agent result, outside --repo-path; repeat it in reviewer order (1 to 5)")
 	flags.BoolVar(&in.noJudge, "no-judge", false, "With --multi-review: run no model; merge by file, line and title")
-	flags.StringVar(&in.mrDismissalsPath, "mr-dismissals", "", "With --multi-review: a JSON file [{\"fingerprint\", \"severity\"}, ...] of the merge request's dismissals; a judge never links a finding one covers")
+	flags.StringVar(&in.mrDismissalsPath, "mr-dismissals", "", "With --multi-review: a JSON file [{\"fingerprint\", \"severity\"}, ...] of the merge request's dismissals; a judge never links a finding one covers. Required unless --no-judge ([] for none)")
 	// CI-mode flags, defined only to refuse them by name.
 	flags.BoolVar(&local, "local", false, "CI mode only")
 	flags.StringVar(&platformFlag, "platform", "", "CI mode only")
@@ -498,7 +499,6 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 		case n > multireview.MaxReviewers:
 			return usage("--multi-review takes at most %d --reviewer files, got %d", multireview.MaxReviewers, n)
 		}
-		// Leaving --mr-dismissals out is none; an empty value is a mistake.
 		if set["mr-dismissals"] && in.mrDismissalsPath == "" {
 			return usage("--mr-dismissals is empty")
 		}
@@ -511,6 +511,12 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 					return usage("--reviewer %d and --reviewer %d name the same file", j+1, i+1)
 				}
 			}
+		}
+		// A judge must know every dismissal the comment applies: a forgotten
+		// flag would read as "none", and a link could then hide a real
+		// finding. --no-judge links nothing.
+		if !in.noJudge && !set["mr-dismissals"] {
+			return usage("--multi-review requires --mr-dismissals (an empty [] when the merge request has no dismissals)")
 		}
 	} else {
 		for _, n := range []string{"reviewer", "no-judge", "mr-dismissals"} {
