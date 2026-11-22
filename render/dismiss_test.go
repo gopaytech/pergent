@@ -211,3 +211,33 @@ func TestApplyDismissalsNoFingerprintNoAlso(t *testing.T) {
 		t.Fatalf("got %+v", got[0])
 	}
 }
+
+func TestCovers(t *testing.T) {
+	blocking := []Dismissal{{Fingerprint: "fp", Severity: "blocking"}}
+	suggestion := []Dismissal{{Fingerprint: "fp", Severity: "suggestion"}}
+	for _, tc := range []struct {
+		name string
+		ds   []Dismissal
+		fp   string
+		sev  Severity
+		want bool
+	}{
+		{"empty fingerprint", []Dismissal{{Fingerprint: "", Severity: "blocking"}}, "", Blocking, false},
+		{"blocking over blocking", blocking, "fp", Blocking, true},
+		{"blocking over suggestion", blocking, "fp", Suggestion, true},
+		{"suggestion over suggestion", suggestion, "fp", Suggestion, true},
+		{"suggestion over blocking", suggestion, "fp", Blocking, false},
+		{"unknown severity", []Dismissal{{Fingerprint: "fp", Severity: "other"}}, "fp", Suggestion, false},
+		{"other fingerprint", blocking, "fq", Blocking, false},
+		{"none", nil, "fp", Blocking, false},
+	} {
+		if got := Covers(tc.ds, tc.fp, tc.sev); got != tc.want {
+			t.Errorf("%s: Covers = %v, want %v", tc.name, got, tc.want)
+		}
+		// ApplyDismissals gives the same answer.
+		s := []Skill{{Name: "s", Verdict: VerdictHasBlockingIssues, Findings: []Finding{{Fingerprint: tc.fp, Severity: tc.sev, Title: "t"}}}}
+		if got := len(ApplyDismissals(s, tc.ds)[0].Dismissed) == 1; got != tc.want {
+			t.Errorf("%s: ApplyDismissals dismissed = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}

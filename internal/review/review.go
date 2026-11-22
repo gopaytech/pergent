@@ -26,6 +26,7 @@ import (
 	"github.com/gopaytech/pergent/internal/redact"
 	"github.com/gopaytech/pergent/internal/runner"
 	"github.com/gopaytech/pergent/internal/skill"
+	"github.com/gopaytech/pergent/render"
 	"github.com/gopaytech/pergent/rule"
 )
 
@@ -61,6 +62,11 @@ type Request struct {
 	// reviews. A skill's list is attached to its batch runs, its cross-batch
 	// run and, for the blocking entries, its verification run.
 	Dismissals map[string][]finding.Rejected
+	// MRDismissals are the merge request's stored dismissals, the ones render
+	// applies to the result. They are used only so a multi review judge link
+	// never joins a finding render will dismiss. They are never sent to a
+	// model. Nil changes nothing.
+	MRDismissals []render.Dismissal
 	// CheckDeleted reviews the files the change deletes in each skill's
 	// batches, like any changed file, and has the runs check what still refers
 	// to them. One run per skill (its first batch, or a run with no diff when it

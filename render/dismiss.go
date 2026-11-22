@@ -69,18 +69,32 @@ func ApplyDismissals(skills []Skill, ds []Dismissal) []Skill {
 	return out
 }
 
-// covering returns the first dismissal that covers f. A finding without a
-// fingerprint can't be dismissed.
+// covering returns the first dismissal that covers f.
 func covering(ds []Dismissal, f Finding) (Dismissal, bool) {
-	if f.Fingerprint == "" {
-		return Dismissal{}, false
-	}
 	for _, d := range ds {
-		if d.Fingerprint == f.Fingerprint && severityRank(f.Severity) <= dismissalRank(d.Severity) {
+		if covers(d, f.Fingerprint, f.Severity) {
 			return d, true
 		}
 	}
 	return Dismissal{}, false
+}
+
+// Covers reports whether a dismissal in ds covers a finding with this
+// fingerprint and severity, by the rule ApplyDismissals uses: the same
+// fingerprint, and a severity no higher than the dismissal's. A finding
+// without a fingerprint can't be dismissed.
+func Covers(ds []Dismissal, fingerprint string, sev Severity) bool {
+	for _, d := range ds {
+		if covers(d, fingerprint, sev) {
+			return true
+		}
+	}
+	return false
+}
+
+// covers is the one rule of what a dismissal covers.
+func covers(d Dismissal, fingerprint string, sev Severity) bool {
+	return fingerprint != "" && d.Fingerprint == fingerprint && severityRank(sev) <= dismissalRank(d.Severity)
 }
 
 func hasBlocking(fs []Finding) bool {

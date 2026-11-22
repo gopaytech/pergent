@@ -19,6 +19,7 @@ import (
 	"github.com/gopaytech/pergent/internal/multireview"
 	"github.com/gopaytech/pergent/internal/runner"
 	"github.com/gopaytech/pergent/internal/skill"
+	"github.com/gopaytech/pergent/render"
 	"github.com/gopaytech/pergent/rule"
 )
 
@@ -675,4 +676,61 @@ func TestRunMultiReviewSkillsInOrder(t *testing.T) {
 func judgeAnswer(t *testing.T, results ...map[string]any) string {
 	t.Helper()
 	return verifyAnswer(t, results...)
+}
+
+// mrDismissalLink is reviewer 1 with find11 and reviewer 2 with find21, a
+// judge that links them, and the merge request's dismissals ds.
+func mrDismissalLink(t *testing.T, ds []render.Dismissal) SkillResult {
+	t.Helper()
+	f := &judgeFake{t: t}
+	f.respond = answerWith(judgeAnswer(t,
+		map[string]any{"id": "1.1", "real": true, "reason": "yes", "same_as": []string{"2.1"}},
+		map[string]any{"id": "2.1", "real": true, "reason": "yes", "same_as": []string{}}))
+	req := multiRequest(t, f, reviewerResult(find11), reviewerResult(find21))
+	req.MRDismissals = ds
+	res := runMulti(t, req)
+	if len(f.calls) != 1 {
+		t.Fatalf("%d runs, want 1", len(f.calls))
+	}
+	return res
+}
+
+// TestRunMultiReviewMRDismissalLinksNothing: no teaching dismissals, but the
+// merge request dismissed 2.1's stored fingerprint. The link is ignored, so
+// render's dismissal of 2.1 cannot hide 1.1.
+func TestRunMultiReviewMRDismissalLinksNothing(t *testing.T) {
+	res := mrDismissalLink(t, []render.Dismissal{{Fingerprint: find21.Fingerprint, Severity: "blocking"}})
+
+	if got := titles(res.Findings); !slices.Equal(got, []string{find11.Title, find21.Title}) {
+		t.Fatalf("titles = %v", got)
+	}
+	if tag := res.MultiReview.Tags[0]; tag.Also != nil || !slices.Equal(tag.FoundBy, []int{1}) {
+		t.Errorf("tag = %+v", tag)
+	}
+}
+
+// TestRunMultiReviewMRDismissalSuggestionDoesNotCoverBlocking: a suggestion
+// dismissal does not cover the blocking 2.1, as in render, so the link holds.
+func TestRunMultiReviewMRDismissalSuggestionDoesNotCoverBlocking(t *testing.T) {
+	res := mrDismissalLink(t, []render.Dismissal{{Fingerprint: find21.Fingerprint, Severity: "suggestion"}})
+
+	if len(res.Findings) != 1 || !slices.Equal(res.MultiReview.Tags[0].Also, []string{find21.Fingerprint}) {
+		t.Errorf("findings %+v, tags %+v", res.Findings, res.MultiReview.Tags)
+	}
+}
+
+// TestRunMultiReviewJudgeNotStarted: a run that can't start is skipped, and
+// the merge is exact.
+func TestRunMultiReviewJudgeNotStarted(t *testing.T) {
+	f := &judgeFake{t: t}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	rs := RunMultiReview(ctx, exactPair(t, f))
+	if len(rs) != 1 || rs[0].MultiReview == nil {
+		t.Fatalf("results = %+v", rs)
+	}
+	if len(f.calls) != 0 {
+		t.Errorf("%d runs started", len(f.calls))
+	}
+	checkExact(t, rs[0], JudgeSkipped)
 }

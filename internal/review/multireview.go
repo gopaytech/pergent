@@ -16,6 +16,7 @@ import (
 	"github.com/gopaytech/pergent/internal/multireview"
 	"github.com/gopaytech/pergent/internal/runner"
 	"github.com/gopaytech/pergent/internal/skill"
+	"github.com/gopaytech/pergent/render"
 )
 
 const (
@@ -367,19 +368,25 @@ func lowestConfidence(use []numbered) (int, string) {
 	return low.Confidence, low.ConfidenceReason
 }
 
-// dismissedIDs returns the IDs of the items a dismissal in r.req.Dismissals
-// for skill name covers, by the rule render.ApplyDismissals uses: the same
-// fingerprint (finding.Fingerprint of the entry's file and title), and a
-// finding no more severe than the dismissal. The item's own fingerprint and
-// the one its file and title give both count, so a carried fingerprint is
-// matched too.
+// dismissedIDs returns the IDs of the items a dismissal covers, so the
+// merge never links them. Two sets count:
+//   - r.req.Dismissals for skill name (the teaching set): the fingerprint of
+//     the entry's file and title (finding.Fingerprint) is the item's own or
+//     the one its file and title give, so a carried fingerprint is matched
+//     too, and the finding is no more severe than the dismissal.
+//   - r.req.MRDismissals: every dismissal render applies, by render.Covers
+//     on the item's stored fingerprint and severity.
 func (r *reviewer) dismissedIDs(name string, items []multireview.Item) map[string]bool {
 	ds := r.req.Dismissals[name]
-	if len(ds) == 0 {
+	if len(ds) == 0 && len(r.req.MRDismissals) == 0 {
 		return nil
 	}
 	out := map[string]bool{}
 	for _, it := range items {
+		if render.Covers(r.req.MRDismissals, it.Fingerprint, render.Severity(it.Severity)) {
+			out[it.ID] = true
+			continue
+		}
 		own := finding.Fingerprint(name, it.File, it.Title)
 		for _, d := range ds {
 			fp := finding.Fingerprint(name, d.File, d.Title)
