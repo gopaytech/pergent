@@ -734,3 +734,321 @@ func TestRunMultiReviewJudgeNotStarted(t *testing.T) {
 	}
 	checkExact(t, rs[0], JudgeSkipped)
 }
+
+// failedResult is a reviewer's failed review of skill "s".
+func failedResult(messages ...string) SkillResult {
+	res := SkillResult{Skill: "s", Verdict: Failed}
+	for _, m := range messages {
+		res.Failures = append(res.Failures, BatchFailure{Message: m})
+	}
+	return res
+}
+
+// noteWith returns the first note of res that starts with prefix.
+func noteWith(res SkillResult, prefix string) string {
+	for _, n := range res.Notes {
+		if strings.HasPrefix(n, prefix) {
+			return n
+		}
+	}
+	return ""
+}
+
+// checkOneVerified checks a skill only reviewer 2 can be used for, whose
+// blocking find21 the verify run judged not real, and whose find12 is kept.
+func checkOneVerified(t *testing.T, f *judgeFake, res SkillResult, failed []int) {
+	t.Helper()
+	if len(f.calls) != 1 {
+		t.Fatalf("%d runs, want 1", len(f.calls))
+	}
+	c := f.calls[0]
+	if !strings.HasPrefix(c.prompt, verifyPrompt) || c.opts.LogPrefix != "[s verify]" {
+		t.Errorf("prompt %q, log prefix %q", c.prompt, c.opts.LogPrefix)
+	}
+	if c.opts.Env != nil {
+		t.Errorf("Env = %v, want nil", c.opts.Env)
+	}
+	want := "Verification dropped 1 of 1 blocking finding: " + find21.Title + " (guarded)"
+	if got := noteWith(res, "Verification dropped"); got != want {
+		t.Errorf("note = %q, want %q (notes %v)", got, want, res.Notes)
+	}
+	if got := titles(res.Findings); !slices.Equal(got, []string{find12.Title}) {
+		t.Fatalf("titles = %v", got)
+	}
+	mr := res.MultiReview
+	if !slices.Equal(mr.Reviewers, []int{2}) || !slices.Equal(mr.Failed, failed) || mr.Judge != JudgeOK || mr.Cause != nil || mr.Exact {
+		t.Errorf("multi review = %+v", mr)
+	}
+	if !slices.Equal(mr.Tags[0].FoundBy, []int{2}) {
+		t.Errorf("tag = %+v", mr.Tags[0])
+	}
+	if res.Verdict != NoBlockingIssues || len(res.Runs) != 1 || res.Runs[0].Label != "verify" {
+		t.Errorf("verdict %s, runs %+v", res.Verdict, res.Runs)
+	}
+}
+
+// TestRunMultiReviewOneUsableVerifies: reviewer 1 failed, so reviewer 2's
+// blocking finding is verified as a review on one model verifies it, and the
+// "not real" one is dropped with that review's note.
+func TestRunMultiReviewOneUsableVerifies(t *testing.T) {
+	f := &judgeFake{t: t}
+	f.respond = answerWith(verifyAnswer(t, map[string]any{"id": "1", "real": false, "reason": "guarded"}))
+	res := runMulti(t, multiRequest(t, f, failedResult("boom"), reviewerResult(find21, find12)))
+
+	checkOneVerified(t, f, res, []int{1})
+}
+
+// TestRunMultiReviewSingleReviewer: one --reviewer in all is verified the
+// same way, with no failed reviewer.
+func TestRunMultiReviewSingleReviewer(t *testing.T) {
+	f := &judgeFake{t: t}
+	f.respond = answerWith(verifyAnswer(t, map[string]any{"id": "1", "real": false, "reason": "guarded"}))
+	req := multiRequest(t, f, reviewerResult(find21, find12))
+	req.Reviewers[0].Number = 2
+	res := runMulti(t, req)
+
+	checkOneVerified(t, f, res, nil)
+}
+
+func TestRunMultiReviewOneUsableNoBlocking(t *testing.T) {
+	f := &judgeFake{t: t}
+	res := runMulti(t, multiRequest(t, f, reviewerResult(find12), failedResult("boom")))
+
+	if len(f.calls) != 0 {
+		t.Errorf("%d runs started", len(f.calls))
+	}
+	mr := res.MultiReview
+	if mr.Judge != JudgeNotRun || mr.Exact || !slices.Equal(mr.Reviewers, []int{1}) || !slices.Equal(mr.Failed, []int{2}) {
+		t.Errorf("multi review = %+v", mr)
+	}
+	if len(res.Findings) != 1 || !slices.Equal(mr.Tags[0].FoundBy, []int{1}) || res.Verdict != NoBlockingIssues {
+		t.Errorf("findings %+v, tags %+v, verdict %s", res.Findings, mr.Tags, res.Verdict)
+	}
+}
+
+// TestRunMultiReviewOneUsableVerifyFails: a failed verify run keeps every
+// finding, and its cause reaches the result.
+func TestRunMultiReviewOneUsableVerifyFails(t *testing.T) {
+	auth := &runner.Cause{Kind: runner.CauseOpencodeError, ProviderClass: runner.ClassAuth, ProviderStatus: 401}
+	f := &judgeFake{t: t}
+	f.respond = func(judgeCall) runner.RunResult { return runner.RunResult{Status: runner.StatusFailed, Cause: auth} }
+	res := runMulti(t, multiRequest(t, f, failedResult("boom"), reviewerResult(find21)))
+
+	if len(f.calls) != 1 {
+		t.Fatalf("%d runs, want 1", len(f.calls))
+	}
+	mr := res.MultiReview
+	if mr.Judge != JudgeFailed || mr.Cause != auth || mr.Exact {
+		t.Errorf("multi review = %+v", mr)
+	}
+	if noteWith(res, "Verification failed: ") == "" {
+		t.Errorf("notes = %v", res.Notes)
+	}
+	checkBlocking(t, res, 1)
+	if res.Verdict != HasBlockingIssues || !slices.Equal(mr.Tags[0].FoundBy, []int{2}) {
+		t.Errorf("verdict %s, tags %+v", res.Verdict, mr.Tags)
+	}
+}
+
+// TestRunMultiReviewOneUsableBadAnswer: an answer that can't be read keeps
+// every finding, and the judge status says it failed.
+func TestRunMultiReviewOneUsableBadAnswer(t *testing.T) {
+	f := &judgeFake{t: t}
+	f.respond = answerWith("no json here")
+	res := runMulti(t, multiRequest(t, f, reviewerResult(find11)))
+
+	if mr := res.MultiReview; mr.Judge != JudgeFailed || mr.Cause != nil {
+		t.Errorf("multi review = %+v", mr)
+	}
+	if noteWith(res, "Verification failed: ") == "" {
+		t.Errorf("notes = %v", res.Notes)
+	}
+	checkBlocking(t, res, 1)
+}
+
+func TestRunMultiReviewOneUsableLowBudget(t *testing.T) {
+	f := &judgeFake{t: t}
+	req := multiRequest(t, f, reviewerResult(find11), failedResult("boom"))
+	req.Budget = time.Minute
+	res := runMulti(t, req)
+
+	if len(f.calls) != 0 {
+		t.Errorf("%d runs started", len(f.calls))
+	}
+	if mr := res.MultiReview; mr.Judge != JudgeSkipped || mr.Exact {
+		t.Errorf("multi review = %+v", mr)
+	}
+	if noteWith(res, "Verification skipped: ") == "" {
+		t.Errorf("notes = %v", res.Notes)
+	}
+	checkBlocking(t, res, 1)
+}
+
+// TestRunMultiReviewOneUsableNotStarted: a verify run that can't start is
+// skipped, and the finding stays blocking.
+func TestRunMultiReviewOneUsableNotStarted(t *testing.T) {
+	f := &judgeFake{t: t}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	rs := RunMultiReview(ctx, multiRequest(t, f, reviewerResult(find11)))
+	if len(rs) != 1 || rs[0].MultiReview == nil {
+		t.Fatalf("results = %+v", rs)
+	}
+	if len(f.calls) != 0 {
+		t.Errorf("%d runs started", len(f.calls))
+	}
+	if rs[0].MultiReview.Judge != JudgeSkipped || noteWith(rs[0], "Verification skipped: ") == "" {
+		t.Errorf("multi review %+v, notes %v", rs[0].MultiReview, rs[0].Notes)
+	}
+	checkBlocking(t, rs[0], 1)
+}
+
+func TestRunMultiReviewNoneFails(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		rs   []SkillResult
+		want string
+	}{
+		{"first has failures", []SkillResult{failedResult("one"), failedResult("two")}, "one"},
+		{"first has none", []SkillResult{failedResult(), failedResult("two")}, "two"},
+	} {
+		f := &judgeFake{t: t}
+		req := multiRequest(t, f, tc.rs...)
+		slices.Reverse(req.Reviewers) // the number is the order, not the slice
+		res := runMulti(t, req)
+
+		if len(f.calls) != 0 {
+			t.Errorf("%s: %d runs started", tc.name, len(f.calls))
+		}
+		if res.Verdict != Failed || len(res.Failures) != 1 || res.Failures[0].Message != tc.want || res.Findings != nil {
+			t.Errorf("%s: verdict %s, failures %+v, findings %+v", tc.name, res.Verdict, res.Failures, res.Findings)
+		}
+		mr := res.MultiReview
+		if mr.Reviewers == nil || len(mr.Reviewers) != 0 || !slices.Equal(mr.Failed, []int{1, 2}) || mr.Judge != JudgeNotRun || mr.Exact {
+			t.Errorf("%s: multi review = %+v", tc.name, mr)
+		}
+	}
+}
+
+func TestRunMultiReviewNoneNoFailures(t *testing.T) {
+	f := &judgeFake{t: t}
+	req := multiRequest(t, f)
+	for n := 1; n <= 2; n++ {
+		req.Reviewers = append(req.Reviewers, Reviewer{Number: n, Skills: map[string]SkillResult{"other": reviewerResult(find11)}})
+	}
+	res := runMulti(t, req)
+
+	if res.Skill != "s" || res.Verdict != Failed || len(res.Failures) != 1 || res.Failures[0].Message != NoReviewerReview {
+		t.Errorf("result = %+v", res)
+	}
+	if !slices.Equal(res.MultiReview.Failed, []int{1, 2}) {
+		t.Errorf("multi review = %+v", res.MultiReview)
+	}
+}
+
+func TestRunMultiReviewNoJudge(t *testing.T) {
+	f := &judgeFake{t: t}
+	req := exactPair(t, f)
+	req.NoJudge = true
+	checkExact(t, runMulti(t, req), JudgeSkipped)
+
+	req = multiRequest(t, f, reviewerResult(find11), failedResult("boom"))
+	req.NoJudge = true
+	res := runMulti(t, req)
+	if mr := res.MultiReview; mr.Judge != JudgeSkipped || !mr.Exact || !slices.Equal(mr.Tags[0].FoundBy, []int{1}) {
+		t.Errorf("multi review = %+v", mr)
+	}
+	if n := noteWith(res, "Verification"); n != "" {
+		t.Errorf("note %q", n)
+	}
+	checkBlocking(t, res, 1)
+	if len(f.calls) != 0 {
+		t.Errorf("%d runs started", len(f.calls))
+	}
+}
+
+// multiImpactRequest is reviewers with no finding for skill "s", and imp[n-1] as
+// reviewer n's impact check.
+func multiImpactRequest(t *testing.T, f *judgeFake, imp ...SkillResult) MultiReviewRequest {
+	t.Helper()
+	req := multiRequest(t, f)
+	for i, res := range imp {
+		res.Skill = ImpactSkill
+		req.Reviewers = append(req.Reviewers, Reviewer{Number: i + 1, Skills: map[string]SkillResult{"s": reviewerResult(), ImpactSkill: res}})
+	}
+	return req
+}
+
+// runImpact runs req and returns the impact check, which comes last.
+func runImpact(t *testing.T, f *judgeFake, req MultiReviewRequest) SkillResult {
+	t.Helper()
+	rs := RunMultiReview(context.Background(), req)
+	if len(rs) != 2 || rs[0].Skill != "s" || rs[1].Skill != ImpactSkill {
+		t.Fatalf("results = %+v", rs)
+	}
+	if len(f.calls) != 0 {
+		t.Errorf("%d runs started", len(f.calls))
+	}
+	res := rs[1]
+	if res.MultiReview == nil || len(res.MultiReview.Tags) != len(res.Findings) {
+		t.Fatalf("impact = %+v", res)
+	}
+	return res
+}
+
+// TestRunMultiReviewImpactIsExact: the impact check is merged by file, line
+// and title with no run, since each reviewer verified its own.
+func TestRunMultiReviewImpactIsExact(t *testing.T) {
+	same := find11
+	same.Explanation, same.Fingerprint = "other words", "f22"
+	f := &judgeFake{t: t}
+	res := runImpact(t, f, multiImpactRequest(t, f, reviewerResult(find11), reviewerResult(same, find21), failedResult("boom")))
+
+	if got := titles(res.Findings); !slices.Equal(got, []string{find11.Title, find21.Title}) {
+		t.Fatalf("titles = %v", got)
+	}
+	checkBlocking(t, res, 2)
+	mr := res.MultiReview
+	if !slices.Equal(mr.Reviewers, []int{1, 2}) || !slices.Equal(mr.Failed, []int{3}) || mr.Judge != JudgeNotRun || mr.Exact {
+		t.Errorf("multi review = %+v", mr)
+	}
+	if !slices.Equal(mr.Tags[0].FoundBy, []int{1, 2}) || !slices.Equal(mr.Tags[1].FoundBy, []int{2}) || res.Verdict != HasBlockingIssues {
+		t.Errorf("tags %+v, verdict %s", mr.Tags, res.Verdict)
+	}
+
+	f = &judgeFake{t: t}
+	res = runImpact(t, f, multiImpactRequest(t, f, failedResult("boom"), reviewerResult(find21)))
+	mr = res.MultiReview
+	if got := titles(res.Findings); !slices.Equal(got, []string{find21.Title}) || !slices.Equal(mr.Tags[0].FoundBy, []int{2}) {
+		t.Errorf("titles %v, tags %+v", got, mr.Tags)
+	}
+	if !slices.Equal(mr.Reviewers, []int{2}) || !slices.Equal(mr.Failed, []int{1}) || mr.Judge != JudgeNotRun || res.Verdict != HasBlockingIssues {
+		t.Errorf("multi review %+v, verdict %s", mr, res.Verdict)
+	}
+
+	f = &judgeFake{t: t}
+	res = runImpact(t, f, multiImpactRequest(t, f, failedResult("one"), failedResult("two")))
+	if res.Verdict != Failed || len(res.Failures) != 1 || res.Failures[0].Message != "one" {
+		t.Errorf("verdict %s, failures %+v", res.Verdict, res.Failures)
+	}
+}
+
+// TestRunMultiReviewLoadedImpactSkillIsJudged: a loaded skill with the
+// impact check's name is merged like any skill, and no check is added.
+func TestRunMultiReviewLoadedImpactSkillIsJudged(t *testing.T) {
+	f := &judgeFake{t: t}
+	f.respond = answerWith(judgeAnswer(t))
+	req := multiRequest(t, f)
+	req.Skills = []skill.Skill{{Name: ImpactSkill, Body: "Review it."}}
+	for n, fd := range []finding.Finding{find11, find21} {
+		req.Reviewers = append(req.Reviewers, Reviewer{Number: n + 1, Skills: map[string]SkillResult{ImpactSkill: reviewerResult(fd)}})
+	}
+	rs := RunMultiReview(context.Background(), req)
+
+	if len(rs) != 1 || rs[0].Skill != ImpactSkill || rs[0].MultiReview == nil {
+		t.Fatalf("results = %+v", rs)
+	}
+	if len(f.calls) != 1 || !strings.HasPrefix(f.calls[0].prompt, judgePrompt) || rs[0].MultiReview.Judge != JudgeOK {
+		t.Errorf("%d runs, multi review %+v", len(f.calls), rs[0].MultiReview)
+	}
+}
