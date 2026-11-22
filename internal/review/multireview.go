@@ -298,8 +298,8 @@ func (r *reviewer) multiSkill(ctx context.Context, s skill.Skill, req MultiRevie
 	}
 	mr.Exact = answers == nil
 	// A dismissal of any finding of a group dismisses the whole group, so a
-	// finding people dismissed must not be linked to another.
-	merged := multireview.Merge(items, answers, r.dismissedIDs(s.Name, items))
+	// finding the merge request dismissed must not be linked to another.
+	merged := multireview.Merge(items, answers, r.dismissedIDs(items))
 	res.Findings = make([]finding.Finding, len(merged))
 	mr.Tags = make([]multireview.Tag, len(merged))
 	for i, m := range merged {
@@ -450,34 +450,20 @@ func lowestConfidence(use []numbered) (int, string) {
 	return low.Confidence, low.ConfidenceReason
 }
 
-// dismissedIDs returns the IDs of the items a dismissal covers, so the
-// merge never links them. Two sets count:
-//   - r.req.Dismissals for skill name (the teaching set): the fingerprint of
-//     the entry's file and title (finding.Fingerprint) is the item's own or
-//     the one its file and title give, so a carried fingerprint is matched
-//     too, and the finding is no more severe than the dismissal.
-//   - r.req.MRDismissals: every dismissal render applies, by render.Covers
-//     on the item's stored fingerprint and severity.
-func (r *reviewer) dismissedIDs(name string, items []multireview.Item) map[string]bool {
-	ds := r.req.Dismissals[name]
-	if len(ds) == 0 && len(r.req.MRDismissals) == 0 {
+// dismissedIDs returns the IDs of the items a dismissal render applies
+// covers (r.req.MRDismissals, by render.Covers on the item's stored
+// fingerprint and severity), so the merge never links them. The teaching set
+// (r.req.Dismissals) does not count: render never applies it, so a finding
+// it matches is not dismissed, and leaving it out of the links would split a
+// group 2 reviewers marked blocking. The judge still gets it as context.
+func (r *reviewer) dismissedIDs(items []multireview.Item) map[string]bool {
+	if len(r.req.MRDismissals) == 0 {
 		return nil
 	}
 	out := map[string]bool{}
 	for _, it := range items {
 		if render.Covers(r.req.MRDismissals, it.Fingerprint, render.Severity(it.Severity)) {
 			out[it.ID] = true
-			continue
-		}
-		own := finding.Fingerprint(name, it.File, it.Title)
-		for _, d := range ds {
-			fp := finding.Fingerprint(name, d.File, d.Title)
-			covers := d.Severity == string(finding.Blocking) ||
-				(d.Severity == string(finding.Suggestion) && it.Severity == finding.Suggestion)
-			if covers && (fp == own || fp == it.Fingerprint) {
-				out[it.ID] = true
-				break
-			}
 		}
 	}
 	return out

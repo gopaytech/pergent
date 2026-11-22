@@ -566,10 +566,30 @@ func TestRunMultiReviewRejectedAttached(t *testing.T) {
 }
 
 // TestRunMultiReviewDismissedFindingLinksNothing: reviewer 2 reports a
-// finding people dismissed as blocking, and the judge links reviewer 1's
-// blocking finding to it. The link is ignored, so the dismissal cannot hide
-// reviewer 1's finding.
+// finding the merge request dismissed as blocking, and the judge links
+// reviewer 1's blocking finding to it. The link is ignored, so the dismissal
+// cannot hide reviewer 1's finding.
 func TestRunMultiReviewDismissedFindingLinksNothing(t *testing.T) {
+	old := finding.Finding{File: "a/x.go", Line: 7, Severity: finding.Blocking, Title: "Old dismissed bug", Explanation: "e", Fingerprint: "fold"}
+	f := &judgeFake{t: t}
+	f.respond = answerWith(judgeAnswer(t,
+		map[string]any{"id": "1.1", "real": true, "reason": "yes", "same_as": []string{"2.1"}},
+		map[string]any{"id": "2.1", "real": true, "reason": "yes", "same_as": []string{"1.1"}}))
+	req := multiRequest(t, f, reviewerResult(find11), reviewerResult(old))
+	req.MRDismissals = []render.Dismissal{{Fingerprint: old.Fingerprint, Severity: "blocking"}}
+	res := runMulti(t, req)
+
+	if got := titles(res.Findings); !slices.Equal(got, []string{find11.Title, old.Title}) {
+		t.Fatalf("titles = %v", got)
+	}
+	if tag := res.MultiReview.Tags[0]; tag.Also != nil || !slices.Equal(tag.FoundBy, []int{1}) {
+		t.Errorf("tag = %+v", tag)
+	}
+}
+
+// TestRunMultiReviewTeachingSetLinks: a --dismissals entry is only what the
+// judge learns from. Render does not apply it, so it does not stop a link.
+func TestRunMultiReviewTeachingSetLinks(t *testing.T) {
 	old := finding.Finding{File: "a/x.go", Line: 7, Severity: finding.Blocking, Title: "Old dismissed bug", Explanation: "e"}
 	old.Fingerprint = finding.Fingerprint("s", old.File, old.Title)
 	f := &judgeFake{t: t}
@@ -580,11 +600,41 @@ func TestRunMultiReviewDismissedFindingLinksNothing(t *testing.T) {
 	req.Dismissals = map[string][]finding.Rejected{"s": {{File: old.File, Title: old.Title, Severity: string(finding.Blocking), Reason: "fine"}}}
 	res := runMulti(t, req)
 
-	if got := titles(res.Findings); !slices.Equal(got, []string{find11.Title, old.Title}) {
-		t.Fatalf("titles = %v", got)
+	if len(res.Findings) != 1 || !slices.Equal(res.MultiReview.Tags[0].FoundBy, []int{1, 2}) {
+		t.Errorf("findings %+v, tags %+v", res.Findings, res.MultiReview.Tags)
 	}
-	if tag := res.MultiReview.Tags[0]; tag.Also != nil || !slices.Equal(tag.FoundBy, []int{1}) {
+}
+
+// TestRunMultiReviewTeachingSetKeepsAgreed: reviewers 1 and 2 report the
+// same blocking finding, a --dismissals entry from another merge request has
+// its file and title, and the judge says neither copy is real. The entry
+// still reaches the judge, but the 2 copies stay one group 2 reviewers
+// marked blocking, so it stays blocking.
+func TestRunMultiReviewTeachingSetKeepsAgreed(t *testing.T) {
+	same := find11
+	same.Explanation, same.Fingerprint = "other words", "f22"
+	f := &judgeFake{t: t}
+	f.respond = answerWith(judgeAnswer(t,
+		map[string]any{"id": "1.1", "real": false, "reason": "no", "same_as": []string{}},
+		map[string]any{"id": "2.1", "real": false, "reason": "no", "same_as": []string{}}))
+	req := multiRequest(t, f, reviewerResult(find11), reviewerResult(same))
+	req.Dismissals = map[string][]finding.Rejected{"s": {{File: find11.File, Title: find11.Title, Severity: string(finding.Blocking), Reason: "fine"}}}
+	res := runMulti(t, req)
+
+	if len(f.calls) != 1 {
+		t.Fatalf("%d runs, want 1", len(f.calls))
+	}
+	if _, ok := f.calls[0].contents[rejectedFile]; !ok {
+		t.Errorf("no %s in %v", rejectedFile, f.calls[0].opts.Files)
+	}
+	if len(res.Findings) != 1 || res.Findings[0].Severity != finding.Blocking {
+		t.Fatalf("findings = %+v", res.Findings)
+	}
+	if tag := res.MultiReview.Tags[0]; tag.JudgeDisagreed || !slices.Equal(tag.FoundBy, []int{1, 2}) {
 		t.Errorf("tag = %+v", tag)
+	}
+	if res.Verdict != HasBlockingIssues {
+		t.Errorf("verdict = %s", res.Verdict)
 	}
 }
 

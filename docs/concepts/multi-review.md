@@ -87,7 +87,7 @@ Findings are grouped with union-find:
 1. Findings of different reviewers with the same file, line and title (case and spacing ignored) are one group before the judge's links. So the judge can't split 2 reviewers' exact same finding when it leaves out `same_as`.
 2. Then each `same_as` link joins 2 groups.
 
-A link is ignored when an id does not exist, when both ends are findings of one reviewer (a finding and itself too), or when either end is a finding that a dismissal covers. Step 1 also leaves out a finding that a dismissal covers. A group can still hold several findings of one reviewer, through a finding of another reviewer.
+A link is ignored when an id does not exist, when both ends are findings of one reviewer (a finding and itself too), or when either end is a finding that an `--mr-dismissals` entry covers. Step 1 also leaves out a finding that an `--mr-dismissals` entry covers. A `--dismissals` entry never stops a link: see [Dismissals](#dismissals). A group can still hold several findings of one reviewer, through a finding of another reviewer.
 
 | Group | Result |
 |---|---|
@@ -150,10 +150,9 @@ The judge's reason and a skip reason are put on one line and cut to 300 bytes. T
 
 A merged finding stands for its group. The result keeps the fingerprints of the group's other findings in `multi_review.also`. A dismissal of the finding's own fingerprint, or of any fingerprint in `also`, dismisses it, by the usual rule: a `suggestion` dismissal does not dismiss a blocking finding.
 
-A finding that a dismissal covers is never linked to another one. So a dismissal can't hide a real finding of another reviewer. Two sets count:
+A finding that an `--mr-dismissals` entry covers is never linked to another one. An entry covers a finding with the same stored fingerprint and a severity no higher than the entry's. So a dismissal can't hide a real finding of another reviewer.
 
-- `--dismissals`, the teaching set: an entry covers a finding when its file and title give the finding's fingerprint, and the finding is no more severe than the entry.
-- `--mr-dismissals`, every dismissal the comment will apply: an entry covers a finding with the same stored fingerprint and a severity no higher than the entry's.
+`--dismissals` is only the teaching set: the judge gets its blocking entries as `rejected-findings.json`, but they never stop a link. The comment does not apply them, so a finding they match is not dismissed. If they stopped links, 2 reviewers' copies of one blocking finding could be split into 2 groups of 1, and the judge could demote both.
 
 ## The result
 

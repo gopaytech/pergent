@@ -60,7 +60,8 @@ type Request struct {
 	Carried map[string][]string
 	// Dismissals holds, by skill name, the findings people rejected in earlier
 	// reviews. A skill's list is attached to its batch runs, its cross-batch
-	// run and, for the blocking entries, its verification run.
+	// run and, for the blocking entries, its verification run and a multi
+	// review's judge run. It is never applied as a dismissal.
 	Dismissals map[string][]finding.Rejected
 	// MRDismissals are the merge request's stored dismissals, the ones render
 	// applies to the result. They are used only so a multi review judge link

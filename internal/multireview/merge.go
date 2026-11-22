@@ -76,7 +76,8 @@ type Merged struct {
 // Merge groups items by the judge's same_as links and decides each group.
 // items must be in reviewer order, each reviewer's in its own order. A link
 // is ignored when an ID is unknown, when both ends are one reviewer's, or
-// when either end is in dismissed. Nil answers: Exact.
+// when either end is in dismissed: the IDs of the items a dismissal the
+// comment applies covers. Nil answers: Exact.
 //
 // Before the links, findings of different reviewers with the same
 // finding.Key are one group (dismissed ones aside, as for links). So an
