@@ -18,7 +18,10 @@ type MultiReview struct {
 }
 
 // MultiReviewer is one reviewer. Number starts at 1. Usable is false when
-// the reviewer gave no usable review of any skill.
+// the reviewer's result can't be used at all: it can't be read, is not a
+// completed schema 1 result, or is not a review of this base and head. A
+// usable reviewer can still be unusable for one skill
+// (SkillMultiReview.Failed).
 type MultiReviewer struct {
 	Number int  `json:"number"`
 	Usable bool `json:"usable"`
