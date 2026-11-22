@@ -69,11 +69,21 @@ func ApplyDismissals(skills []Skill, ds []Dismissal) []Skill {
 	return out
 }
 
-// covering returns the first dismissal that covers f.
+// covering returns the first dismissal that covers f. A merged finding stands
+// for a group, so a dismissal of any fingerprint in the group (f's own, or one
+// in MultiReview.Also) covers it.
 func covering(ds []Dismissal, f Finding) (Dismissal, bool) {
 	for _, d := range ds {
 		if covers(d, f.Fingerprint, f.Severity) {
 			return d, true
+		}
+		if f.MultiReview == nil {
+			continue
+		}
+		for _, fp := range f.MultiReview.Also {
+			if covers(d, fp, f.Severity) {
+				return d, true
+			}
 		}
 	}
 	return Dismissal{}, false

@@ -202,6 +202,39 @@ func TestDismissedMentionsAreBroken(t *testing.T) {
 	}
 }
 
+func TestApplyDismissalsMatchesAnyMergedFinding(t *testing.T) {
+	skills := []Skill{{Name: "s", Verdict: VerdictHasBlockingIssues, Findings: []Finding{{
+		Fingerprint: "f1", File: "a.go", Line: 1, Severity: Blocking, Title: "T",
+		MultiReview: &FindingMultiReview{FoundBy: []int{1, 3}, Also: []string{"f3"}},
+	}}}}
+	got := ApplyDismissals(skills, []Dismissal{{Fingerprint: "f3", Severity: "blocking", By: "x", Reason: "r"}})
+	if len(got[0].Findings) != 0 || len(got[0].Dismissed) != 1 || got[0].Verdict != VerdictNoBlockingIssues {
+		t.Fatalf("got %+v", got[0])
+	}
+}
+
+func TestApplyDismissalsEmptyFingerprintMatchesAlso(t *testing.T) {
+	skills := []Skill{{Name: "s", Verdict: VerdictHasBlockingIssues, Findings: []Finding{{
+		File: "a.go", Line: 1, Severity: Blocking, Title: "T",
+		MultiReview: &FindingMultiReview{FoundBy: []int{1, 2}, Also: []string{"f2"}},
+	}}}}
+	got := ApplyDismissals(skills, []Dismissal{{Fingerprint: "f2", Severity: "blocking", By: "x", Reason: "r"}})
+	if len(got[0].Findings) != 0 || len(got[0].Dismissed) != 1 {
+		t.Fatalf("got %+v", got[0])
+	}
+}
+
+func TestApplyDismissalsSuggestionViaAlsoLeavesBlocking(t *testing.T) {
+	skills := []Skill{{Name: "s", Verdict: VerdictHasBlockingIssues, Findings: []Finding{{
+		Fingerprint: "f1", File: "a.go", Line: 1, Severity: Blocking, Title: "T",
+		MultiReview: &FindingMultiReview{FoundBy: []int{1, 2}, Also: []string{"f2"}},
+	}}}}
+	got := ApplyDismissals(skills, []Dismissal{{Fingerprint: "f2", Severity: "suggestion", By: "x", Reason: "r"}})
+	if len(got[0].Findings) != 1 || len(got[0].Dismissed) != 0 || got[0].Verdict != VerdictHasBlockingIssues {
+		t.Fatalf("got %+v", got[0])
+	}
+}
+
 func TestApplyDismissalsNoFingerprintNoAlso(t *testing.T) {
 	skills := []Skill{{Name: "s", Verdict: VerdictHasBlockingIssues, Findings: []Finding{{
 		File: "a.go", Line: 1, Severity: Blocking, Title: "T",

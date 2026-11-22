@@ -58,6 +58,63 @@ type Finding struct {
 	Explanation  string
 	SuggestedFix string
 	Suggestion   string // exact replacement text for the lines Line to EndLine; the comment shows an escaped copy
+
+	// MultiReview says which reviewers found this finding and how the judge
+	// merged it. Nil means the review was not a multi review. Omitted from
+	// JSON when nil.
+	MultiReview *FindingMultiReview `json:",omitempty"`
+}
+
+// FindingMultiReview is how a multi review merged one finding.
+//
+// Reason is judge (model) text, and reviewer names are caller text. The
+// comment code must make both inert, like HeaderNote, and must not write
+// them as raw Markdown.
+type FindingMultiReview struct {
+	// FoundBy lists the reviewers that found it, as 1-based reviewer numbers.
+	// Reviewer n has the name MultiReviewNames.Reviewers[n-1].
+	FoundBy []int
+	// Also holds the fingerprints of the other findings the judge merged into
+	// this one. A dismissal of any of them dismisses this finding.
+	Also []string `json:",omitempty"`
+	// JudgeDisagreed is true when the judge rated this finding differently
+	// from the reviewers.
+	JudgeDisagreed bool `json:",omitempty"`
+	// Reason is the judge's reason. Model text, not escaped here.
+	Reason string `json:",omitempty"`
+	// RatedSuggestionBy lists the reviewers (1-based) that rated the finding
+	// a suggestion, not blocking.
+	RatedSuggestionBy []int `json:",omitempty"`
+	// Unjudged is true when no judge result was used for this finding.
+	Unjudged bool `json:",omitempty"`
+}
+
+// SkillMultiReview is how a multi review covered one skill.
+type SkillMultiReview struct {
+	// Reviewers lists the reviewers (1-based numbers) whose answers were used.
+	Reviewers []int
+	// Failed lists the reviewers (1-based) that failed for this skill.
+	Failed []int `json:",omitempty"`
+	// Exact is true when the merge is exact, not judged.
+	Exact bool `json:",omitempty"`
+}
+
+// MultiReviewNames names the reviewers and the judge of a multi review. All
+// names and skip reasons are caller or model text, so the comment code must
+// make them inert, like HeaderNote.
+type MultiReviewNames struct {
+	// Reviewers[n-1] is the name of reviewer n.
+	Reviewers []string
+	// Judge is the name of the judge.
+	Judge string
+	// Skipped lists the reviewers that did not run.
+	Skipped []SkippedReviewer
+}
+
+// SkippedReviewer is a reviewer that did not run, and why.
+type SkippedReviewer struct {
+	Name   string
+	Reason string // caller or model text, not escaped here
 }
 
 // Check is one item of a skill's checklist.
@@ -147,6 +204,10 @@ type Skill struct {
 
 	// Dismissed holds the findings ApplyDismissals set aside.
 	Dismissed []DismissedFinding
+
+	// MultiReview says which reviewers covered this skill. Nil means the
+	// review was not a multi review. Omitted from JSON when nil.
+	MultiReview *SkillMultiReview `json:",omitempty"`
 }
 
 // FileRule is the rule a reviewed file was checked with.
@@ -221,6 +282,10 @@ type Options struct {
 	// the size limit: its step 5 can cut the failed checks, with a note, in any
 	// layout. No layout can hide them. Short wins over it.
 	Layout []Block
+	// MultiReview names the reviewers and the judge. Nil writes no multi
+	// review text. Its text is caller or model text, so the comment code must
+	// make it inert, like HeaderNote.
+	MultiReview *MultiReviewNames
 }
 
 // failedPrefix starts the report of a failed batch.
