@@ -145,3 +145,24 @@ func TestHides(t *testing.T) {
 		t.Errorf("Hides with a class = %v", got)
 	}
 }
+
+func TestNewResolverWith(t *testing.T) {
+	chosen, _ := SelectBuiltin([]string{"yaml", "github_workflows"})
+	r := NewResolverWith([]Entry{repoAPI}, chosen)
+	if !r.BuiltIn() || r.Entries() != 1+len(chosen) {
+		t.Errorf("BuiltIn() = %v, Entries() = %d, want true and %d", r.BuiltIn(), r.Entries(), 1+len(chosen))
+	}
+	if e, ok := r.Resolve(".github/workflows/ci.yml"); !ok || e.Name != "github_workflows" {
+		t.Errorf("a workflow got %+v, %v; want built-in:github_workflows", e, ok)
+	}
+	if _, ok := r.Resolve("main.go"); ok {
+		t.Error("main.go got a rule with go not chosen")
+	}
+	if e, ok := r.Resolve("internal/api/x.go"); !ok || e != repoAPI {
+		t.Errorf("the team entry lost: %+v, %v", e, ok)
+	}
+	none := NewResolverWith([]Entry{repoAPI}, nil)
+	if none.BuiltIn() || none.Entries() != 1 {
+		t.Errorf("no built-ins: BuiltIn() = %v, Entries() = %d", none.BuiltIn(), none.Entries())
+	}
+}

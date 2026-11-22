@@ -64,6 +64,7 @@ func main() {
 	var graphFile string
 	var rulesFile string
 	var noBuiltInRules bool
+	var builtInRules string
 
 	flag.Var(&skills, "skill", "Preset name or path to skill .md file (repeatable)")
 	flag.StringVar(&platformFlag, "platform", "", "Platform: github or gitlab")
@@ -82,11 +83,14 @@ func main() {
 	flag.StringVar(&graphFile, "graph", os.Getenv("PERGENT_GRAPH"), "A pergent-graph/v1 file of the default branch; each batch run gets the callers and callees of the code it changes (off by default)")
 	flag.StringVar(&rulesFile, "rules", os.Getenv("PERGENT_RULES"), "A JSON list of path rules, in place of .pergent/rules.yaml from the base branch")
 	flag.BoolVar(&noBuiltInRules, "no-built-in-rules", false, "Leave the built-in path rules out (default: on)")
+	flag.StringVar(&builtInRules, "built-in-rules", "", "Comma-separated names of the only built-in path rules to load, such as go,yaml (default: all; $PERGENT_BUILT_IN_RULES)")
 	flag.Parse()
 
-	previousReviewSet, concurrencySet, checkDeletedSet, noBuiltInRulesSet := false, false, false, false
+	previousReviewSet, concurrencySet, checkDeletedSet, noBuiltInRulesSet, builtInRulesSet := false, false, false, false, false
 	flag.Visit(func(f *flag.Flag) {
 		switch f.Name {
+		case "built-in-rules":
+			builtInRulesSet = true
 		case "no-built-in-rules":
 			noBuiltInRulesSet = true
 		case "check-deleted":
@@ -121,6 +125,8 @@ func main() {
 		CheckDeletedSet:   checkDeletedSet,
 		NoBuiltInRules:    noBuiltInRules,
 		NoBuiltInRulesSet: noBuiltInRulesSet,
+		BuiltInRules:      builtInRules,
+		BuiltInRulesSet:   builtInRulesSet,
 	})
 	if err != nil {
 		log.Fatalf("config error: %v", err)

@@ -84,3 +84,26 @@ func TestNoFileRulesNoKey(t *testing.T) {
 		t.Errorf("files.rules with no rule: %s", b)
 	}
 }
+
+// A chosen set of built-ins is named in the rules object; without one the key
+// is left out, so an older reader sees the same object.
+func TestRulesObjectBuiltInNames(t *testing.T) {
+	meta := testMeta()
+	meta.Rules = &Rules{BuiltIn: true, Entries: 4, BuiltInNames: []string{"github_workflows", "yaml"}}
+	r := Build(meta, nil)
+	meta.Rules.BuiltInNames[0] = "changed"
+	b, err := Encode(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(b, []byte(`"rules":{"built_in":true,"entries":4,"built_in_names":["github_workflows","yaml"]}`)) {
+		t.Errorf("no built_in_names, or it shares the caller's slice: %s", b)
+	}
+	meta.Rules = &Rules{BuiltIn: true, Entries: 4}
+	if b, err = Encode(Build(meta, nil)); err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(b, []byte(`built_in_names`)) {
+		t.Errorf("built_in_names with all built-ins: %s", b)
+	}
+}

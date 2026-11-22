@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -186,4 +187,103 @@ func builtinNames() []string {
 		out = append(out, e.Name)
 	}
 	return out
+}
+
+// agentRulesLog is agentRulesResult that also returns pergent's log.
+func agentRulesLog(t *testing.T, args []string) (result.Result, *rulesRun, string) {
+	t.Helper()
+	sandboxEnv(t)
+	var stdout, stderr bytes.Buffer
+	rr := &rulesRun{}
+	if code := runAgent(context.Background(), args, agentEnv(nil), &stdout, &stderr, rr.run(t)); code != 0 {
+		t.Fatalf("exit code = %d; stderr:\n%s", code, stderr.String())
+	}
+	return decodeOnly(t, stdout.Bytes()), rr, stderr.String()
+}
+
+// --built-in-rules loads only the named built-ins, in builtin.yaml order,
+// and the result names them. PERGENT_BUILT_IN_RULES is its default, and the
+// flag wins, even when empty.
+func TestAgentBuiltInRulesChosen(t *testing.T) {
+	t.Setenv("PERGENT_BUILT_IN_RULES", "")
+	dir, base, head := agentRepo(t, nil)
+	chosen, _ := rule.SelectBuiltin([]string{"go", "yaml", "github_workflows"})
+	res, rr, _ := agentRulesLog(t, agentArgs(dir, base, head, oneSkill(t), "--built-in-rules", " yaml, go,,github_workflows"))
+	if res.Rules == nil || !res.Rules.BuiltIn || res.Rules.Entries != len(chosen) ||
+		!slices.Equal(res.Rules.BuiltInNames, []string{"github_workflows", "yaml", "go"}) {
+		t.Errorf("rules = %+v, want the 3 chosen built-ins (%d entries) in builtin.yaml order", res.Rules, len(chosen))
+	}
+	if len(rr.rules) != 1 || !strings.Contains(rr.rules[0], "## Rule: built-in:go") {
+		t.Errorf("file-rules.md = %q, want built-in:go for a.go", rr.rules)
+	}
+
+	t.Setenv("PERGENT_BUILT_IN_RULES", "yaml")
+	res, rr, _ = agentRulesLog(t, agentArgs(dir, base, head, oneSkill(t)))
+	if res.Rules == nil || !slices.Equal(res.Rules.BuiltInNames, []string{"yaml"}) || res.Rules.Entries != 2 {
+		t.Errorf("env: rules = %+v, want yaml only (2 globs)", res.Rules)
+	}
+	if len(rr.rules) != 1 || rr.rules[0] != "" {
+		t.Errorf("env: file-rules.md = %q, want none for a.go", rr.rules)
+	}
+
+	res, _, _ = agentRulesLog(t, agentArgs(dir, base, head, oneSkill(t), "--built-in-rules", "go"))
+	if res.Rules == nil || !slices.Equal(res.Rules.BuiltInNames, []string{"go"}) {
+		t.Errorf("flag over env: rules = %+v, want go only", res.Rules)
+	}
+	res, _, _ = agentRulesLog(t, agentArgs(dir, base, head, oneSkill(t), "--built-in-rules="))
+	if res.Rules == nil || !res.Rules.BuiltIn || res.Rules.Entries != len(builtinNames()) || res.Rules.BuiltInNames != nil {
+		t.Errorf("empty flag: rules = %+v, want all built-ins and no names", res.Rules)
+	}
+}
+
+// An unknown name is skipped with one warning line, never an error: the
+// caller may know a newer pergent's built-ins.
+func TestAgentBuiltInRulesUnknown(t *testing.T) {
+	t.Setenv("PERGENT_BUILT_IN_RULES", "")
+	dir, base, head := agentRepo(t, nil)
+	res, rr, logs := agentRulesLog(t, agentArgs(dir, base, head, oneSkill(t), "--built-in-rules", "nope,go,later"))
+	if res.Rules == nil || !slices.Equal(res.Rules.BuiltInNames, []string{"go"}) {
+		t.Errorf("rules = %+v, want go only", res.Rules)
+	}
+	if len(rr.rules) != 1 || !strings.Contains(rr.rules[0], "## Rule: built-in:go") {
+		t.Errorf("file-rules.md = %q, want built-in:go", rr.rules)
+	}
+	want := `warning: --built-in-rules: unknown built-in rules skipped: "nope", "later"` + "\n"
+	if strings.Count(logs, "unknown built-in") != 1 || !strings.Contains(logs, want) {
+		t.Errorf("log = %q, want one line %q", logs, want)
+	}
+
+	res, rr, logs = agentRulesLog(t, agentArgs(dir, base, head, oneSkill(t), "--built-in-rules", "nope"))
+	if res.Rules == nil || res.Rules.BuiltIn || res.Rules.Entries != 0 || res.Rules.BuiltInNames != nil {
+		t.Errorf("no name known: rules = %+v, want no built-ins", res.Rules)
+	}
+	if len(rr.rules) != 1 || rr.rules[0] != "" {
+		t.Errorf("no name known: file-rules.md = %q, want none", rr.rules)
+	}
+	if !strings.Contains(logs, `unknown built-in rules skipped: "nope"; no built-in rule is used`) {
+		t.Errorf("no name known: log = %q", logs)
+	}
+}
+
+// Choosing built-ins and turning them off is a usage error, exit 2.
+func TestAgentBuiltInRulesConflict(t *testing.T) {
+	dir, base, head := agentRepo(t, nil)
+	sandboxEnv(t)
+	for name, tt := range map[string]struct {
+		env, noEnv string
+		extra      []string
+	}{
+		"flags":      {extra: []string{"--built-in-rules", "go", "--no-built-in-rules"}},
+		"env":        {env: "go", noEnv: "true"},
+		"flag + env": {noEnv: "true", extra: []string{"--built-in-rules", "go"}},
+	} {
+		t.Setenv("PERGENT_BUILT_IN_RULES", tt.env)
+		t.Setenv("PERGENT_NO_BUILT_IN_RULES", tt.noEnv)
+		var stdout, stderr bytes.Buffer
+		code := runAgent(context.Background(), agentArgs(dir, base, head, oneSkill(t), tt.extra...), agentEnv(nil), &stdout, &stderr, answerRun(t))
+		res := decodeOnly(t, stdout.Bytes())
+		if code != 2 || res.Error == nil || res.Error.Code != result.CodeUsage || !strings.Contains(res.Error.Message, "--built-in-rules") {
+			t.Errorf("%s: code %d, result %+v; want exit 2 and a usage error", name, code, res)
+		}
+	}
 }

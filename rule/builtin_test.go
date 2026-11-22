@@ -188,3 +188,43 @@ func TestLoadBuiltinErrors(t *testing.T) {
 		}
 	}
 }
+
+// SelectBuiltin keeps builtin.yaml's order, not the caller's, so first match
+// is unchanged; it keeps every split glob of a chosen rule, and names the
+// unknown names once each, in the caller's order.
+func TestSelectBuiltin(t *testing.T) {
+	got, unknown := SelectBuiltin([]string{" yaml ", "nope", "", "github_workflows", "ts_js", "nope", "Go", "yaml"})
+	var want []Entry
+	for _, e := range Builtin() {
+		if e.Name == "github_workflows" || e.Name == "yaml" || e.Name == "ts_js" {
+			want = append(want, e)
+		}
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("SelectBuiltin entries = %+v, want %+v", got, want)
+	}
+	if len(got) == 0 || got[0].Name != "github_workflows" {
+		t.Errorf("first entry = %+v, want github_workflows before yaml", got)
+	}
+	var tsJS int
+	for _, e := range got {
+		if e.Name == "ts_js" {
+			tsJS++
+		}
+	}
+	if tsJS != 8 {
+		t.Errorf("ts_js entries = %d, want all 8 of its split globs", tsJS)
+	}
+	if !slices.Equal(unknown, []string{"nope", "Go"}) {
+		t.Errorf("unknown = %q, want nope and Go (names are case-sensitive)", unknown)
+	}
+
+	for _, names := range [][]string{nil, {}, {"", "  "}} {
+		if got, unknown := SelectBuiltin(names); got != nil || unknown != nil {
+			t.Errorf("SelectBuiltin(%q) = %+v, %q; want nothing", names, got, unknown)
+		}
+	}
+	if got, unknown := SelectBuiltin([]string{"nope"}); got != nil || !slices.Equal(unknown, []string{"nope"}) {
+		t.Errorf("SelectBuiltin(nope) = %+v, %q; want no entries", got, unknown)
+	}
+}

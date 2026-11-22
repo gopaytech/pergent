@@ -147,7 +147,7 @@ func TestMain_RulesInLocalMode(t *testing.T) {
 		cmd := exec.Command(os.Args[0], "-test.run=^TestMain_RulesInLocalMode$")
 		cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
 			"PERGENT_TEST_RULES_REPO="+repo, "OPENCODE_PROVIDER=anthropic", "OPENCODE_MODEL=claude-sonnet-4",
-			"PERGENT_RULES=", "PERGENT_NO_BUILT_IN_RULES=")
+			"PERGENT_RULES=", "PERGENT_NO_BUILT_IN_RULES=", "PERGENT_BUILT_IN_RULES=")
 		var so, se bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &so, &se
 		err := cmd.Run()
@@ -245,4 +245,78 @@ func rulesStub(t *testing.T) (bin, capDir string) {
 		t.Fatal(err)
 	}
 	return bin, capDir
+}
+
+// CI mode loads only the chosen built-ins after the team entries, both from
+// the base branch and from --rules, and warns once about an unknown name.
+func TestCIRulesBuiltInChosen(t *testing.T) {
+	repo := rulesRepo(t, baseGoRule, "")
+	list := rulesFileOutside(t, `[{"source":"repo","path":"*.go","rule":"FROM THE FLAG"}]`)
+	chosen, _ := rule.SelectBuiltin([]string{"yaml"})
+	for name, rulesPath := range map[string]string{"base branch": "", "--rules": list} {
+		var logs bytes.Buffer
+		cfg := config.Config{Local: true, BaseBranch: "main", RepoPath: repo, BuiltInRules: []string{"yaml", "nope"}}
+		r, _, err := ciRules(cfg, rulesPath, log.New(&logs, "", 0))
+		if err != nil {
+			t.Fatalf("%s: ciRules: %v", name, err)
+		}
+		if !r.BuiltIn() || r.Entries() != 1+len(chosen) {
+			t.Errorf("%s: BuiltIn() = %v, Entries() = %d, want 1 + %d", name, r.BuiltIn(), r.Entries(), len(chosen))
+		}
+		if e, ok := r.Resolve("ci/deploy.yml"); !ok || e.Name != "yaml" {
+			t.Errorf("%s: a YAML file got %+v, %v; want built-in:yaml", name, e, ok)
+		}
+		if _, ok := r.Resolve("web/app.ts"); ok {
+			t.Errorf("%s: a TS file got a rule with ts_js not chosen", name)
+		}
+		if got := logs.String(); got != "warning: --built-in-rules: unknown built-in rules skipped: \"nope\"\n" {
+			t.Errorf("%s: log = %q, want one warning naming nope", name, got)
+		}
+	}
+}
+
+// TestMain_BuiltInRulesFlag runs main() in local mode in a child process, so
+// the flag and the variable are checked through main's own parsing: the
+// chosen built-in reaches the run, an unchosen one does not, the flag wins,
+// and choosing built-ins with --no-built-in-rules is a config error.
+func TestMain_BuiltInRulesFlag(t *testing.T) {
+	if root := os.Getenv("PERGENT_TEST_BUILT_IN_REPO"); root != "" {
+		os.Args = append([]string{"pergent", "--local", "--skill", "code-review", "--repo-path", root},
+			strings.Fields(os.Getenv("PERGENT_TEST_BUILT_IN_ARGS"))...)
+		main()
+		return
+	}
+	bin, capDir := rulesStub(t)
+	repo := rulesRepo(t, "", "")
+	run := func(t *testing.T, env string, args ...string) (string, string, error) {
+		os.Remove(filepath.Join(capDir, "file-rules.md"))
+		cmd := exec.Command(os.Args[0], "-test.run=^TestMain_BuiltInRulesFlag$")
+		cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
+			"PERGENT_TEST_BUILT_IN_REPO="+repo, "PERGENT_TEST_BUILT_IN_ARGS="+strings.Join(args, " "),
+			"OPENCODE_PROVIDER=anthropic", "OPENCODE_MODEL=claude-sonnet-4",
+			"PERGENT_RULES=", "PERGENT_NO_BUILT_IN_RULES=", "PERGENT_BUILT_IN_RULES="+env)
+		var so, se bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &so, &se
+		err := cmd.Run()
+		got, _ := os.ReadFile(filepath.Join(capDir, "file-rules.md"))
+		return so.String() + se.String(), string(got), err
+	}
+
+	out, got, err := run(t, "", "--built-in-rules=go,nope")
+	if err != nil || !strings.Contains(got, "## Rule: built-in:go") {
+		t.Errorf("--built-in-rules=go: err %v, file-rules.md %q\n%s", err, got, out)
+	}
+	if !strings.Contains(out, `warning: --built-in-rules: unknown built-in rules skipped: "nope"`) {
+		t.Errorf("no warning for nope:\n%s", out)
+	}
+	if out, got, err = run(t, "yaml"); err != nil || got != "" {
+		t.Errorf("PERGENT_BUILT_IN_RULES=yaml: err %v, file-rules.md %q, want none for a.go\n%s", err, got, out)
+	}
+	if out, got, err = run(t, "yaml", "--built-in-rules=go"); err != nil || !strings.Contains(got, "built-in:go") {
+		t.Errorf("flag over env: err %v, file-rules.md %q\n%s", err, got, out)
+	}
+	out, _, err = run(t, "", "--built-in-rules=go", "--no-built-in-rules")
+	if err == nil || !strings.Contains(out, "config error: --built-in-rules (PERGENT_BUILT_IN_RULES) and --no-built-in-rules") {
+		t.Errorf("both: err %v, want a config error\n%s", err, out)
+	}
 }

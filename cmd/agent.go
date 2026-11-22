@@ -92,7 +92,10 @@ type agentInputs struct {
 	graphPath string
 	// rulesPath is --rules, or $PERGENT_RULES without the flag.
 	rulesPath string
-	scrub     bool
+	// builtInNames are the built-ins in use when --built-in-rules chose
+	// some, for the result's rules object; nil otherwise.
+	builtInNames []string
+	scrub        bool
 	// skipSkillVerify is --no-skill-verify.
 	skipSkillVerify bool
 	// $HOME and $XDG_CONFIG_HOME, where opencode finds its global config.
@@ -271,7 +274,7 @@ func runAgent(ctx context.Context, args []string, getenv func(string) string, st
 	}
 
 	meta.Started = clock.begin(in.Review.Timeout)
-	meta.Rules = &result.Rules{BuiltIn: in.Rules.BuiltIn(), Entries: in.Rules.Entries()}
+	meta.Rules = &result.Rules{BuiltIn: in.Rules.BuiltIn(), Entries: in.Rules.Entries(), BuiltInNames: in.builtInNames}
 	var res result.Result
 	if in.panel {
 		var e *result.Error
@@ -398,6 +401,7 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 		local, previousReview                   bool
 		platformFlag, baseBranch                string
 		checkDeleted, noBuiltInRules            bool
+		builtInRules                            string
 	)
 
 	flags := flag.NewFlagSet("pergent agent", flag.ContinueOnError)
@@ -415,6 +419,7 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 	flags.StringVar(&in.graphPath, "graph", getenv("PERGENT_GRAPH"), "A pergent-graph/v1 file of the default branch, outside --repo-path")
 	flags.StringVar(&in.rulesPath, "rules", getenv("PERGENT_RULES"), "A JSON list of path rules [{\"source\", \"path\", \"rule\" or \"off\"}, ...], outside --repo-path")
 	flags.BoolVar(&noBuiltInRules, "no-built-in-rules", false, "Leave the built-in path rules out (default: on)")
+	flags.StringVar(&builtInRules, "built-in-rules", "", "Comma-separated names of the only built-in path rules to load, such as go,yaml (default: all; $PERGENT_BUILT_IN_RULES)")
 	flags.StringVar(&in.changePath, "change-description", getenv("PERGENT_CHANGE_DESCRIPTION"), "A file holding the change's title and description, attached to the review runs as data")
 	flags.StringVar(&in.linkedPath, "linked-repos", getenv("PERGENT_LINKED_REPOS"), "A JSON file [{\"name\", \"path\", \"watched\", \"can_block\", \"error\"}, ...] of linked repositories the caller cloned; they are scrubbed, and only an impact run reads them")
 	flags.BoolVar(&in.skipSkillVerify, "no-skill-verify", false, "Leave out each skill's verification run (a review panel's member); the impact check still verifies")
@@ -553,6 +558,8 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 		CheckDeletedSet:   set["check-deleted"],
 		NoBuiltInRules:    noBuiltInRules,
 		NoBuiltInRulesSet: set["no-built-in-rules"],
+		BuiltInRules:      builtInRules,
+		BuiltInRulesSet:   set["built-in-rules"],
 	})
 	if err != nil {
 		return usage("%v", err)
@@ -657,9 +664,11 @@ func prepareAgent(in *agentInputs, logger *log.Logger) *result.Error {
 			return fail(result.CodeUsage, "%s", rulesFlagError(in.rulesPath, err))
 		}
 	}
-	in.Rules = rule.NewResolver(team, !in.Review.NoBuiltInRules)
-	if in.rulesPath != "" {
-		logger.Printf("rules: %d entries, built-in rules %s", in.Rules.Entries(), onOff(in.Rules.BuiltIn()))
+	var builtIns []rule.Entry
+	builtIns, in.builtInNames = builtInList(in.Review, logger)
+	in.Rules = rule.NewResolverWith(team, builtIns)
+	if in.rulesPath != "" || in.Review.BuiltInRules != nil {
+		logger.Printf("rules: %d entries, built-in rules %s", in.Rules.Entries(), builtInState(in.Rules, in.builtInNames))
 	}
 	if in.linkedPath != "" {
 		repos, err := readLinkedRepos(in.linkedPath, logger)

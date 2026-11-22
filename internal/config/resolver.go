@@ -28,6 +28,8 @@ type Options struct {
 	CheckDeletedSet   bool // true when --check-deleted was explicitly passed on the command line
 	NoBuiltInRules    bool
 	NoBuiltInRulesSet bool // true when --no-built-in-rules was explicitly passed on the command line
+	BuiltInRules      string
+	BuiltInRulesSet   bool // true when --built-in-rules was explicitly passed on the command line
 }
 
 type GitHubConfig struct {
@@ -76,6 +78,11 @@ type Config struct {
 	// NoBuiltInRules is --no-built-in-rules / PERGENT_NO_BUILT_IN_RULES
 	// (default false): the built-in path rules are left out of the list.
 	NoBuiltInRules bool
+	// BuiltInRules is --built-in-rules / PERGENT_BUILT_IN_RULES: the names of
+	// the only built-in path rules to load (rule.SelectBuiltin), spaces
+	// trimmed and empty items dropped. nil, for unset or a value with no
+	// name, loads them all.
+	BuiltInRules []string
 	// UseOpenCodeConfig is PERGENT_USE_OPENCODE_CONFIG: the opt-in to run on
 	// opencode's own config when OPENCODE_PROVIDER is empty.
 	UseOpenCodeConfig bool
@@ -195,9 +202,9 @@ const (
 )
 
 // ResolveAgent resolves the review settings agent mode uses: Timeout,
-// Concurrency, MaxTurns, ContextLimit, CheckDeleted and NoBuiltInRules (flags > PERGENT_* env > defaults,
-// validated as Resolve does). It never detects a platform, and leaves every
-// other field empty.
+// Concurrency, MaxTurns, ContextLimit, CheckDeleted, NoBuiltInRules and
+// BuiltInRules (flags > PERGENT_* env > defaults, validated as Resolve does).
+// It never detects a platform, and leaves every other field empty.
 func ResolveAgent(opts Options) (Config, error) {
 	return resolveReview(opts)
 }
@@ -229,6 +236,14 @@ func resolveReview(opts Options) (Config, error) {
 	if cfg.NoBuiltInRules, err = resolveBool(opts.NoBuiltInRules, opts.NoBuiltInRulesSet, "PERGENT_NO_BUILT_IN_RULES", false); err != nil {
 		return Config{}, err
 	}
+	names := opts.BuiltInRules
+	if !opts.BuiltInRulesSet {
+		names = os.Getenv("PERGENT_BUILT_IN_RULES")
+	}
+	cfg.BuiltInRules = builtInNames(names)
+	if cfg.NoBuiltInRules && cfg.BuiltInRules != nil {
+		return Config{}, fmt.Errorf("--built-in-rules (PERGENT_BUILT_IN_RULES) and --no-built-in-rules (PERGENT_NO_BUILT_IN_RULES) can't be used together")
+	}
 
 	if cfg.MaxTurns < 1 {
 		return Config{}, fmt.Errorf("--max-turns must be at least 1, got %d", cfg.MaxTurns)
@@ -246,6 +261,18 @@ func resolveReview(opts Options) (Config, error) {
 		cfg.Warnings = append(cfg.Warnings, maxTokensDeprecation)
 	}
 	return cfg, nil
+}
+
+// builtInNames splits a --built-in-rules value: comma-separated names, each
+// trimmed, empty ones dropped. No name at all is nil.
+func builtInNames(value string) []string {
+	var out []string
+	for _, n := range strings.Split(value, ",") {
+		if n = strings.TrimSpace(n); n != "" {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 func resolvePlatform(flag string) string {
