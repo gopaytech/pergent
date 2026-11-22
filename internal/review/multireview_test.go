@@ -107,3 +107,17 @@ func TestJudgeMessagesSayData(t *testing.T) {
 		}
 	}
 }
+
+func TestParseJudgeAnswerDuplicateID(t *testing.T) {
+	a, err := parseJudgeAnswer(fence(`{"results":[{"id":"1.1","real":true,"same_as":["2.1"]},{"id":"1.2","real":true},{"id":" 1.1 ","real":false}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	j, ok := a["1.1"]
+	if !ok || j.Real != nil || len(j.SameAs) != 0 {
+		t.Errorf("1.1 must be unanswered: %+v ok=%v", j, ok)
+	}
+	if o := a["1.2"]; o.Real == nil || !*o.Real {
+		t.Errorf("1.2 must be unaffected: %+v", o)
+	}
+}

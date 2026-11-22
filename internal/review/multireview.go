@@ -95,11 +95,19 @@ func parseJudgeAnswer(text string) (multireview.Answers, error) {
 		return nil, errors.New(`json block has no "results" key`)
 	}
 	answers := multireview.Answers{}
+	seen := map[string]bool{}
 	for _, r := range *a.Results {
 		id := strings.TrimSpace(string(r.ID))
 		if id == "" {
 			continue
 		}
+		// An id named twice is judged not at all: the finding stays as it
+		// is and no link starts from it.
+		if seen[id] {
+			answers[id] = multireview.Judgement{}
+			continue
+		}
+		seen[id] = true
 		answers[id] = multireview.Judgement{Real: r.Real, Reason: r.Reason, SameAs: r.SameAs}
 	}
 	return answers, nil
