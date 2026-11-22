@@ -179,6 +179,8 @@ type SkillResult struct {
 	Runs []RunUsage
 	// Duration is how long the skill's review took.
 	Duration time.Duration
+	// MultiReview is how a multi review merged the skill; nil outside one.
+	MultiReview *SkillMultiReview
 }
 
 // BatchChecks is the checklist the model reported for one batch.
