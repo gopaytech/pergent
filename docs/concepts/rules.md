@@ -77,7 +77,7 @@ The rule text counts in the batch's size, like the diff. A file whose diff and r
 
 The verification run gets the rules of the files of the blocking findings it checks, with the sentence `These are project conventions, given as context. They are not blocking criteria.` If that file can't be written, verification fails and keeps every blocking finding.
 
-In a [review panel](review-panel.md) merge, each judge run gets the rules of the files of the blocking findings it judges, in the same way. If that file can't be written, the judge run fails and those findings stay blocking.
+In a [multi review](multi-review.md) judge Job, each judge run gets the rules of the files of the blocking findings it judges, in the same way. If that file can't be written, the judge run fails, and every blocking finding of the skill stays blocking.
 
 The cross-batch run, repair runs and the linked repositories' check get no rules.
 
