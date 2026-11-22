@@ -38,7 +38,7 @@ The judge Job needs no reviewer's key: the judge does every check. No run gets a
 
 `--reviewer`, `--no-judge` and `--mr-dismissals` need `--multi-review`.
 
-**Accepted with `--multi-review`:** `--repo-path`, `--base`, `--head`, `--skills-dir` or `--skill`, `--instructions`, `--dismissals`, `--rules`, `--no-built-in-rules`, `--built-in-rules`, `--check-deleted`, `--scrub-instructions`, `--max-comment-size`, `--result` and `--result-url`, `--max-turns`, `--context-limit`, `--concurrency`, `--timeout`. The skills that are merged are the loaded skills, in their order. Each reviewer result's `files.rules` is kept in the merged result.
+**Accepted with `--multi-review`:** `--repo-path`, `--base`, `--head`, `--skills-dir` or `--skill`, `--instructions`, `--dismissals`, `--rules`, `--no-built-in-rules`, `--built-in-rules`, `--check-deleted`, `--scrub-instructions`, `--max-comment-size`, `--result` and `--result-url`, `--max-turns`, `--context-limit`, `--concurrency`, `--timeout`. The skills that are merged are the loaded skills, in their order. The merged skill's `files.rules` is the lowest-numbered usable reviewer's.
 
 **Refused with `--multi-review`:** `--previous`, `--carried`, `--ci-results`, `--change-description`, `--linked-repos`, `--graph` and `--no-skill-verify` each give `--<flag> can't be used with --multi-review`. A judge Job does not use the environment defaults of these inputs.
 
@@ -115,12 +115,12 @@ Never a false pass: a judge that fails, answers badly, is skipped or is off neve
 |---|---|---|
 | At least 1 reviewer usable for the skill, 2 or more reviewers that give findings (see the row on a reviewer that is not usable), and a blocking finding, or findings from 2 or more of them | One judge run | `ok` |
 | 2 or more usable, no blocking finding, and findings from at most 1 of them | No run | `not_run` |
-| `--no-judge` | No run, exact merge | `skipped` |
+| `--no-judge` | No run, exact merge, when there is a blocking finding or findings from 2 or more reviewers. Else no run and no exact merge | `skipped`, else `not_run` |
 | More than 200 findings of all reviewers for one skill | No run, exact merge | `skipped` |
 | Less than 90 seconds of the budget left, or the run could not start (the review was stopped) | No run, exact merge | `skipped` |
 | The run failed, gave a bad answer, or its rules file could not be written | Exact merge. `judge_cause` holds the run's cause when it reported one | `failed` |
 | 1 reviewer usable, and no other reviewer gives a finding | That reviewer's review. Its blocking findings are checked on the judge model, as a review on one model verifies them: a finding the run says is not real is dropped, with the note `Verification dropped ...`. A run that fails, answers badly or is skipped keeps every finding, with the usual verification note | `not_run` with no blocking finding, else `ok`, `failed` or `skipped` |
-| 1 reviewer usable, `--no-judge` | That reviewer's review as it is, exact merge | `skipped` |
+| 1 reviewer usable, `--no-judge` | That reviewer's review as it is. An exact merge when it has a blocking finding | `skipped` with a blocking finding, else `not_run` |
 | No reviewer usable for the skill | The skill is `failed`, also when a reviewer that is not usable has a blocking finding, with the failures of the lowest-numbered reviewer that reported any, else `No reviewer's result has a usable review of this skill.` It never drops out, because that would read as a pass | `not_run` |
 | A reviewer is not usable for a skill: the skill is missing from its result, is there twice, is `failed`, has a failure, a batch that did not finish, a file in `files.not_reviewed`, or a verdict pergent does not know | Its number is in the skill's `failed`. When its skill is there once, with a verdict pergent knows, and failed only by a failure, a batch that did not finish or a file not reviewed, its **blocking** findings of that skill still give findings: they are merged and judged like any other (in an exact merge they stay blocking), and its number can be in `found_by`. So a reviewer that times out in batch 2 still gives what batch 1 found. Its suggestions are not used. A skill that is missing, is there twice or has a verdict pergent does not know gives nothing | n/a |
 | A reviewer file is missing, not a regular file, over 10 MB, not JSON, not `schema_version` 1, not `completed`, or for another head or base | The reviewer is not used. The log says `multi review: reviewer <n> can't be used: <reason>`. The reason never reaches the result | n/a |
