@@ -19,7 +19,7 @@
 | `--usage-file` | Write each opencode run's tokens, steps and tool use as JSON to this file. Each skill has `name`, `tokens` and `runs`, with `runs` as in the [agent result](../agent-result-schema.md). Raw counts only, no prices. A file that cannot be written is a warning | unset |
 | `--graph` | Experimental. A [code graph](../concepts/code-graph.md) of the default branch (`pergent-graph/v1`). Each batch run gets the callers and callees of the code it changes. A missing or bad file is skipped with a log line | `$PERGENT_GRAPH`, else unset |
 | `--rules` | A JSON list of [path rules](../concepts/rules.md), used in place of `.pergent/rules.yaml` from the base branch. A list that can't be read or used stops pergent | `$PERGENT_RULES`, else unset |
-| `--no-built-in-rules` | Leave the built-in path rules out (the list is empty for now) | `false` |
+| `--no-built-in-rules` | Leave the built-in path rules out (`rule/builtin/`) | `false` |
 | `--repo-path` | Path to repo root | `.` |
 
 ## 🌱 Environment variables
