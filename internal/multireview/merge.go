@@ -77,6 +77,11 @@ type Merged struct {
 // items must be in reviewer order, each reviewer's in its own order. A link
 // is ignored when an ID is unknown, when both ends are one reviewer's, or
 // when either end is in dismissed. Nil answers: Exact.
+//
+// Before the links, findings of different reviewers with the same
+// finding.Key are one group (dismissed ones aside, as for links). So an
+// exact match is always one group, and the judge cannot split it by
+// leaving out same_as: a finding 2 reviewers marked blocking stays blocking.
 func Merge(items []Item, answers Answers, dismissed map[string]bool) []Merged {
 	if answers == nil {
 		return Exact(items)
@@ -96,6 +101,31 @@ func Merge(items []Item, answers Answers, dismissed map[string]bool) []Merged {
 		}
 		return i
 	}
+	union := func(i, k int) {
+		ri, rk := find(i), find(k)
+		if rk < ri {
+			ri, rk = rk, ri
+		}
+		parent[rk] = ri // the lowest index is the root: map order can't change the result
+	}
+	byKey := map[string][]int{}
+	for i, it := range items {
+		if !dismissed[it.ID] {
+			byKey[finding.Key(it.Finding)] = append(byKey[finding.Key(it.Finding)], i)
+		}
+	}
+	for _, same := range byKey {
+		// Join each item to the first one of another reviewer: with 2+
+		// reviewers in the list, that joins the whole list.
+		for _, i := range same {
+			for _, k := range same {
+				if items[k].Reviewer != items[i].Reviewer {
+					union(i, k)
+					break
+				}
+			}
+		}
+	}
 	for id, j := range answers {
 		i, ok := index[id]
 		if !ok || dismissed[id] {
@@ -106,11 +136,7 @@ func Merge(items []Item, answers Answers, dismissed map[string]bool) []Merged {
 			if !ok || dismissed[to] || items[k].Reviewer == items[i].Reviewer {
 				continue
 			}
-			ri, rk := find(i), find(k)
-			if rk < ri {
-				ri, rk = rk, ri
-			}
-			parent[rk] = ri // the lowest index is the root: map order can't change the result
+			union(i, k)
 		}
 	}
 	return grouped(items, find, answers, true)

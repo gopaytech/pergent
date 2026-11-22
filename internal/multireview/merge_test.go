@@ -299,7 +299,7 @@ func TestMergeIgnoresLinksFromDismissed(t *testing.T) {
 func TestMergeNilAnswersIsExact(t *testing.T) {
 	in := items(
 		[]finding.Finding{blocking("f1", "x.go", "Same"), suggestion("f12", "y.go", "Other")},
-		[]finding.Finding{suggestion("f2", "x.go", "same"), blocking("f22", "z.go", "Third")},
+		[]finding.Finding{suggestion("f1", "x.go", "same"), blocking("f22", "z.go", "Third")},
 	)
 	got, want := Merge(in, nil, nil), Exact(in)
 	if !reflect.DeepEqual(got, want) {
@@ -311,14 +311,15 @@ func TestMergeNilAnswersIsExact(t *testing.T) {
 }
 
 func TestExactMergesByKey(t *testing.T) {
+	// Findings with one key have one fingerprint, as real fingerprints do.
 	got := Exact(items(
 		[]finding.Finding{blocking("f1", "x.go", "Nil  Check")},
-		[]finding.Finding{blocking("f2", "x.go", "nil check")},
+		[]finding.Finding{blocking("f1", "x.go", "nil check")},
 	))
 	if len(got) != 1 || got[0].Severity != finding.Blocking || !slices.Equal(got[0].FoundBy, []int{1, 2}) {
 		t.Fatalf("got %+v", got)
 	}
-	if got[0].Fingerprint != "f1" || !slices.Equal(got[0].Also, []string{"f2"}) || got[0].Unjudged {
+	if got[0].Fingerprint != "f1" || len(got[0].Also) != 0 || got[0].Unjudged {
 		t.Fatalf("tag %+v", got[0])
 	}
 }
@@ -326,9 +327,9 @@ func TestExactMergesByKey(t *testing.T) {
 func TestExactKeepsBlockingOverSuggestion(t *testing.T) {
 	got := Exact(items(
 		[]finding.Finding{suggestion("f1", "x.go", "Nil check")},
-		[]finding.Finding{blocking("f2", "x.go", "NIL CHECK")},
+		[]finding.Finding{blocking("f1", "x.go", "NIL CHECK")},
 	))
-	if len(got) != 1 || got[0].Severity != finding.Blocking || got[0].Fingerprint != "f2" {
+	if len(got) != 1 || got[0].Severity != finding.Blocking || got[0].Title != "NIL CHECK" || len(got[0].Also) != 0 {
 		t.Fatalf("got %+v", got)
 	}
 	if !slices.Equal(got[0].RatedSuggestionBy, []int{1}) || got[0].Unjudged || got[0].JudgeDisagreed {
@@ -369,6 +370,110 @@ func TestMergeLongSameAsList(t *testing.T) {
 	same = append(same, "2.1")
 	got := Merge(in, Answers{"1.1": {Real: isReal(true), SameAs: same}}, nil)
 	if len(got) != 1 || !slices.Equal(got[0].FoundBy, []int{1, 2}) || !slices.Equal(got[0].Also, []string{"f2"}) {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+// exactPair is 1.1 and 2.1 with one key, both blocking.
+func exactPair() []Item {
+	return items(
+		[]finding.Finding{blocking("f1", "x.go", "Nil check")},
+		[]finding.Finding{blocking("f1", "x.go", "nil  CHECK")},
+	)
+}
+
+// The judge cannot split an exact match by leaving out same_as.
+func TestMergeExactMatchNotRealIsOneBlockingGroup(t *testing.T) {
+	got := Merge(exactPair(), Answers{
+		"1.1": {Real: isReal(false), Reason: "no"},
+		"2.1": {Real: isReal(false), Reason: "no"},
+	}, nil)
+	if len(got) != 1 || got[0].Severity != finding.Blocking || got[0].JudgeDisagreed || !slices.Equal(got[0].FoundBy, []int{1, 2}) {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestMergeExactMatchEmptyAnswersIsOneGroup(t *testing.T) {
+	got := Merge(exactPair(), Answers{}, nil)
+	if len(got) != 1 || got[0].Severity != finding.Blocking || !slices.Equal(got[0].FoundBy, []int{1, 2}) || len(got[0].Also) != 0 {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+// With 2 reviewers in one key, every finding with that key joins, also a
+// second one of the first reviewer.
+func TestMergeExactMatchJoinsWholeKey(t *testing.T) {
+	in := items(
+		[]finding.Finding{blocking("f1", "x.go", "Nil check"), blocking("f1", "x.go", "nil check")},
+		[]finding.Finding{blocking("f1", "x.go", "NIL CHECK")},
+	)
+	for range 50 {
+		got := Merge(in, Answers{}, nil)
+		if len(got) != 1 || !slices.Equal(got[0].FoundBy, []int{1, 2}) || got[0].Severity != finding.Blocking {
+			t.Fatalf("got %+v", got)
+		}
+	}
+}
+
+// One reviewer's findings with one key are not joined: the same rule as a
+// link inside one reviewer.
+func TestMergeExactMatchOneReviewerStaysApart(t *testing.T) {
+	got := Merge(items(
+		[]finding.Finding{blocking("f1", "x.go", "Nil check"), blocking("f1", "x.go", "nil check")},
+	), Answers{}, nil)
+	if len(got) != 2 {
+		t.Fatalf("got %d groups, want 2: %+v", len(got), got)
+	}
+}
+
+// A dismissed finding is not joined by its key either.
+func TestMergeExactMatchSkipsDismissed(t *testing.T) {
+	got := Merge(exactPair(), Answers{
+		"1.1": {Real: isReal(false), Reason: "no"},
+	}, map[string]bool{"2.1": true})
+	if len(got) != 2 || !slices.Equal(got[0].FoundBy, []int{1}) || !slices.Equal(got[1].FoundBy, []int{2}) {
+		t.Fatalf("got %+v", got)
+	}
+	if got[0].Severity != finding.Suggestion || !got[0].JudgeDisagreed {
+		t.Fatalf("1.1 not judged alone: %+v", got[0])
+	}
+}
+
+// One "real" among the owner's blocking findings wins over a missing answer.
+func TestMergeConfirmedBeatsUnanswered(t *testing.T) {
+	got := severalOfOne(Answers{
+		"1.1": {Real: isReal(true), SameAs: []string{"2.1"}},
+		"2.1": {SameAs: []string{"1.2"}},
+	})
+	if len(got) != 1 || got[0].Severity != finding.Blocking || got[0].Unjudged || got[0].JudgeDisagreed {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+// The answer about the owner's own suggestion does not count.
+func TestMergeOwnersSuggestionAnswerIgnored(t *testing.T) {
+	got := Merge(items(
+		[]finding.Finding{blocking("f1", "x.go", "One"), suggestion("f12", "x.go", "One again")},
+		[]finding.Finding{suggestion("f2", "x.go", "Two")},
+	), Answers{
+		"1.1": {Real: isReal(false), Reason: "no", SameAs: []string{"2.1"}},
+		"1.2": {Real: isReal(true), SameAs: []string{"2.1"}},
+	}, nil)
+	if len(got) != 1 || got[0].Severity != finding.Suggestion || !got[0].JudgeDisagreed || got[0].Reason != "no" {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestMergeAlsoHasNoDuplicateOrEmpty(t *testing.T) {
+	got := Merge(items(
+		[]finding.Finding{blocking("f1", "x.go", "One")},
+		[]finding.Finding{suggestion("dup", "x.go", "Two")},
+		[]finding.Finding{suggestion("dup", "x.go", "Three")},
+		[]finding.Finding{suggestion("", "x.go", "Four")},
+	), Answers{
+		"1.1": {Real: isReal(true), SameAs: []string{"2.1", "3.1", "4.1"}},
+	}, nil)
+	if len(got) != 1 || !slices.Equal(got[0].FoundBy, []int{1, 2, 3, 4}) || !slices.Equal(got[0].Also, []string{"dup"}) {
 		t.Fatalf("got %+v", got)
 	}
 }
