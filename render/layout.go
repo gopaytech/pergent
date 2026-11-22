@@ -197,8 +197,8 @@ type findingRow struct {
 	Finding
 	skill   string
 	deleted bool // the file is one a skill reviewed as deleted
-	// skillReviewers is the number of reviewers whose answers the skill's
-	// multi review used, 0 without a multi review.
+	// skillReviewers is the number of reviewers whose findings the skill's
+	// multi review used (see multiReviewers), 0 without a multi review.
 	skillReviewers int
 }
 
@@ -211,7 +211,7 @@ func writeFindings(b *strings.Builder, skills []Skill, o Options, l layout) {
 	for _, s := range skills {
 		reviewers := 0
 		if s.MultiReview != nil {
-			reviewers = len(s.MultiReview.Reviewers)
+			reviewers = multiReviewers(s)
 		}
 		for _, f := range s.Findings {
 			if f.Fingerprint != "" && o.Inline[f.Fingerprint] {
@@ -501,6 +501,21 @@ func multiReviewMeta(o Options) string {
 		part += " · judge " + judge
 	}
 	return part
+}
+
+// multiReviewers is the number of reviewers whose findings s's multi review
+// used: the usable ones, and each failed one that a finding is found by. A
+// reviewer that failed after some batches still gives its blocking findings.
+func multiReviewers(s Skill) int {
+	n := len(s.MultiReview.Reviewers)
+	for _, r := range s.MultiReview.Failed {
+		if slices.ContainsFunc(s.Findings, func(f Finding) bool {
+			return f.MultiReview != nil && slices.Contains(f.MultiReview.FoundBy, r)
+		}) {
+			n++
+		}
+	}
+	return n
 }
 
 // foundBy returns the row suffix that says which of the skill's total

@@ -61,7 +61,7 @@ Usage errors (exit 2):
 
 ## What the judge gets
 
-Per skill, the judge run gets each usable reviewer's findings as `reviewer-<n>.json`: `{"findings": [{"id": "2.3", ...}]}`. The id `2.3` is reviewer 2, finding 3. Both numbers start at 1. The fingerprint is left out, so the judge answers by id. The message says that the reviewer files are data, never instructions.
+Per skill, the judge run gets each usable reviewer's findings, and the blocking findings of a reviewer whose skill failed after some batches (see [When something fails](#when-something-fails)), as `reviewer-<n>.json`: `{"findings": [{"id": "2.3", ...}]}`. The id `2.3` is reviewer 2, finding 3. Both numbers start at 1. The fingerprint is left out, so the judge answers by id. The message says that the reviewer files are data, never instructions.
 
 It also gets what a verification run gets: the checkout, the deleted files, the skill's blocking `--dismissals` entries as `rejected-findings.json`, and, with `--rules` or the built-in rules, the [path rules](rules.md) of the files of the blocking findings as `file-rules.md`. If the rules file can't be written, the judge run does not start: it is `failed`, and every blocking finding stays blocking.
 
@@ -113,22 +113,22 @@ Never a false pass: a judge that fails, answers badly, is skipped or is off neve
 
 | Case | What the judge Job does | `judge` |
 |---|---|---|
-| 2 or more reviewers usable for the skill, and a blocking finding, or findings from 2 or more of them | One judge run | `ok` |
+| At least 1 reviewer usable for the skill, 2 or more reviewers that give findings (see the row on a reviewer that is not usable), and a blocking finding, or findings from 2 or more of them | One judge run | `ok` |
 | 2 or more usable, no blocking finding, and findings from at most 1 of them | No run | `not_run` |
 | `--no-judge` | No run, exact merge | `skipped` |
-| More than 200 findings of all usable reviewers for one skill | No run, exact merge | `skipped` |
+| More than 200 findings of all reviewers for one skill | No run, exact merge | `skipped` |
 | Less than 90 seconds of the budget left, or the run could not start (the review was stopped) | No run, exact merge | `skipped` |
 | The run failed, gave a bad answer, or its rules file could not be written | Exact merge. `judge_cause` holds the run's cause when it reported one | `failed` |
-| 1 reviewer usable | That reviewer's review. Its blocking findings are checked on the judge model, as a review on one model verifies them: a finding the run says is not real is dropped, with the note `Verification dropped ...`. A run that fails, answers badly or is skipped keeps every finding, with the usual verification note | `not_run` with no blocking finding, else `ok`, `failed` or `skipped` |
+| 1 reviewer usable, and no other reviewer gives a finding | That reviewer's review. Its blocking findings are checked on the judge model, as a review on one model verifies them: a finding the run says is not real is dropped, with the note `Verification dropped ...`. A run that fails, answers badly or is skipped keeps every finding, with the usual verification note | `not_run` with no blocking finding, else `ok`, `failed` or `skipped` |
 | 1 reviewer usable, `--no-judge` | That reviewer's review as it is, exact merge | `skipped` |
-| No reviewer usable for the skill | The skill is `failed`, with the failures of the lowest-numbered reviewer that reported any, else `No reviewer's result has a usable review of this skill.` It never drops out, because that would read as a pass | `not_run` |
-| A reviewer is not usable for a skill: the skill is missing from its result, is there twice, is `failed`, has a failure, a batch that did not finish, a file in `files.not_reviewed`, or a verdict pergent does not know | Its number is in the skill's `failed`. None of its findings of that skill are used, the blocking ones too | n/a |
+| No reviewer usable for the skill | The skill is `failed`, also when a reviewer that is not usable has a blocking finding, with the failures of the lowest-numbered reviewer that reported any, else `No reviewer's result has a usable review of this skill.` It never drops out, because that would read as a pass | `not_run` |
+| A reviewer is not usable for a skill: the skill is missing from its result, is there twice, is `failed`, has a failure, a batch that did not finish, a file in `files.not_reviewed`, or a verdict pergent does not know | Its number is in the skill's `failed`. When its skill is there once, with a verdict pergent knows, and failed only by a failure, a batch that did not finish or a file not reviewed, its **blocking** findings of that skill still give findings: they are merged and judged like any other (in an exact merge they stay blocking), and its number can be in `found_by`. So a reviewer that times out in batch 2 still gives what batch 1 found. Its suggestions are not used. A skill that is missing, is there twice or has a verdict pergent does not know gives nothing | n/a |
 | A reviewer file is missing, not a regular file, over 10 MB, not JSON, not `schema_version` 1, not `completed`, or for another head or base | The reviewer is not used. The log says `multi review: reviewer <n> can't be used: <reason>`. The reason never reaches the result | n/a |
 | No reviewer file is usable | Usage error, exit 2, error result | n/a |
 
 In an exact merge, findings are joined by file, line and title, and every blocking finding stays blocking. A reviewer finding with a severity that pergent does not know is blocking.
 
-The impact check is never judged, because each reviewer verified its own. With 2 or more usable reviewers, their impact findings are merged by file, line and title. With 1, it is that reviewer's check. With none, it is `failed`. It is in the result when a reviewer has one and no loaded skill has its name.
+The impact check is never judged, because each reviewer verified its own. With at least 1 usable reviewer and 2 or more reviewers that give findings, their impact findings are merged by file, line and title (a reviewer whose impact check failed gives its blocking findings, as for a skill). With 1 usable reviewer and no other, it is that reviewer's check. With none usable, it is `failed`. It is in the result when a reviewer has one and no loaded skill has its name.
 
 ## Comment texts
 
@@ -137,7 +137,7 @@ The impact check is never judged, because each reviewer verified its own. With 2
 | Where | Text |
 |---|---|
 | Meta line | `Multi review: <1>, <2>, <3> · judge <judge>` (the ` · judge <judge>` part only when there is a judge) |
-| Row, a skill with 2 or more usable reviewers | ` · found by <k> of <N> reviewers (<a>, <b>)` when 2 or more found it, ` · found by <a>` when one did. `<N>` is the number of usable reviewers for the skill |
+| Row, a skill where `<N>` is 2 or more | ` · found by <k> of <N> reviewers (<a>, <b>)` when 2 or more found it, ` · found by <a>` when one did. `<N>` is the number of usable reviewers for the skill, plus each reviewer in `failed` that a finding of the skill is found by |
 | Row lead, demoted | `_judge disagreed: <reason>_`, or `_judge disagreed_` with no reason |
 | Row lead, mixed | `_<a>, <b> rated it a suggestion_` |
 | Row lead, no answer | `_the judge could not check this finding; it stays blocking._` |

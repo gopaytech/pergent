@@ -175,6 +175,35 @@ func TestReviewerSkillNotReviewedIsFailed(t *testing.T) {
 	}
 }
 
+// TestReviewerSkillFailedKeepsFindings: a skill that failed by a failure, a
+// batch that did not finish or a file not reviewed keeps its findings, so
+// the merge can use its blocking ones. A verdict pergent does not know, or a
+// skill the result holds twice, keeps none: nothing in it can be trusted.
+func TestReviewerSkillFailedKeepsFindings(t *testing.T) {
+	failure := reviewSkill(reviewerFind)
+	failure.Verdict = string(review.Failed)
+	failure.Failures = []result.Failure{{Files: []string{"b.go"}, Message: "The run timed out."}}
+	unfinished := reviewSkill(reviewerFind)
+	unfinished.Batches = 2
+	notReviewed := reviewSkill(reviewerFind)
+	notReviewed.Files.NotReviewed = []result.NotReviewed{{Path: "b.go", Cause: "the batch failed"}}
+	for name, s := range map[string]result.Skill{"failure": failure, "unfinished": unfinished, "not reviewed": notReviewed} {
+		if got := reviewerSkill(s); got.Verdict != review.Failed || len(got.Findings) != 1 || got.Findings[0].Fingerprint != "fa1" {
+			t.Errorf("%s: verdict %s, findings %+v", name, got.Verdict, got.Findings)
+		}
+	}
+	odd := reviewSkill(reviewerFind)
+	odd.Verdict = "maybe"
+	if got := reviewerSkill(odd); got.Verdict != review.Failed || got.Findings != nil {
+		t.Errorf("unknown verdict: verdict %s, findings %+v", got.Verdict, got.Findings)
+	}
+	twice := reviewSkill(reviewerFind)
+	got := reviewerSkills(&result.Result{Skills: []result.Skill{twice, twice}})
+	if got["review"].Verdict != review.Failed || got["review"].Findings != nil {
+		t.Errorf("twice: verdict %s, findings %+v", got["review"].Verdict, got["review"].Findings)
+	}
+}
+
 const (
 	judgeProvider = "anthropic"
 	judgeModel    = "model-j"
@@ -506,6 +535,42 @@ func TestRunAgentMultiReviewOneUsableVerifies(t *testing.T) {
 			t.Errorf("skill = %+v", s)
 		}
 	})
+}
+
+// TestRunAgentMultiReviewHalfRunReviewer: reviewer 2 found a blocking
+// finding in its first batch, then its skill failed. Reviewer 1 finished and
+// found nothing. The finding is judged, not dropped, so the skill can't pass,
+// and reviewer 2 is still in failed.
+func TestRunAgentMultiReviewHalfRunReviewer(t *testing.T) {
+	runs := &multiRuns{judge: checkAnswer(t, map[string]any{"id": "2.1", "real": true, "reason": "yes", "same_as": []string{}})}
+	half := reviewSkill(reviewerFind)
+	half.Verdict, half.Batches = string(review.Failed), 2
+	half.Failures = []result.Failure{{Files: []string{"b.go"}, Message: "The run timed out."}}
+	files := []reviewerFile{
+		reviewerOf("1.json", reviewerCompleted(reviewSkill())),
+		reviewerOf("2.json", reviewerCompleted(half)),
+	}
+	code, srv, stderr := runMultiAgent(t, multiRunEnv(t), files, runs)
+	if code != 0 {
+		t.Fatalf("exit code = %d; stderr:\n%s", code, stderr)
+	}
+	if len(runs.calls) != 1 || !runs.calls[0].isJudge() {
+		t.Errorf("runs = %+v, want one judge run", runs.calls)
+	}
+	r := srv.only(t)
+	s, ok := skillNamed(r, "review")
+	if !ok || s.Verdict != "has_blocking_issues" || len(s.Findings) != 1 || s.Findings[0].Fingerprint != "fa1" {
+		t.Fatalf("skill = %+v", s)
+	}
+	if fm := s.Findings[0].MultiReview; fm == nil || !slices.Equal(fm.FoundBy, []int{2}) {
+		t.Errorf("finding multi_review = %+v", fm)
+	}
+	if sm := s.MultiReview; sm == nil || !slices.Equal(sm.Reviewers, []int{1}) || !slices.Equal(sm.Failed, []int{2}) || sm.Judge != "ok" {
+		t.Errorf("skill multi_review = %+v", sm)
+	}
+	if !strings.Contains(r.Comment.Markdown, "reviewer 2 could not review this") {
+		t.Errorf("the comment does not say reviewer 2 failed:\n%s", r.Comment.Markdown)
+	}
 }
 
 func TestRunAgentMultiReviewNoJudge(t *testing.T) {

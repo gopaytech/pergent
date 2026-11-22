@@ -121,6 +121,26 @@ func TestCommentMultiReviewNamesByNumber(t *testing.T) {
 	}
 }
 
+// TestCommentMultiReviewFailedReviewerFound: a reviewer whose skill failed
+// can still give a blocking finding. It counts in "of <N> reviewers", so the
+// count is never below the reviewers that found the finding, and one usable
+// reviewer with it still gets the suffix.
+func TestCommentMultiReviewFailedReviewerFound(t *testing.T) {
+	names := &render.MultiReviewNames{Reviewers: []string{"a", "b", "c"}, Judge: "j"}
+	s := oneFinding("code-review", &render.SkillMultiReview{Reviewers: []int{1, 2}, Failed: []int{3}},
+		&render.FindingMultiReview{FoundBy: []int{1, 2, 3}})
+	got := render.Comment([]render.Skill{s}, render.Options{MultiReview: names})
+	if !strings.Contains(got, " · found by 3 of 3 reviewers (a, b, c)") {
+		t.Errorf("row suffix wrong:\n%s", got)
+	}
+	s = oneFinding("code-review", &render.SkillMultiReview{Reviewers: []int{1}, Failed: []int{2, 3}},
+		&render.FindingMultiReview{FoundBy: []int{2}})
+	got = render.Comment([]render.Skill{s}, render.Options{MultiReview: names})
+	if !strings.Contains(got, " · found by b") {
+		t.Errorf("row suffix missing:\n%s", got)
+	}
+}
+
 func TestCommentMultiReviewMissingName(t *testing.T) {
 	s := oneFinding("code-review", &render.SkillMultiReview{Reviewers: []int{1, 2}},
 		&render.FindingMultiReview{FoundBy: []int{2}})

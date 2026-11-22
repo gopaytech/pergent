@@ -95,8 +95,8 @@ func reviewerMismatch(r *result.Result, base, head string) string {
 // reviewerSkills converts the skills of a reviewer's agent result: every
 // skill of a usable result, nil for an unusable one. A skill with a failure,
 // a batch that did not finish, a file not reviewed or a verdict pergent does
-// not know is failed, so it is never used. So is a skill the result holds
-// twice.
+// not know is failed, so it is never used as a review. So is a skill the
+// result holds twice, with no findings: which copy is right is not known.
 func reviewerSkills(r *result.Result) map[string]review.SkillResult {
 	if r == nil {
 		return nil
@@ -104,7 +104,7 @@ func reviewerSkills(r *result.Result) map[string]review.SkillResult {
 	skills := make(map[string]review.SkillResult, len(r.Skills))
 	for _, s := range r.Skills {
 		if prev, ok := skills[s.Name]; ok {
-			prev.Verdict = review.Failed
+			prev.Verdict, prev.Findings = review.Failed, nil
 			skills[s.Name] = prev
 			continue
 		}
@@ -159,6 +159,8 @@ func reviewerSkill(s result.Skill) review.SkillResult {
 		}
 		res.Checks = append(res.Checks, review.BatchChecks{Batch: bc.Batch, Checks: checks, Dropped: bc.Dropped, Findings: bc.Findings})
 	}
+	// A failed skill keeps its findings: the merge still uses the blocking
+	// ones, found in the batches that finished.
 	switch res.Verdict {
 	case review.NoBlockingIssues, review.HasBlockingIssues:
 		// A file the reviewer did not review is a batch that failed, even when
@@ -166,8 +168,10 @@ func reviewerSkill(s result.Skill) review.SkillResult {
 		if len(res.Failures) > 0 || res.BatchesFinished < res.Batches || len(s.Files.NotReviewed) > 0 {
 			res.Verdict = review.Failed
 		}
+	case review.Failed:
 	default:
-		res.Verdict = review.Failed
+		// A verdict pergent does not know: nothing in the skill is trusted.
+		res.Verdict, res.Findings = review.Failed, nil
 	}
 	return res
 }

@@ -1102,3 +1102,155 @@ func TestRunMultiReviewLoadedImpactSkillIsJudged(t *testing.T) {
 		t.Errorf("%d runs, multi review %+v", len(f.calls), rs[0].MultiReview)
 	}
 }
+
+// halfRun is a reviewer's review of skill "s" that failed in its second of 3
+// batches, after the first batch reported fs.
+func halfRun(fs ...finding.Finding) SkillResult {
+	return SkillResult{Skill: "s", Verdict: Failed, Findings: fs, Batches: 3, BatchesFinished: 1,
+		Failures: []BatchFailure{{Files: []string{"b/y.go"}, Message: "The run timed out."}}, Reviewed: []string{"a/x.go"}}
+}
+
+// TestRunMultiReviewHalfRunIsJudged: reviewer 3's skill failed after one
+// batch. Its blocking findings join the merge and are judged like any other;
+// its suggestion does not. A copy of reviewer 1's finding makes a group 2
+// reviewers marked blocking, so the judge can't demote it.
+func TestRunMultiReviewHalfRunIsJudged(t *testing.T) {
+	same := find11
+	same.Explanation, same.Fingerprint = "other words", "f31"
+	f := &judgeFake{t: t}
+	f.respond = answerWith(judgeAnswer(t,
+		map[string]any{"id": "1.1", "real": false, "reason": "no", "same_as": []string{}},
+		map[string]any{"id": "3.1", "real": false, "reason": "no", "same_as": []string{}},
+		map[string]any{"id": "3.2", "real": true, "reason": "yes", "same_as": []string{}}))
+	res := runMulti(t, multiRequest(t, f, reviewerResult(find11), reviewerResult(), halfRun(same, find21, find12)))
+
+	if len(f.calls) != 1 || !strings.HasPrefix(f.calls[0].prompt, judgePrompt) {
+		t.Fatalf("%d runs, want 1 judge run", len(f.calls))
+	}
+	if ids, _ := sentIDs(t, f.calls[0].contents["reviewer-3.json"]); !slices.Equal(ids, []string{"3.1", "3.2"}) {
+		t.Errorf("reviewer-3.json ids = %v, want its 2 blocking findings", ids)
+	}
+	if got := titles(res.Findings); !slices.Equal(got, []string{find11.Title, find21.Title}) {
+		t.Fatalf("titles = %v", got)
+	}
+	checkBlocking(t, res, 2)
+	mr := res.MultiReview
+	if !slices.Equal(mr.Tags[0].FoundBy, []int{1, 3}) || mr.Tags[0].JudgeDisagreed || !slices.Equal(mr.Tags[1].FoundBy, []int{3}) {
+		t.Errorf("tags = %+v", mr.Tags)
+	}
+	if !slices.Equal(mr.Reviewers, []int{1, 2}) || !slices.Equal(mr.Failed, []int{3}) || mr.Judge != JudgeOK || mr.Exact {
+		t.Errorf("multi review = %+v", mr)
+	}
+	if res.Verdict != HasBlockingIssues {
+		t.Errorf("verdict = %s", res.Verdict)
+	}
+}
+
+// TestRunMultiReviewHalfRunDemoted: a half-run reviewer's finding no other
+// reviewer has is judged like any other: "not real" makes it a suggestion.
+func TestRunMultiReviewHalfRunDemoted(t *testing.T) {
+	f := &judgeFake{t: t}
+	f.respond = answerWith(judgeAnswer(t, map[string]any{"id": "3.1", "real": false, "reason": "guarded", "same_as": []string{}}))
+	res := runMulti(t, multiRequest(t, f, reviewerResult(), reviewerResult(), halfRun(find21)))
+
+	if len(res.Findings) != 1 || res.Findings[0].Severity != finding.Suggestion || !res.MultiReview.Tags[0].JudgeDisagreed {
+		t.Fatalf("findings %+v, tags %+v", res.Findings, res.MultiReview.Tags)
+	}
+	if res.Verdict != NoBlockingIssues || !slices.Equal(res.MultiReview.Failed, []int{3}) {
+		t.Errorf("verdict %s, multi review %+v", res.Verdict, res.MultiReview)
+	}
+}
+
+// TestRunMultiReviewHalfRunKeptOnJudgeFailure: a judge that fails keeps the
+// half-run reviewer's blocking finding blocking, as any other.
+func TestRunMultiReviewHalfRunKeptOnJudgeFailure(t *testing.T) {
+	f := &judgeFake{t: t}
+	f.respond = answerWith("no json here")
+	res := runMulti(t, multiRequest(t, f, reviewerResult(), reviewerResult(), halfRun(find21)))
+
+	if len(f.calls) != 1 {
+		t.Fatalf("%d runs, want 1", len(f.calls))
+	}
+	checkBlocking(t, res, 1)
+	mr := res.MultiReview
+	if !mr.Exact || mr.Judge != JudgeFailed || !slices.Equal(mr.Tags[0].FoundBy, []int{3}) || res.Verdict != HasBlockingIssues {
+		t.Errorf("multi review %+v, verdict %s", mr, res.Verdict)
+	}
+}
+
+// TestRunMultiReviewOneUsableAndHalfRunIsJudged: reviewer 1 finished and
+// missed find21; reviewer 2 found it, then timed out. 2 reviewers give
+// findings, so the judge path runs, and find21 is judged, not dropped.
+func TestRunMultiReviewOneUsableAndHalfRunIsJudged(t *testing.T) {
+	f := &judgeFake{t: t}
+	f.respond = answerWith(judgeAnswer(t, map[string]any{"id": "2.1", "real": true, "reason": "yes", "same_as": []string{}}))
+	res := runMulti(t, multiRequest(t, f, reviewerResult(find12), halfRun(find21)))
+
+	if len(f.calls) != 1 || !strings.HasPrefix(f.calls[0].prompt, judgePrompt) {
+		t.Fatalf("%d runs, want 1 judge run", len(f.calls))
+	}
+	if got := titles(res.Findings); !slices.Equal(got, []string{find12.Title, find21.Title}) {
+		t.Fatalf("titles = %v", got)
+	}
+	checkBlocking(t, res, 1)
+	mr := res.MultiReview
+	if !slices.Equal(mr.Tags[1].FoundBy, []int{2}) || !slices.Equal(mr.Reviewers, []int{1}) || !slices.Equal(mr.Failed, []int{2}) || mr.Judge != JudgeOK {
+		t.Errorf("multi review = %+v", mr)
+	}
+	if res.Verdict != HasBlockingIssues {
+		t.Errorf("verdict = %s", res.Verdict)
+	}
+
+	// --no-judge: an exact merge, find21 stays blocking.
+	req := multiRequest(t, f, reviewerResult(find12), halfRun(find21))
+	req.NoJudge = true
+	res = runMulti(t, req)
+	if mr := res.MultiReview; !mr.Exact || mr.Judge != JudgeSkipped || res.Verdict != HasBlockingIssues {
+		t.Errorf("--no-judge: multi review %+v, verdict %s", mr, res.Verdict)
+	}
+	checkBlocking(t, res, 1)
+}
+
+// TestRunMultiReviewOneUsableHalfRunSuggestionOnly: a half-run reviewer with
+// no blocking finding gives nothing, so the one usable reviewer's review is
+// verified as before, and the half-run reviewer is in Failed.
+func TestRunMultiReviewOneUsableHalfRunSuggestionOnly(t *testing.T) {
+	f := &judgeFake{t: t}
+	f.respond = answerWith(verifyAnswer(t, map[string]any{"id": "1", "real": false, "reason": "guarded"}))
+	res := runMulti(t, multiRequest(t, f, halfRun(find12), reviewerResult(find21, find12)))
+
+	checkOneVerified(t, f, res, []int{1})
+}
+
+// TestRunMultiReviewOnlyHalfRunsFail: with no usable reviewer the skill is
+// failed, even when half-run reviewers have blocking findings. Its verdict
+// is never a pass.
+func TestRunMultiReviewOnlyHalfRunsFail(t *testing.T) {
+	f := &judgeFake{t: t}
+	res := runMulti(t, multiRequest(t, f, halfRun(find11), halfRun(find21)))
+
+	if len(f.calls) != 0 {
+		t.Errorf("%d runs started", len(f.calls))
+	}
+	if res.Verdict != Failed || len(res.Failures) != 1 || res.Failures[0].Message != "The run timed out." {
+		t.Errorf("verdict %s, failures %+v", res.Verdict, res.Failures)
+	}
+	if mr := res.MultiReview; len(mr.Reviewers) != 0 || !slices.Equal(mr.Failed, []int{1, 2}) {
+		t.Errorf("multi review = %+v", mr)
+	}
+}
+
+// TestRunMultiReviewImpactHalfRunIsKept: a half-run impact check's blocking
+// finding joins the exact merge of the impact check.
+func TestRunMultiReviewImpactHalfRunIsKept(t *testing.T) {
+	f := &judgeFake{t: t}
+	res := runImpact(t, f, multiImpactRequest(t, f, reviewerResult(), halfRun(find21, find12)))
+
+	if got := titles(res.Findings); !slices.Equal(got, []string{find21.Title}) {
+		t.Fatalf("titles = %v", got)
+	}
+	mr := res.MultiReview
+	if !slices.Equal(mr.Tags[0].FoundBy, []int{2}) || !slices.Equal(mr.Reviewers, []int{1}) || !slices.Equal(mr.Failed, []int{2}) || res.Verdict != HasBlockingIssues {
+		t.Errorf("multi review %+v, verdict %s", mr, res.Verdict)
+	}
+}

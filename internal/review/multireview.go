@@ -146,8 +146,9 @@ const (
 	JudgeNotRun  = "not_run"
 )
 
-// maxJudgeFindings is the most findings, of all usable reviewers of one
-// skill, one judge run gets. With more, no judge runs and the merge is exact.
+// maxJudgeFindings is the most findings, of all reviewers that give findings
+// to one skill, one judge run gets. With more, no judge runs and the merge
+// is exact.
 const maxJudgeFindings = 200
 
 // NoReviewerReview is the failure of a skill no reviewer has a usable review
@@ -155,7 +156,10 @@ const maxJudgeFindings = 200
 const NoReviewerReview = "No reviewer's result has a usable review of this skill."
 
 // Reviewer is one reviewer's result. Number is its place in the order of
-// --reviewer, from 1. Nil Skills: its result can't be used.
+// --reviewer, from 1. Nil Skills: its result can't be used. A skill with
+// Verdict Failed can't be used, but its blocking findings are still merged
+// (a reviewer that failed after some batches still found what it found), so
+// the caller leaves Findings nil when it does not trust them.
 type Reviewer struct {
 	Number int
 	Skills map[string]SkillResult
@@ -177,7 +181,9 @@ type MultiReviewRequest struct {
 type SkillMultiReview struct {
 	// Reviewers are the reviewers usable for the skill, ascending; never nil.
 	Reviewers []int
-	// Failed are the reviewers not usable for the skill, ascending.
+	// Failed are the reviewers not usable for the skill, ascending. A failed
+	// reviewer's blocking findings are still merged, so its number can be in
+	// a Tag's FoundBy.
 	Failed []int
 	// Judge is a Judge* status.
 	Judge string
@@ -198,14 +204,18 @@ type numbered struct {
 // RunMultiReview returns one result per loaded skill, in req.Skills order,
 // then the impact check when a reviewer has one and no loaded skill has its
 // name.
-// A skill 2 or more reviewers can be used for is merged with one judge run
-// on the judge model (none with NoJudge). A judge that fails, answers badly,
-// or is skipped gives an exact merge, where every blocking finding stays
-// blocking.
-// A skill one reviewer can be used for is that reviewer's review, its
-// blocking findings verified on the judge model as a review on one model
-// verifies them (not with NoJudge). A skill no reviewer can be used for
-// fails: it never drops out, which would read as a pass.
+// A reviewer gives findings to a skill when it can be used for the skill, or
+// when its skill failed but has a blocking finding (a carried reviewer: only
+// its blocking findings count).
+// A skill with at least one usable reviewer and 2 or more reviewers that
+// give findings is merged with one judge run on the judge model (none with
+// NoJudge). A judge that fails, answers badly, or is skipped gives an exact
+// merge, where every blocking finding stays blocking.
+// A skill with 1 usable reviewer and no other that gives findings is that
+// reviewer's review, its blocking findings verified on the judge model as a
+// review on one model verifies them (not with NoJudge). A skill no reviewer
+// can be used for fails, carried findings or not: it never drops out, which
+// would read as a pass.
 // The impact check is merged by file, line and title, with no run: each
 // reviewer verified its own.
 func RunMultiReview(ctx context.Context, req MultiReviewRequest) []SkillResult {
@@ -241,33 +251,59 @@ func usable(rv Reviewer, name string) (SkillResult, bool) {
 	return res, ok && res.Verdict != Failed
 }
 
-// splitReviewers returns the reviewers usable for skill name, and the
-// numbers of the others, both in number order.
-func splitReviewers(rvs []Reviewer, name string) (use []numbered, failed []int) {
+// splitReviewers returns the reviewers usable for skill name, the carried
+// ones (not usable, but their failed skill has a blocking finding: res holds
+// only those findings), and the numbers of all the reviewers not usable, each
+// in number order.
+func splitReviewers(rvs []Reviewer, name string) (use, carry []numbered, failed []int) {
 	for _, rv := range rvs {
-		if res, ok := usable(rv, name); ok {
+		res, ok := usable(rv, name)
+		if ok {
 			use = append(use, numbered{rv.Number, res})
-		} else {
-			failed = append(failed, rv.Number)
+			continue
+		}
+		failed = append(failed, rv.Number)
+		c := SkillResult{Skill: name, Deleted: res.Deleted}
+		for _, f := range res.Findings {
+			if f.Severity == finding.Blocking {
+				c.Findings = append(c.Findings, f)
+			}
+		}
+		if len(c.Findings) > 0 {
+			carry = append(carry, numbered{rv.Number, c})
 		}
 	}
-	return use, failed
+	return use, carry, failed
+}
+
+// merging is whether a skill is merged from several reviewers: one at least
+// is usable, and 2 or more give findings. It returns them in number order.
+func merging(use, carry []numbered) ([]numbered, bool) {
+	if len(use) == 0 || len(use)+len(carry) < 2 {
+		return nil, false
+	}
+	all := append(slices.Clone(use), carry...)
+	slices.SortStableFunc(all, func(a, b numbered) int { return a.n - b.n })
+	return all, true
 }
 
 // multiSkill merges the reviewers' reviews of skill s.
 func (r *reviewer) multiSkill(ctx context.Context, s skill.Skill, req MultiReviewRequest) SkillResult {
-	use, failed := splitReviewers(req.Reviewers, s.Name)
-	if len(use) < 2 {
+	use, carry, failed := splitReviewers(req.Reviewers, s.Name)
+	all, ok := merging(use, carry)
+	if !ok {
 		return r.multiOne(ctx, s, req)
 	}
 	start := time.Now()
 	ctx, runs := withRunLog(ctx)
-	mr := &SkillMultiReview{Failed: failed}
-	var items []multireview.Item
-	byReviewer := make([][]multireview.Item, len(use))
-	blocking, withFindings := false, 0
-	for i, u := range use {
+	mr := &SkillMultiReview{Reviewers: []int{}, Failed: failed}
+	for _, u := range use {
 		mr.Reviewers = append(mr.Reviewers, u.n)
+	}
+	var items []multireview.Item
+	byReviewer := make([][]multireview.Item, len(all))
+	blocking, withFindings := false, 0
+	for i, u := range all {
 		byReviewer[i] = multireview.IDs(u.n, u.res.Findings)
 		items = append(items, byReviewer[i]...)
 		if len(u.res.Findings) > 0 {
@@ -289,7 +325,7 @@ func (r *reviewer) multiSkill(ctx context.Context, s skill.Skill, req MultiRevie
 		mr.Judge = JudgeSkipped
 	default:
 		var notes []string
-		answers, mr.Judge, mr.Cause, res.Usage, notes = r.judge(ctx, s, use, byReviewer, &res)
+		answers, mr.Judge, mr.Cause, res.Usage, notes = r.judge(ctx, s, all, byReviewer, &res)
 		for _, n := range notes {
 			if !slices.Contains(res.Notes, n) {
 				res.Notes = append(res.Notes, n)
@@ -312,15 +348,14 @@ func (r *reviewer) multiSkill(ctx context.Context, s skill.Skill, req MultiRevie
 	return res
 }
 
-// single is a skill fewer than 2 reviewers can be used for, with no run:
-// the one usable reviewer's review as it is, every finding with its own
-// severity, and that reviewer's number. With none, the skill fails with the
-// failures of the lowest-numbered reviewer that has any, or
-// NoReviewerReview, and the number is 0. The judge is JudgeNotRun, the
-// findings are not tagged yet, and the tokens and runs are the merge's own,
-// none yet.
+// single is a skill that is not merging, with no run: the one usable
+// reviewer's review as it is, every finding with its own severity, and that
+// reviewer's number. With none, the skill fails with the failures of the
+// lowest-numbered reviewer that has any, or NoReviewerReview, and the number
+// is 0. The judge is JudgeNotRun, the findings are not tagged yet, and the
+// tokens and runs are the merge's own, none yet.
 func single(name string, rvs []Reviewer) (SkillResult, int) {
-	use, failed := splitReviewers(rvs, name)
+	use, _, failed := splitReviewers(rvs, name)
 	mr := &SkillMultiReview{Reviewers: []int{}, Failed: failed, Judge: JudgeNotRun}
 	var res SkillResult
 	n := 0
@@ -355,7 +390,7 @@ func tagAll(res *SkillResult, n int) {
 	}
 }
 
-// multiOne is skill s when fewer than 2 reviewers can be used for it. The
+// multiOne is skill s when it is not merging (see merging). The
 // one reviewer's blocking findings are verified on the judge model, as a
 // review on one model verifies them: one the run judges not real is dropped
 // with that review's note. A run that fails, answers badly or is skipped
@@ -384,13 +419,15 @@ func (r *reviewer) multiOne(ctx context.Context, s skill.Skill, req MultiReviewR
 	return res
 }
 
-// multiImpact is the impact check: the usable reviewers' findings merged by
-// file, line and title, with no judge and no verification run, since each
-// reviewer verified its own. With one usable reviewer it is that reviewer's
-// check; with none it fails.
+// multiImpact is the impact check: the findings of the reviewers that give
+// any (see merging) merged by file, line and title, with no judge and no
+// verification run, since each reviewer verified its own. With one usable
+// reviewer and no carried one it is that reviewer's check; with none it
+// fails.
 func multiImpact(rvs []Reviewer) SkillResult {
-	use, failed := splitReviewers(rvs, ImpactSkill)
-	if len(use) < 2 {
+	use, carry, failed := splitReviewers(rvs, ImpactSkill)
+	all, ok := merging(use, carry)
+	if !ok {
 		res, n := single(ImpactSkill, rvs)
 		if n != 0 {
 			tagAll(&res, n)
@@ -399,10 +436,12 @@ func multiImpact(rvs []Reviewer) SkillResult {
 	}
 	res := mergeBase(use)
 	res.Skill = ImpactSkill
-	mr := &SkillMultiReview{Failed: failed, Judge: JudgeNotRun}
-	var items []multireview.Item
+	mr := &SkillMultiReview{Reviewers: []int{}, Failed: failed, Judge: JudgeNotRun}
 	for _, u := range use {
 		mr.Reviewers = append(mr.Reviewers, u.n)
+	}
+	var items []multireview.Item
+	for _, u := range all {
 		items = append(items, multireview.IDs(u.n, u.res.Findings)...)
 	}
 	merged := multireview.Exact(items)
@@ -469,8 +508,9 @@ func (r *reviewer) dismissedIDs(items []multireview.Item) map[string]bool {
 	return out
 }
 
-// judge runs the judge once on every usable reviewer's findings of skill s,
-// byReviewer[i] being use[i]'s. base gives the files the reviewers reviewed.
+// judge runs the judge once on the findings of skill s of every reviewer in
+// use (usable or carried), byReviewer[i] being use[i]'s. base gives the files
+// the usable reviewers reviewed; a carried reviewer's deleted files are added.
 // It returns the answers (nil unless the status is JudgeOK), the status, the
 // failed run's cause, the run's tokens and the notes of what could not be
 // attached. A run that cannot start is JudgeSkipped; one that fails or
@@ -479,7 +519,14 @@ func (r *reviewer) judge(ctx context.Context, s skill.Skill, use []numbered, byR
 	// The context the run gets, as verification has it: the blocking findings
 	// decide which deleted files' diffs and which rules it gets. Its notes are
 	// kept apart and returned.
-	scope := SkillResult{Batches: base.Batches, Reviewed: base.Reviewed, Deleted: base.Deleted}
+	scope := SkillResult{Batches: base.Batches, Reviewed: base.Reviewed, Deleted: slices.Clone(base.Deleted)}
+	for _, u := range use {
+		for _, d := range u.res.Deleted {
+			if !slices.Contains(scope.Deleted, d) {
+				scope.Deleted = append(scope.Deleted, d)
+			}
+		}
+	}
 	for _, its := range byReviewer {
 		for _, it := range its {
 			scope.Findings = append(scope.Findings, it.Finding)

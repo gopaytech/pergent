@@ -93,7 +93,9 @@ type FindingMultiReview struct {
 type SkillMultiReview struct {
 	// Reviewers lists the reviewers (1-based numbers) whose answers were used.
 	Reviewers []int
-	// Failed lists the reviewers (1-based) that failed for this skill.
+	// Failed lists the reviewers (1-based) that failed for this skill. One
+	// can still be in a finding's FoundBy: its blocking findings from the
+	// batches that finished are merged. It then counts in "of <N> reviewers".
 	Failed []int `json:",omitempty"`
 	// Exact is true when the merge is exact, not judged.
 	Exact bool `json:",omitempty"`
