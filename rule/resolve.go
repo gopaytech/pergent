@@ -46,6 +46,12 @@ func NewResolver(team []Entry, builtIn bool) *Resolver {
 	return r
 }
 
+// NewResolverWith is the resolver over team followed by builtins, such as
+// the entries of SelectBuiltin. BuiltIn reports whether builtins has any.
+func NewResolverWith(team, builtins []Entry) *Resolver {
+	return newResolver(team, builtins)
+}
+
 func newResolver(team, builtins []Entry) *Resolver {
 	list := make([]Entry, 0, len(team)+len(builtins))
 	list = append(append(list, team...), builtins...)

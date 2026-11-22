@@ -29,6 +29,36 @@ func Builtin() []Entry {
 	return append([]Entry(nil), builtins...)
 }
 
+// SelectBuiltin returns the built-ins named in names, as Builtin returns
+// them: in the order of builtin.yaml, not the order of names, so first match
+// is unchanged, and with every split glob of a named rule. A name is a
+// built-in's Name ("go", "ts_js"), matched exactly after spaces are trimmed;
+// an empty name is ignored. unknown lists the names pergent does not know,
+// each once, in the order given, so a caller built against a newer pergent
+// can warn and go on. No name known gives no entries.
+func SelectBuiltin(names []string) (selected []Entry, unknown []string) {
+	want := map[string]bool{}
+	for _, n := range names {
+		if n = strings.TrimSpace(n); n != "" {
+			want[n] = true
+		}
+	}
+	known := map[string]bool{}
+	for _, e := range builtins {
+		if e.Name != "" && want[e.Name] {
+			selected = append(selected, e)
+			known[e.Name] = true
+		}
+	}
+	for _, n := range names {
+		if n = strings.TrimSpace(n); n != "" && !known[n] {
+			unknown = append(unknown, n)
+			known[n] = true
+		}
+	}
+	return selected, unknown
+}
+
 func mustLoadBuiltin(fsys fs.FS) []Entry {
 	list, err := loadBuiltin(fsys)
 	if err != nil {
