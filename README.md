@@ -1,10 +1,10 @@
 <div align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-white.svg">
-    <img src="docs/assets/logo.svg" alt="pergent" width="110">
-  </picture>
-
-  <h1>pergent</h1>
+  <h1>
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="docs/assets/brand/pergent-horizontal-white.svg">
+      <img src="docs/assets/brand/pergent-horizontal-black.svg" alt="pergent" width="320">
+    </picture>
+  </h1>
 
   <p><strong>Agentic merge request reviews in your CI pipeline, powered by opencode.</strong></p>
 
