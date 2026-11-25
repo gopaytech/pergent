@@ -1,5 +1,8 @@
 <div align="center">
-  <img src="docs/assets/logo.png" alt="pergent" width="110">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-white.svg">
+    <img src="docs/assets/logo.svg" alt="pergent" width="110">
+  </picture>
 
   <h1>pergent</h1>
 
