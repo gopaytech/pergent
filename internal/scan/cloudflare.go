@@ -136,10 +136,13 @@ var severityMap = map[string]struct{ level, severity, score string }{
 }
 
 func convertCloudflare(skillDir, outDir string) Converted {
-	bad := Converted{Problem: problemSchema(findingsFile)}
+	// The ledger's coverage is kept with no valid findings.json too: a
+	// partial scan still reports how far it came.
+	units, coverage := readLedger(outDir)
+	bad := Converted{Problem: problemSchema(findingsFile), Coverage: coverage}
 	data, err := ReadOutFile(outDir, findingsFile, maxFindings)
 	if err != nil {
-		return Converted{Problem: problemMissing(findingsFile)}
+		return Converted{Problem: problemMissing(findingsFile), Coverage: coverage}
 	}
 	raw, err := jsonschema.Decode(data, maxFindings, jsonDepth)
 	if err != nil {
@@ -159,7 +162,6 @@ func convertCloudflare(skillDir, outDir string) Converted {
 		return bad
 	}
 
-	units, coverage := readLedger(outDir)
 	out := Converted{Valid: true, Coverage: coverage, Results: []sarif.Result{}}
 	out.RunStatus, out.IncompleteReason = readRunStatus(outDir)
 

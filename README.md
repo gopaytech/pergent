@@ -191,6 +191,7 @@ See [Code graph](docs/concepts/code-graph.md).
 | [Agent sandbox](docs/concepts/sandbox.md) | What the review agent can and can't do |
 | [Agent mode](docs/concepts/agent-mode.md) | `pergent agent`, for running pergent from another service |
 | [Multi review](docs/concepts/multi-review.md) | 1 to 5 reviewers review one change, and `pergent agent --multi-review` merges them with one judge |
+| [Security scan](docs/concepts/security-scan.md) | `pergent scan`: one security audit of a whole repository, sent as SARIF in an envelope |
 | [How it differs from pr-agent](docs/concepts/comparison.md) | The comparison |
 
 **Reference**

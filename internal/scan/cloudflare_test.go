@@ -205,6 +205,20 @@ func TestConvertInvalid(t *testing.T) {
 	}
 }
 
+// A run stopped before findings.json is valid still reports the ledger's
+// coverage: the envelope of a partial scan carries it.
+func TestConvertCoverageWithoutFindings(t *testing.T) {
+	t.Parallel()
+	dir := copyFixtures(t, "report-schema.json", "coverage-ledger.json")
+	if c := Convert(cfManifest(), dir, dir); c.Valid || c.Coverage != (Coverage{Done: 2, Planned: 3}) {
+		t.Errorf("missing findings: %+v", c)
+	}
+	writeFindings(t, dir, `[{"verdict":"confirmed"}]`)
+	if c := Convert(cfManifest(), dir, dir); c.Valid || c.Coverage != (Coverage{Done: 2, Planned: 3}) {
+		t.Errorf("bad findings: %+v", c)
+	}
+}
+
 func TestReadOutFileRefusesLinksAndFIFOs(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
