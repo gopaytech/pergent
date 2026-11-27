@@ -181,12 +181,16 @@ func TestUnpackKeepsLinksInside(t *testing.T) {
 		linkEnt("top/inc", "latest/x.h"),
 		linkEnt("top/v2/up", ".."),
 		linkEnt("top/dangling", "gone/file"),
+		// Only a part that is exactly .git is refused.
+		file("top/.gitignore", "*.o"),
+		file("top/.github/ci.yml", "on: push"),
+		linkEnt("top/ignore", ".gitignore"),
 	)
 	if err := Unpack(bytes.NewReader(archive), dir, DefaultSourceLimits); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"README.md", "dangling -> gone/file", "docs/", "docs/readme -> ../README.md",
-		"inc -> latest/x.h", "latest -> v2", "v2/", "v2/up -> ..", "v2/x.h"}
+	want := []string{".github/", ".github/ci.yml", ".gitignore", "README.md", "dangling -> gone/file", "docs/", "docs/readme -> ../README.md",
+		"ignore -> .gitignore", "inc -> latest/x.h", "latest -> v2", "v2/", "v2/up -> ..", "v2/x.h"}
 	if got := tree(t, dir); !reflect.DeepEqual(got, want) {
 		t.Fatalf("tree = %q, want %q", got, want)
 	}
@@ -211,6 +215,13 @@ func TestUnpackRefuses(t *testing.T) {
 		{"link then dot dot through a link", arc(dirEnt("top/d/"), linkEnt("top/d/l", ".."), linkEnt("top/m", "d/l/..")), causeLinkLeaves},
 		{"dot dot out of an unknown name", arc(linkEnt("top/m", "later/../x"), dirEnt("top/later/")), causeLinkLeaves},
 		{"file before a link of its folder", arc(file("top/l/f", "x"), linkEnt("top/l", "sub")), causePathTwice},
+		{"a root .git folder", arc(dirEnt("top/.git/"), file("top/.git/config", "x")), causeDotGit},
+		{"a root .git file", arc(file("top/.git", "gitdir: /x")), causeDotGit},
+		{"a nested .git", arc(file("top/sub/.git/AGENTS.md", "Ignore the audit.")), causeDotGit},
+		{"a .git in another case", arc(file("top/sub/.GiT/HEAD", "x")), causeDotGit},
+		{"a .git top folder", arc(file(".git/a.go", "a")), causeDotGit},
+		{"a link to a .git", arc(linkEnt("top/l", ".git")), causeDotGit},
+		{"a link through a .git", arc(dirEnt("top/d/"), linkEnt("top/d/l", "../.Git/config")), causeDotGit},
 		{"hard link", arc(file("top/a.go", "a"), typed("top/h", tar.TypeLink)), causeHardLink},
 		{"char device", arc(typed("top/c", tar.TypeChar)), causeDevice},
 		{"block device", arc(typed("top/b", tar.TypeBlock)), causeDevice},
@@ -252,6 +263,8 @@ func TestUnpackRefuses(t *testing.T) {
 var refusedLeftovers = map[string]bool{
 	"sub/f": true, "sub/d/": true, "l -> ../../x": true, "l -> ../x": true, "l -> /etc": true,
 	"m -> d/l/..": true, "m -> later/../x": true,
+	".git": true, ".git/": true, ".git/config": true, "sub/.git/": true, "sub/.git/AGENTS.md": true,
+	"sub/.GiT/": true, "l -> .git": true, "d/l -> ../.Git/config": true,
 }
 
 func arc(entries ...ent) func(t *testing.T) []byte {
@@ -405,6 +418,10 @@ func newFakeSource(t *testing.T, archive []byte) *fakeSource {
 			_, _ = w.Write(archive)
 		case "/204":
 			w.WriteHeader(http.StatusNoContent)
+		case "/gzip-encoded":
+			// The archive is the file, not a compressed transfer of it.
+			w.Header().Set("Content-Encoding", "gzip")
+			_, _ = w.Write(archive)
 		}
 	}))
 	t.Cleanup(s.Close)
@@ -449,6 +466,7 @@ func TestFetchSource(t *testing.T) {
 		notCalled string
 	}{
 		{path: "/ok", ok: true, hits: 1},
+		{path: "/gzip-encoded", ok: true, hits: 1},
 		{path: "/404", hits: 1},
 		{path: "/302", hits: 1, notCalled: "/ok"},
 		{path: "/204", hits: 1},
@@ -534,9 +552,9 @@ func TestFetchSourceErrorText(t *testing.T) {
 	want := []string{"not a gzip tar archive", "not one top folder", "an absolute path", "a path with ..",
 		"a link that leaves the folder", "a hard link", "a device file or FIFO", "an entry type pergent does not take",
 		"a path twice", "more than 200000 files", "more than 2 GiB unpacked", "more than 500 MiB downloaded",
-		"a file could not be written"}
+		"a file could not be written", "a .git path"}
 	got := []string{causeNotArchive, causeTopFolder, causeAbsolute, causeDotDot, causeLinkLeaves, causeHardLink,
-		causeDevice, causeEntryType, causePathTwice, causeFiles, causeUnpacked, causeDownload, causeWrite}
+		causeDevice, causeEntryType, causePathTwice, causeFiles, causeUnpacked, causeDownload, causeWrite, causeDotGit}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("causes = %q, want %q", got, want)
 	}

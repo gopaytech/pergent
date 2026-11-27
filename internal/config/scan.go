@@ -136,10 +136,13 @@ func GenerateScanConfig(o ScanOptions) (path string, cleanup func(), err error) 
 		Permission:   reviewPermission(true, nil),
 		// The same reasons as for a review: compaction can end a run with no
 		// result, language servers can be programs from the checkout, and
-		// snapshots write to its git object store.
+		// snapshots write to its git object store. A scan can edit (its output
+		// folder), and a formatter runs a program after each edit with the
+		// model key in its environment.
 		Compaction: openCodeCompaction{Auto: false},
 		LSP:        false,
 		Snapshot:   false,
+		Formatter:  new(bool), // false: no formatter runs
 	}
 	return writeOpenCodeConfig(cfg, o.Prompt)
 }

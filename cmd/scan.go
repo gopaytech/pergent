@@ -70,8 +70,10 @@ var (
 	// finalStatsTimeout bounds the last read after the run, a poll still
 	// under way included.
 	finalStatsTimeout = 60 * time.Second
-	// signalStatsTimeout replaces it after a signal: the Job's grace period
-	// is 30 seconds and delivery needs 20.
+	// signalStatsTimeout replaces it after a signal. The worst case after a
+	// signal is about 35 seconds (opencode's 10-second wait, this read and a
+	// 20-second delivery), so the Job's grace period must be at least 60
+	// seconds, as pergent.sh sets it.
 	signalStatsTimeout = 5 * time.Second
 )
 
@@ -309,12 +311,28 @@ func (s *scanner) usage(msg string) int {
 }
 
 // setupFailed logs why the scan could not start and sends a failed envelope.
+// After a signal the setup step most likely failed because the signal
+// stopped it, so the scan ends as cancelled instead.
 func (s *scanner) setupFailed(cause, detail string) int {
+	if s.signalled.Load() {
+		s.logger.Printf("pergent scan: the signal stopped the setup (%s: %s)", cause, redact.String(detail))
+		return s.cancelled()
+	}
 	s.logger.Printf("pergent scan: %s: %s", cause, redact.String(detail))
 	if !s.end(scan.EndInput{Stop: scan.StopSetup, SetupCause: cause}) {
 		return 4
 	}
 	return 3
+}
+
+// cancelled sends the envelope of a scan a signal stopped before opencode
+// ran: partial, cancelled, with no results. The exit code is the signal
+// path's: 0 delivered, 4 not.
+func (s *scanner) cancelled() int {
+	if !s.end(scan.EndInput{Stop: scan.StopSignal}) {
+		return 4
+	}
+	return 0
 }
 
 // scan runs everything after the flags were parsed.
@@ -461,6 +479,12 @@ func (s *scanner) source(ctx context.Context) (root string, code int, done bool)
 		if !errors.As(err, &se) {
 			return "", s.setupFailed(causeCheckout, err.Error()), true
 		}
+		if s.signalled.Load() {
+			// signalled is set before the cancel, so a download the signal
+			// stopped always sees it.
+			s.logger.Printf("pergent scan: the signal stopped the download (%s)", se.Error())
+			return "", s.cancelled(), true
+		}
 		s.logger.Printf("pergent scan: %s", se.Error())
 		if !s.end(scan.EndInput{Stop: scan.StopSource, Source: se}) {
 			return "", 4, true
@@ -592,11 +616,18 @@ func checkSkillCommand(args []string, d scanDeps) int {
 
 // checkSkill checks a skill folder as the image ships it: the manifest and
 // the entry file pass (loadScanSkill, which also compiles the skill's
-// report-schema.json for a cloudflare-findings skill), LICENSE is a regular
-// file, and the embedded SARIF schema compiles.
+// report-schema.json for a cloudflare-findings skill), the schema and the
+// converter agree on pergent's sample record (scan.CheckSample), LICENSE is
+// a regular file, and the embedded SARIF schema compiles.
 func checkSkill(dir string) error {
-	if _, _, err := loadScanSkill(dir); err != nil {
+	m, _, err := loadScanSkill(dir)
+	if err != nil {
 		return err
+	}
+	if m.Output.Format == scan.FormatCloudflare {
+		if err := scan.CheckSample(dir); err != nil {
+			return err
+		}
 	}
 	// Lstat: a link is not a licence file.
 	fi, err := os.Lstat(filepath.Join(dir, "LICENSE"))

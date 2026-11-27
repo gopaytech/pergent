@@ -1,0 +1,33 @@
+[
+  {
+    "verdict": "confirmed",
+    "fingerprint": "pergent-sample/search-query",
+    "title": "Sample: a search term reaches a SQL query",
+    "description": "pergent's own sample record, never a real finding.",
+    "root_cause": "The handler joins the term into the query text.",
+    "intended_behavior": "The term goes to the database as a bound parameter.",
+    "trace": [
+      { "kind": "entrypoint", "file": "app/search.go", "line": 10, "scope": "Search", "description": "The term comes in with the request." },
+      { "kind": "sink", "file": "app/db.go", "line": 42, "scope": "Query", "description": "The query runs with the term in its text." }
+    ],
+    "evidence": [
+      { "file": "app/db.go", "line": 42, "description": "The query text is built by joining strings." }
+    ],
+    "conditions": [
+      { "kind": "authentication_level", "description": "Any signed-in user." }
+    ],
+    "execution": {
+      "attacker_perspective": "A signed-in user sends a quote in the term.",
+      "payloads": ["x' OR '1'='1"],
+      "instructions": ["Search for the payload."],
+      "observed_result": "Every row comes back."
+    },
+    "remediation": { "strategy": "Send the term as a bound parameter." },
+    "severity": {
+      "likelihood": { "score": "high", "reason": "Any user can send a term." },
+      "impact": { "score": "high", "reason": "Every row can be read." },
+      "overall_severity": "high"
+    },
+    "confidence": { "score": "high", "reason": "The sample is written to be one." }
+  }
+]

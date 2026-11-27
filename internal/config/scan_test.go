@@ -113,7 +113,9 @@ func TestScanConfigAgents(t *testing.T) {
 			t.Errorf("%s has a description; opencode's own one must stay", name)
 		}
 	}
-	for _, key := range []string{"lsp", "snapshot"} {
+	// A formatter runs a program after each edit, with the model key in its
+	// environment.
+	for _, key := range []string{"lsp", "snapshot", "formatter"} {
 		if cfg[key] != false {
 			t.Errorf("%s = %v, want false", key, cfg[key])
 		}

@@ -52,9 +52,9 @@ pergent scan --repo-path <dir> --result-url <url> [--source-url <url>] [--head <
 | `--source-url` / `$PERGENT_SCAN_SOURCE_URL` | pergent.sh's `/security-scans/{id}/source`. pergent GETs it with `Authorization: Bearer $PERGENT_RESULT_TOKEN` (no redirects followed) and gets a `.tar.gz` of the repository at one commit, GitLab archive or GitHub tarball layout (one top folder). Needs `--head` and `PERGENT_RESULT_TOKEN`. The scan pod has no git token and no clone container. |
 | `--repo-path` | Required. With `--source-url`: an existing **empty** folder that pergent fills (no `.git` after it). Without: the work tree top of a local clone (local use and tests). |
 | `--head` | Full lowercase SHA. Required with `--source-url` (pergent.sh always passes it). Without `--source-url` it is optional: when set, the clone's `HEAD` must equal it; when absent, pergent reads `HEAD`. Either way it is the envelope's `commit`. |
-| Unpack limits | 200,000 files, 2 GiB unpacked, 500 MiB downloaded. Refused: absolute paths, `..`, links whose target leaves the folder, hard links, device files, FIFOs, any other entry type, a second top folder. |
+| Unpack limits | 200,000 files, 2 GiB unpacked, 500 MiB downloaded. Refused: absolute paths, `..`, links whose target leaves the folder, hard links, device files, FIFOs, any other entry type, a second top folder, a `.git` path part (any case, also in a link target). |
 | `--skill` | Default `/opt/pergent/security-skills/security-audit`. Trusted, outside `--repo-path`. |
-| `--prior` / `$PERGENT_SCAN_PRIOR` | Optional JSON file, trusted, outside `--repo-path`, at most `MaxPrior` 800 KiB (pergent.sh passes it as `--prior /in/prior.json`, one Secret item). Shape below. Unreadable or malformed: a warning, the scan runs with no prior. |
+| `--prior` / `$PERGENT_SCAN_PRIOR` | Optional JSON file, trusted, outside `--repo-path`, at most `MaxPrior` 800 KiB (pergent.sh passes it as `--prior /in/prior.json`, one Secret item). pergent follows its links first (kubelet makes the item a link, `prior.json -> ..data/prior.json`); the real path must be outside `--repo-path` and a regular file. Shape below. Unreadable or malformed: a warning, the scan runs with no prior. |
 | `--max-turns` | Main agent step limit (the name matches `pergent agent`), 5 to 1000. Default the manifest's `steps.main` (600). |
 | `--max-subagent-turns` | Each sub-agent's step limit, 5 to 300. Default `steps.subagent` (100). |
 | `--timeout` | 10m to 6h, default 3h. The Job deadline must be at least `--timeout` + 2 min. |
@@ -62,7 +62,7 @@ pergent scan --repo-path <dir> --result-url <url> [--source-url <url>] [--head <
 | `OPENCODE_PROVIDER`, `OPENCODE_MODEL`, `OPENCODE_API_KEY`, `OPENCODE_BASE_URL`, `OPENCODE_NPM` | As for a review; provider and model required. |
 | `PERGENT_TOKEN_BUDGET` | Optional positive whole number: the 5-part token total (input + output + reasoning + cache read + cache write) at which pergent stops. Empty = no budget. `0`, negative or not a number = usage error. |
 | `PERGENT_SCAN_KEEP_PROXY` | `true` keeps `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY` (both cases) and `NODE_USE_ENV_PROXY` in opencode's env. Anything else drops them. pergent.sh sets it only with `security.proxy`. |
-| Exit codes | 0 envelope delivered (any `status`), 2 usage (a `failed` envelope is still sent when a target is known), 3 no scan possible (`failed` envelope delivered), 4 delivery failed. |
+| Exit codes | 0 envelope delivered (any `status`, also after a signal), 2 usage (a `failed` envelope is still sent when a target is known), 3 no scan possible (`failed` envelope delivered), 4 delivery failed. |
 
 **Prior file** (pergent.sh writes it from the last **complete** scan and the repository's dismissed findings):
 
@@ -107,6 +107,7 @@ pergent scan --repo-path <dir> --result-url <url> [--source-url <url>] [--head <
 
 | Condition | `status` | `reason` text |
 |---|---|---|
+| A signal before opencode ran (download or setup) | `partial` | `cancelled` (no results; exit 0 when delivered) |
 | The download failed or did not answer 200 | `failed` | `the source could not be downloaded` |
 | The archive broke an unpack rule or limit | `failed` | `the source archive was refused: <fixed cause>` |
 | Other setup failure before opencode ran | `failed` | `the scan could not start: <fixed cause>` |
@@ -119,7 +120,7 @@ pergent scan --repo-path <dir> --result-url <url> [--source-url <url>] [--head <
 | SARIF cut to fit (bytes or count) | `partial` | `the SARIF was cut to fit the size limit` |
 | Otherwise | `complete` | `""` |
 
-Source causes (exact): `not a gzip tar archive`, `not one top folder`, `an absolute path`, `a path with ..`, `a link that leaves the folder`, `a hard link`, `a device file or FIFO`, `an entry type pergent does not take`, `a path twice`, `more than 200000 files`, `more than 2 GiB unpacked`, `more than 500 MiB downloaded`. A source failure is exit 3, and the envelope is still sent. On a `partial` with no valid `findings.json`, `sarif` has no results and `state` still holds what exists.
+Source causes (exact): `not a gzip tar archive`, `not one top folder`, `an absolute path`, `a path with ..`, `a link that leaves the folder`, `a hard link`, `a device file or FIFO`, `an entry type pergent does not take`, `a path twice`, `more than 200000 files`, `more than 2 GiB unpacked`, `more than 500 MiB downloaded`, `a file could not be written`, `a .git path`. A source failure is exit 3, and the envelope is still sent. On a `partial` with no valid `findings.json`, `sarif` has no results and `state` still holds what exists.
 
 **SARIF per result** (`cloudflare-findings` converter; `rejected` records are not results):
 
@@ -150,7 +151,7 @@ Source causes (exact): `not a gzip tar archive`, `not one top folder`, `an absol
 | Source download retries | Up to 3 tries on a connection error or a 5xx before the first body byte (2 s, 4 s); a 4xx is final. The download counts against `--timeout`. | A short pergent.sh restart should not fail a scan. |
 | Unpacked file modes | `0644`, or `0755` when any execute bit is set; directories `0755`; no setuid, owner or times kept. | The model's bash may run files; nothing else from the archive matters. |
 | Stats while running | `opencode stats --standalone --all --models --json` with its own state dir, no key, every 30 s, 20 s per call; the budget uses max(stats, stream). | Finding 3; the stream count is the fallback the spec names. |
-| Final usage after a signal | 5 s for the last stats read, then the last poll. | The Job's grace is 30 s and delivery needs 20 s. |
+| Final usage after a signal | 5 s for the last stats read, then the last poll. | The worst case after a signal is about 35 s (opencode's 10 s stop, this read, a 20 s delivery), so the Job's grace must be at least 60 s; pergent.sh sets 60 s. |
 | Checks in Go | Own small interpreter for the keywords the 2 schemas use; refuses an unknown keyword. Schema checks only, not `validate-findings.cjs`'s extra code checks. | No new dependency; the skill still runs its own validators during the run. |
 | Instruction files | Always scrubbed (as `--scrub-instructions`), denied files always deleted. | The model reads the whole tree; nested `AGENTS.md` is an injection path. |
 | `skill` in the envelope | Added. | pergent.sh needs the pinned commit for "Skill updated". |

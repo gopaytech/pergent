@@ -54,13 +54,15 @@ func (t statsTokens) usage() (Usage, error) {
 
 // ParseStats reads the output of `opencode stats --json` (opencode 2: the
 // SessionStatsInfo shape). Other keys are ignored. A negative count is an
-// error: the numbers feed a usage limit and must not be able to lower it.
+// error, and so is an answer with no sessions or no tokens (`{}`, `null`, an
+// error object): the numbers feed a usage limit and must not be able to
+// lower it, so the caller falls back to the stream count instead.
 func ParseStats(data []byte) (Stats, error) {
 	var in struct {
-		Sessions  int         `json:"sessions"`
-		Subagents int         `json:"subagents"`
-		Steps     int         `json:"steps"`
-		Tokens    statsTokens `json:"tokens"`
+		Sessions  *int         `json:"sessions"`
+		Subagents int          `json:"subagents"`
+		Steps     int          `json:"steps"`
+		Tokens    *statsTokens `json:"tokens"`
 		Models    []struct {
 			Model struct {
 				ID         string `json:"id"`
@@ -73,10 +75,13 @@ func ParseStats(data []byte) (Stats, error) {
 	if err := json.Unmarshal(data, &in); err != nil {
 		return Stats{}, fmt.Errorf("reading opencode's stats: %w", err)
 	}
-	if in.Sessions < 0 || in.Subagents < 0 || in.Steps < 0 {
+	if in.Sessions == nil || in.Tokens == nil {
+		return Stats{}, errors.New("opencode's stats have no sessions or no tokens")
+	}
+	if *in.Sessions < 0 || in.Subagents < 0 || in.Steps < 0 {
 		return Stats{}, errors.New("opencode's stats hold a negative count")
 	}
-	out := Stats{Sessions: in.Sessions, Subagents: in.Subagents, Steps: in.Steps}
+	out := Stats{Sessions: *in.Sessions, Subagents: in.Subagents, Steps: in.Steps}
 	var err error
 	if out.Tokens, err = in.Tokens.usage(); err != nil {
 		return Stats{}, fmt.Errorf("opencode's stats: %w", err)

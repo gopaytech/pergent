@@ -30,7 +30,7 @@ stdout carries only the envelope, and only with `--result -`. All logs go to std
 | `--source-url` / `$PERGENT_SCAN_SOURCE_URL` | pergent.sh's `/security-scans/{id}/source`. Needs `--head` and `PERGENT_RESULT_TOKEN`. |
 | `--head` | A full lowercase commit SHA. Required with `--source-url`. Without it, the clone's `HEAD` must equal it when it is set, and pergent reads `HEAD` when it is not. Either way it is the envelope's `commit`. |
 | `--skill` | The skill folder. Default `/opt/pergent/security-skills/security-audit`. Trusted, must be outside `--repo-path`. |
-| `--prior` / `$PERGENT_SCAN_PRIOR` | Optional JSON file, trusted, outside `--repo-path`, at most 800 KiB. A file that can't be read or is malformed is a warning: the scan runs with no prior. |
+| `--prior` / `$PERGENT_SCAN_PRIOR` | Optional JSON file, trusted, outside `--repo-path`, at most 800 KiB. pergent follows its links first (a Kubernetes Secret item is a link, `prior.json -> ..data/prior.json`): the real path must be outside `--repo-path` and a regular file. A file that can't be read or is malformed is a warning: the scan runs with no prior. |
 | `--max-turns` | The main agent's step limit, 5 to 1000. Default: the manifest's `steps.main`. |
 | `--max-subagent-turns` | Each sub-agent's step limit, 5 to 300. Default: the manifest's `steps.subagent`. |
 | `--timeout` | 10m to 6h, default 3h. The download counts against it. Give the Job a deadline of at least `--timeout` + 2 minutes. |
@@ -41,7 +41,7 @@ stdout carries only the envelope, and only with `--result -`. All logs go to std
 
 `$HOME` and `$XDG_CONFIG_HOME` inside `--repo-path` are a usage error too, since opencode reads its global config from there.
 
-Exit codes: 0 the envelope was delivered (any `status`), 2 usage error (a `failed` envelope is still sent when a target is known), 3 no scan was possible (a `failed` envelope was delivered), 4 delivery failed.
+Exit codes: 0 the envelope was delivered (any `status`, also after a signal), 2 usage error (a `failed` envelope is still sent when a target is known), 3 no scan was possible (a `failed` envelope was delivered), 4 delivery failed.
 
 ## What the agent can do
 
@@ -63,7 +63,7 @@ Each sub-agent's step limit is opencode's own: opencode stops the sub-agent, and
 
 With `--source-url`, pergent GETs the URL with `Authorization: Bearer $PERGENT_RESULT_TOKEN` and follows no redirect. The answer is a `.tar.gz` of the repository at `--head`, in the GitLab archive or GitHub tarball layout (one top folder). pergent strips the top folder and unpacks the rest into `--repo-path`. A connection error or a 5xx is tried again, up to 3 tries (after 2 s and 4 s); a 4xx is final.
 
-So the scan pod holds no git token and runs no git: there is no `.git` folder, and the skill gets the commit in its task line (`Source commit: <sha>.`). **Git LFS files and submodules are not in the archive**: an LFS file is at most its small pointer file, and a submodule's files are missing.
+So the scan pod holds no git token and runs no git: there is no `.git` folder (pergent refuses an archive with one), and the skill gets the commit in its task line (`Source commit: <sha>.`). **Git LFS files and submodules are not in the archive**: an LFS file is at most its small pointer file, and a submodule's files are missing.
 
 The archive is treated as hostile. The limits are 200,000 files, 2 GiB unpacked and 500 MiB downloaded, so `--repo-path` needs room for 2 GiB of files plus folder overhead: give the pod more than 2 GiB of disk. Files get mode `0644`, or `0755` when any execute bit is set; folders `0755`; no owner, time or setuid bit is kept. pergent refuses the whole archive on the first entry that breaks a rule, with one of these fixed causes:
 
@@ -82,6 +82,7 @@ The archive is treated as hostile. The limits are 200,000 files, 2 GiB unpacked 
 | `more than 2 GiB unpacked` | File bytes and link targets together. |
 | `more than 500 MiB downloaded` | The bytes read from pergent.sh. |
 | `a file could not be written` | The disk is full, or another write to the folder failed. |
+| `a .git path` | A path part, or a part of a link target, is `.git` in any case. The cleanup of instruction files skips `.git` folders, ripgrep would follow the ignore rules of a top `.git`, and git would run with its config. |
 
 ## The envelope
 
@@ -119,6 +120,7 @@ Decided in this order. The texts are exact.
 
 | Condition | `status` | `reason` |
 |---|---|---|
+| A signal came before opencode ran (during the download or the setup) | `partial` | `cancelled` (no results) |
 | The download failed or did not answer 200 | `failed` | `the source could not be downloaded` |
 | The archive broke an unpack rule or limit | `failed` | `the source archive was refused: <cause>` |
 | Another failure before opencode ran | `failed` | `the scan could not start: <cause>` |
@@ -163,11 +165,13 @@ Every output file is read as hostile: a link or a FIFO in its place is read as m
 
 Each token count is never lower than the main session's own count. A failing read is logged once.
 
-`PERGENT_TOKEN_BUDGET` is a limit on the 5-part total (input + output + reasoning + cache read + cache write). After each read pergent takes the higher of the stats total and the main session's total, and stops opencode when it reaches the budget: the status is `partial`, `token budget reached`. The check runs on the 30-second reads, so a scan can go past the budget by what it uses in one 30-second poll at most.
+`PERGENT_TOKEN_BUDGET` is a limit on the 5-part total (input + output + reasoning + cache read + cache write). After each read pergent takes the higher of the stats total and the main session's total, and stops opencode when it reaches the budget: the status is `partial`, `token budget reached`. The check runs when a read ends, not on each model step. A read starts every 30 seconds and can take 20 seconds, so a scan can go past the budget by what it uses in about 50 seconds.
 
 ## Signals
 
-SIGTERM or SIGINT stops opencode. The envelope is still sent: `partial`, `cancelled`, with the findings the run wrote so far, the last usage (5 seconds for the last stats read, then the last poll) and a short delivery (one quick retry within 20 seconds), so it fits a Job's 30-second grace period. A signal during the download makes the download fail (`the source could not be downloaded`).
+SIGTERM or SIGINT stops opencode. The envelope is still sent: `partial`, `cancelled`, with the findings the run wrote so far, the last usage (5 seconds for the last stats read, then the last poll) and a short delivery (one quick retry within 20 seconds). A signal during the download or the setup also ends the scan `partial`, `cancelled`, with no results; it is not a failure. The exit code is 0 when the envelope was delivered.
+
+The worst case from the signal to the end is about 35 seconds: up to 10 seconds for opencode to stop, 5 seconds for the stats read and 20 seconds for the delivery. So the Job's grace period (`terminationGracePeriodSeconds`) must be at least 60 seconds, which pergent.sh uses. The default 30 seconds is too short.
 
 ## The image
 
@@ -180,6 +184,6 @@ Inside:
 - The Cloudflare `security-audit` skill, at one commit, in `/opt/pergent/security-skills/security-audit`. It has the skill's MIT `LICENSE` and our `pergent-scan.yaml`. The commit is a build argument (`SECURITY_AUDIT_COMMIT`), and a test checks that it equals the manifest's `commit`.
 - Root owns the skill folder and no file in it is writable by group or other. pergent reads the skill's `report-schema.json` after the model had a shell, so the user the scan runs as must not be able to change it. The build checks this.
 
-`pergent scan --check-skill <folder>` is the build's last check of the skill. It stands alone (no other flag). It exits 0 when the folder has a valid `pergent-scan.yaml`, an entry file, a `report-schema.json` that compiles, a `LICENSE` that is a regular file, and the SARIF schema compiles. Otherwise it exits 1 and says why.
+`pergent scan --check-skill <folder>` is the build's last check of the skill. It stands alone (no other flag). It exits 0 when the folder has a valid `pergent-scan.yaml`, an entry file, a `report-schema.json` that compiles, a `LICENSE` that is a regular file, and the SARIF schema compiles. For a `cloudflare-findings` skill it also checks pergent's own sample record (one `confirmed` record in the skill's record shape, built into pergent): it must pass the skill's `report-schema.json` and the converter must make the expected SARIF result of it, and the `rejected` record a dismissal writes must pass the schema too. So a skill whose records changed shape fails the image build, not every scan. Otherwise it exits 1 and says why.
 
 A new version of the skill is a new pergent release: change the commit in the Dockerfile and in `pergent-scan.yaml` together, and read the skill's changes first.

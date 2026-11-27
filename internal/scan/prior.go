@@ -51,11 +51,19 @@ type Prior struct {
 	Dismissed []Dismissed       `json:"dismissed"`
 }
 
-// ReadPrior reads the prior file. The file is trusted, but it is still parsed
-// strictly: a duplicate or unknown key, bad JSON or a file over MaxPrior is an
-// error. A dismissal that is not valid is dropped with a log line.
+// ReadPrior reads the prior file. The file is trusted, so its links are
+// followed first: pergent.sh mounts it as a Secret item, which kubelet makes
+// a link (prior.json -> ..data/prior.json). The caller checks that the real
+// path is outside the checkout. The real file is then opened without
+// following a link, must be a regular file and is parsed strictly: a
+// duplicate or unknown key, bad JSON or a file over MaxPrior is an error. A
+// dismissal that is not valid is dropped with a log line.
 func ReadPrior(path string) (Prior, error) {
-	data, err := ReadOutFile(filepath.Dir(path), filepath.Base(path), MaxPrior)
+	real, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return Prior{}, err
+	}
+	data, err := ReadOutFile(filepath.Dir(real), filepath.Base(real), MaxPrior)
 	if err != nil {
 		return Prior{}, err
 	}

@@ -43,6 +43,7 @@ const (
 	causeUnpacked   = "more than 2 GiB unpacked"
 	causeDownload   = "more than 500 MiB downloaded"
 	causeWrite      = "a file could not be written"
+	causeDotGit     = "a .git path"
 )
 
 const (
@@ -58,9 +59,18 @@ const (
 var sourceWaits = []time.Duration{2 * time.Second, 4 * time.Second}
 
 // sourceClient never follows a redirect: the source comes from pergent.sh
-// only, and the bearer token must not go anywhere else.
+// only, and the bearer token must not go anywhere else. It asks for no
+// compression and decodes none, so a Content-Encoding: gzip header cannot
+// turn the .tar.gz into a plain tar or move the download limit.
 var sourceClient = &http.Client{
+	Transport:     sourceTransport(),
 	CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+}
+
+func sourceTransport() *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.DisableCompression = true
+	return t
 }
 
 // SourceError is why the source could not be used. Download is set for any
@@ -131,7 +141,7 @@ func (f *fetcher) fetch(ctx context.Context, url, token, dir string, lim SourceL
 		resp, err := f.client.Do(req)
 		if err != nil {
 			if ctx.Err() != nil {
-				f.logf("source: download stopped, out of time")
+				f.logf("source: download stopped: out of time or cancelled")
 				return failed
 			}
 			f.logf("source: download try %d of %d: connection error", try, sourceTries)
@@ -353,6 +363,9 @@ func (u *unpacker) split(name string) ([]string, error) {
 		case "..":
 			return nil, refused(causeDotDot)
 		}
+		if isDotGit(p) {
+			return nil, refused(causeDotGit)
+		}
 		parts = append(parts, p)
 	}
 	if len(parts) == 0 {
@@ -365,6 +378,11 @@ func (u *unpacker) split(name string) ([]string, error) {
 	}
 	return parts[1:], nil
 }
+
+// isDotGit reports whether a path part is .git, in any case. The source has
+// no .git: the scrub skips every .git folder, ripgrep reads a root .git's
+// ignore rules, and git would run with a .git's config.
+func isDotGit(part string) bool { return strings.EqualFold(part, ".git") }
 
 // parent returns the folder node of parts, making the folders it needs.
 // A path under a link or a file is refused.
@@ -500,6 +518,11 @@ func (u *unpacker) addLink(parts []string, target string) error {
 	}
 	if !u.linkInside(parts, target) {
 		return refused(causeLinkLeaves)
+	}
+	for _, p := range strings.Split(target, "/") {
+		if isDotGit(p) {
+			return refused(causeDotGit)
+		}
 	}
 	if err := u.take(int64(len(target))); err != nil {
 		return err

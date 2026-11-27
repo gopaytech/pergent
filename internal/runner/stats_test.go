@@ -41,6 +41,15 @@ func TestParseStatsRefusesBad(t *testing.T) {
 		"negative":       `{"sessions":1,"tokens":{"input":-1,"output":0,"reasoning":0,"cache":{"read":0,"write":0}}}`,
 		"negative model": `{"models":[{"model":{"id":"m","providerID":"p"},"steps":1,"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":-5}}}]}`,
 		"negative steps": `{"steps":-1}`,
+		// Not usage: a zero would drop the sub-agents from the budget while
+		// the source still says stats.
+		"empty object":  `{}`,
+		"null":          `null`,
+		"an error":      `{"error":"no database"}`,
+		"no tokens":     `{"sessions":1,"steps":3}`,
+		"null tokens":   `{"sessions":1,"tokens":null}`,
+		"no sessions":   `{"tokens":{"input":1,"output":0,"reasoning":0,"cache":{"read":0,"write":0}}}`,
+		"null sessions": `{"sessions":null,"tokens":{"input":1,"output":0,"reasoning":0,"cache":{"read":0,"write":0}}}`,
 	} {
 		if _, err := ParseStats([]byte(in)); err == nil {
 			t.Errorf("%s: ParseStats() error = nil, want an error", name)

@@ -63,6 +63,9 @@ func TestBuildStatusTable(t *testing.T) {
 		{"incomplete bad reason", EndInput{Out: incompleteBad}, "partial", "the skill did not mark the run complete", 1},
 		{"complete", EndInput{Out: validOut()}, "complete", "", 1},
 		{"source nil", EndInput{Stop: StopSource}, "failed", "the source could not be downloaded", 0},
+		// A Stop value no case knows fails closed, never complete.
+		{"unknown stop", EndInput{Stop: StopSource + 1, Out: validOut()}, "failed", "the scan ended for a reason pergent does not know", 0},
+		{"negative stop", EndInput{Stop: -1, Out: validOut()}, "failed", "the scan ended for a reason pergent does not know", 0},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

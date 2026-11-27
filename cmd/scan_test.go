@@ -391,6 +391,7 @@ func TestScanSourceFailures(t *testing.T) {
 	}{
 		{"not found", http.StatusNotFound, nil, "the source could not be downloaded"},
 		{"dot dot", http.StatusOK, sourceArchive(t, map[string]string{"top/a.go": "x", "top/../x": "y"}), "the source archive was refused: a path with .."},
+		{"dot git", http.StatusOK, sourceArchive(t, map[string]string{"top/a.go": "x", "top/sub/.git/AGENTS.md": "y"}), "the source archive was refused: a .git path"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -473,11 +474,21 @@ func TestScanPrior(t *testing.T) {
 	good := filepath.Join(priorDir, "good.json")
 	writeFile(t, priorDir, "good.json", `{"state":{"coverage-ledger.json":"[]"},"dismissed":[]}`)
 	writeFile(t, priorDir, "bad.json", `{"state":`)
+	// pergent.sh mounts /in/prior.json as a Secret item, which kubelet makes
+	// a link: prior.json -> ..data/prior.json, ..data -> a timestamped folder.
+	secret := filepath.Join(priorDir, "in")
+	writeFile(t, secret, "..2026_11_27_10_00_00.1/prior.json", `{"state":{"coverage-ledger.json":"[]"},"dismissed":[]}`)
+	for link, target := range map[string]string{"..data": "..2026_11_27_10_00_00.1", "prior.json": "..data/prior.json"} {
+		if err := os.Symlink(target, filepath.Join(secret, link)); err != nil {
+			t.Fatal(err)
+		}
+	}
 	cases := []struct {
 		name, path string
 		wantPrior  bool
 	}{
 		{"good", good, true},
+		{"a secret item", filepath.Join(secret, "prior.json"), true},
 		{"malformed", filepath.Join(priorDir, "bad.json"), false},
 		{"missing", filepath.Join(priorDir, "none.json"), false},
 	}
@@ -570,6 +581,61 @@ func TestScanSignalSendsPartial(t *testing.T) {
 	if env.Usage.Source != "stats" || env.Usage.Tokens.Input != 80 {
 		t.Errorf("usage %+v, want the final stats", env.Usage)
 	}
+}
+
+// wantCancelled checks the envelope of a scan a signal stopped before
+// opencode ran: partial, cancelled, one valid empty run, and no opencode.
+func wantCancelled(t *testing.T, code int, st *scanTest, f *fakeScan, out, commit string) {
+	t.Helper()
+	if code != 0 {
+		t.Fatalf("exit %d, want 0 (delivered); stderr:\n%s", code, st.stderr.String())
+	}
+	if f.calls.Load() != 0 {
+		t.Error("Run was called after the signal")
+	}
+	env := readEnvelope(t, out)
+	if env.Status != "partial" || env.Reason != "cancelled" || env.Commit != commit {
+		t.Errorf("status %q reason %q commit %q, want partial, cancelled, %s", env.Status, env.Reason, env.Commit, commit)
+	}
+	if len(env.SARIF.Runs) != 1 || len(env.SARIF.Runs[0].Results) != 0 {
+		t.Errorf("sarif %+v, want one empty run", env.SARIF)
+	}
+}
+
+// A signal during setup (the version check here; the scrub before it takes
+// no context, so a signal there reaches this check) is a cancel, not a
+// setup failure.
+func TestScanSignalDuringSetup(t *testing.T) {
+	scanEnv(t, nil)
+	repo, head := scanClone(t, nil)
+	out := resultFile(t)
+	st := newScanTest()
+	old := checkOpencodeVersion
+	checkOpencodeVersion = func(ctx context.Context) (string, error) {
+		st.signals <- syscall.SIGTERM
+		<-ctx.Done()
+		return "", ctx.Err()
+	}
+	t.Cleanup(func() { checkOpencodeVersion = old })
+	f := &fakeScan{}
+	code := runScan(context.Background(), []string{"--repo-path", repo, "--skill", scanSkillDir(t), "--result", out},
+		st.deps(f.run(t), fixedStats(1)))
+	wantCancelled(t, code, st, f, out, head)
+}
+
+func TestScanSignalDuringDownload(t *testing.T) {
+	scanEnv(t, map[string]string{"PERGENT_RESULT_TOKEN": "tok-1"})
+	st := newScanTest()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		st.signals <- syscall.SIGTERM
+		<-r.Context().Done() // the signal stops the download
+	}))
+	t.Cleanup(srv.Close)
+	out := resultFile(t)
+	f := &fakeScan{}
+	code := runScan(context.Background(), []string{"--repo-path", t.TempDir(), "--skill", scanSkillDir(t), "--result", out,
+		"--source-url", srv.URL, "--head", scanSHA}, st.deps(f.run(t), fixedStats(1)))
+	wantCancelled(t, code, st, f, out, scanSHA)
 }
 
 func TestScanPollThenFinalFails(t *testing.T) {
@@ -697,6 +763,11 @@ func TestScanUsageErrors(t *testing.T) {
 	full := []string{"--skill", skill}
 	notEmpty := t.TempDir()
 	writeFile(t, notEmpty, "a.txt", "x")
+	writeFile(t, repo, "in-repo.json", `{"state":{},"dismissed":[]}`)
+	intoRepo := filepath.Join(t.TempDir(), "prior.json")
+	if err := os.Symlink(filepath.Join(repo, "in-repo.json"), intoRepo); err != nil {
+		t.Fatal(err)
+	}
 	cases := []struct {
 		name string
 		args []string
@@ -717,6 +788,7 @@ func TestScanUsageErrors(t *testing.T) {
 		{"budget negative", []string{"--repo-path", repo}, map[string]string{"PERGENT_TOKEN_BUDGET": "-5"}},
 		{"budget abc", []string{"--repo-path", repo}, map[string]string{"PERGENT_TOKEN_BUDGET": "abc"}},
 		{"prior inside the repo", []string{"--repo-path", repo, "--prior", filepath.Join(repo, "prior.json")}, nil},
+		{"prior links into the repo", []string{"--repo-path", repo, "--prior", intoRepo}, nil},
 		{"skill inside the repo", []string{"--repo-path", repo, "--skill", filepath.Join(repo, "security-audit")}, nil},
 		{"result url without token", []string{"--repo-path", repo, "--result-url", "http://127.0.0.1:1/r"}, nil},
 		{"no provider", []string{"--repo-path", repo}, map[string]string{"OPENCODE_PROVIDER": ""}},
@@ -812,6 +884,11 @@ func TestScanCheckSkill(t *testing.T) {
 			writeFile(t, dir, "report-schema.json", `{"type":"object","madeUpKeyword":1}`)
 			return dir
 		}, func(d string) []string { return []string{"--check-skill", d} }, 1, "report-schema.json"},
+		{"schema refuses the sample record", func(t *testing.T) string {
+			dir := good(t)
+			writeFile(t, dir, "report-schema.json", `{"type":"array","items":{"type":"string"}}`)
+			return dir
+		}, func(d string) []string { return []string{"--check-skill", d} }, 1, "sample"},
 		{"no entry file", func(t *testing.T) string {
 			dir := good(t)
 			os.Remove(filepath.Join(dir, "SKILL.md"))

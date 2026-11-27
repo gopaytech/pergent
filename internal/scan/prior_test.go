@@ -2,6 +2,7 @@ package scan
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -243,6 +244,66 @@ func TestReadPriorRefuses(t *testing.T) {
 		}
 		if len(p.Dismissed) != 1 || len(p.Dismissed[0].Comment) != 1000 {
 			t.Errorf("dismissed = %d entries, want the one good entry", len(p.Dismissed))
+		}
+	})
+}
+
+// secretLayout writes text as a Kubernetes Secret item: the real file is in a
+// timestamped folder, ..data links to it, ..data_tmp is a leftover link of an
+// update, and prior.json links to ..data/prior.json. It returns the
+// prior.json path.
+func secretLayout(t *testing.T, text string) string {
+	t.Helper()
+	in := t.TempDir()
+	stamp := filepath.Join(in, "..2026_11_27_10_00_00.000000001")
+	if err := os.Mkdir(stamp, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stamp, "prior.json"), []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for link, target := range map[string]string{
+		"..data":     filepath.Base(stamp),
+		"..data_tmp": filepath.Base(stamp),
+		"prior.json": "..data/prior.json",
+	} {
+		if err := os.Symlink(target, filepath.Join(in, link)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return filepath.Join(in, "prior.json")
+}
+
+func TestReadPriorSecretLayout(t *testing.T) {
+	t.Parallel()
+	t.Run("read through the links", func(t *testing.T) {
+		t.Parallel()
+		p, err := ReadPrior(secretLayout(t, `{"state":{"findings.json":"[]"},"dismissed":[]}`))
+		if err != nil {
+			t.Fatalf("ReadPrior() error: %v", err)
+		}
+		if p.State["findings.json"] != "[]" {
+			t.Errorf("prior = %+v", p)
+		}
+	})
+	t.Run("the resolved file is still checked", func(t *testing.T) {
+		t.Parallel()
+		big := secretLayout(t, `{"state":{"findings.json":"`+strings.Repeat("a", MaxPrior)+`"}}`)
+		if _, err := ReadPrior(big); !errors.Is(err, ErrTooBig) {
+			t.Errorf("a link to a file over MaxPrior: error %v, want ErrTooBig", err)
+		}
+		dir := t.TempDir()
+		if err := os.Symlink(t.TempDir(), filepath.Join(dir, "prior.json")); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ReadPrior(filepath.Join(dir, "prior.json")); !errors.Is(err, ErrNotRegular) {
+			t.Errorf("a link to a folder: error %v, want ErrNotRegular", err)
+		}
+		if err := os.Symlink("gone.json", filepath.Join(dir, "dangling.json")); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ReadPrior(filepath.Join(dir, "dangling.json")); err == nil {
+			t.Error("a dangling link: no error")
 		}
 	})
 }

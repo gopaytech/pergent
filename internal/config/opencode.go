@@ -48,6 +48,8 @@ type openCodeConfig struct {
 	Compaction   openCodeCompaction          `json:"compaction"`
 	LSP          bool                        `json:"lsp"`
 	Snapshot     bool                        `json:"snapshot"`
+	// Formatter is set (to false) by the scan only: a review cannot edit.
+	Formatter *bool `json:"formatter,omitempty"`
 }
 
 type openCodeCompaction struct {

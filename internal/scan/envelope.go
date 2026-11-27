@@ -30,6 +30,9 @@ const (
 	reasonStartFmt   = "the scan could not start: "
 	reasonModelFails = "the model run failed: "
 	reasonDownload   = "the source could not be downloaded"
+	// reasonUnknownStop is for a Stop value no case knows: a bug, so the
+	// scan fails closed and is never complete.
+	reasonUnknownStop = "the scan ended for a reason pergent does not know"
 )
 
 var incompleteReasonRe = regexp.MustCompile(`^[a-z0-9_]{1,64}$`)
@@ -203,7 +206,7 @@ func build(in EndInput, lim limits) ([]byte, Envelope) {
 			status = "partial"
 		}
 		reasons = append(reasons, reasonModelFails+string(in.FailKind))
-	default:
+	case StopNone:
 		if !in.Out.Valid {
 			status = "failed"
 			reasons = append(reasons, in.Out.Problem)
@@ -218,6 +221,9 @@ func build(in EndInput, lim limits) ([]byte, Envelope) {
 			}
 			reasons = append(reasons, r)
 		}
+	default:
+		status = "failed"
+		reasons = append(reasons, reasonUnknownStop)
 	}
 
 	if useResults {

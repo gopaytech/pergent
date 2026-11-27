@@ -1,5 +1,16 @@
 {
   "type": "array",
+  "definitions": {
+    "scored": {
+      "type": "object",
+      "properties": {
+        "score": { "type": "string", "enum": ["informational", "low", "medium", "high", "critical"] },
+        "reason": { "type": "string", "minLength": 1, "visibleContent": true }
+      },
+      "required": ["score", "reason"],
+      "additionalProperties": false
+    }
+  },
   "items": {
     "oneOf": [
       {
@@ -9,6 +20,8 @@
           "fingerprint": { "type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$" },
           "title": { "type": "string", "minLength": 1, "visibleContent": true },
           "description": { "type": "string", "minLength": 1, "visibleContent": true },
+          "root_cause": { "type": "string", "minLength": 1, "visibleContent": true },
+          "intended_behavior": { "type": "string", "minLength": 1, "visibleContent": true },
           "trace": {
             "type": "array",
             "minItems": 1,
@@ -18,9 +31,36 @@
               "properties": {
                 "kind": { "type": "string", "enum": ["entrypoint", "propagation", "sink"] },
                 "file": { "type": "string", "minLength": 1 },
-                "line": { "type": "integer", "minimum": 1, "maximum": 10000000 }
+                "line": { "type": "integer", "minimum": 1, "maximum": 10000000 },
+                "scope": { "type": "string", "minLength": 1, "visibleContent": true },
+                "description": { "type": "string", "minLength": 1, "visibleContent": true }
               },
               "required": ["kind", "file", "line"],
+              "additionalProperties": false
+            }
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "file": { "type": "string", "minLength": 1 },
+                "line": { "type": "integer", "minimum": 1 },
+                "description": { "type": "string", "minLength": 1, "visibleContent": true }
+              },
+              "required": ["file", "line", "description"],
+              "additionalProperties": false
+            }
+          },
+          "conditions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": { "type": "string", "minLength": 1 },
+                "description": { "type": "string", "minLength": 1, "visibleContent": true }
+              },
+              "required": ["kind", "description"],
               "additionalProperties": false
             }
           },
@@ -28,6 +68,8 @@
             "type": "object",
             "properties": {
               "attacker_perspective": { "type": "string", "minLength": 1, "visibleContent": true },
+              "payloads": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+              "instructions": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
               "observed_result": { "type": "string", "minLength": 1, "visibleContent": true }
             },
             "required": ["attacker_perspective", "observed_result"],
@@ -42,6 +84,8 @@
           "severity": {
             "type": "object",
             "properties": {
+              "likelihood": { "$ref": "#/definitions/scored" },
+              "impact": { "$ref": "#/definitions/scored" },
               "overall_severity": { "type": "string", "enum": ["informational", "low", "medium", "high", "critical"] }
             },
             "required": ["overall_severity"],
@@ -49,7 +93,10 @@
           },
           "confidence": {
             "type": "object",
-            "properties": { "score": { "type": "string", "enum": ["low", "medium", "high"] } },
+            "properties": {
+              "score": { "type": "string", "enum": ["low", "medium", "high"] },
+              "reason": { "type": "string", "minLength": 1, "visibleContent": true }
+            },
             "required": ["score"],
             "additionalProperties": false
           }
