@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 
 	"gopkg.in/yaml.v3"
 )
@@ -93,11 +94,7 @@ func ParseManifest(data []byte) (Manifest, error) {
 // LoadManifest reads dir/pergent-scan.yaml. The manifest name must be the
 // folder name, and the entry must be a regular file in dir, not a link.
 func LoadManifest(dir string) (Manifest, error) {
-	file := filepath.Join(dir, ManifestFile)
-	if err := regularFile(file); err != nil {
-		return Manifest{}, err
-	}
-	data, err := os.ReadFile(file)
+	data, err := readManifestFile(filepath.Join(dir, ManifestFile))
 	if err != nil {
 		return Manifest{}, err
 	}
@@ -128,6 +125,31 @@ func (m Manifest) TaskLine(v TaskValues) string {
 		"{output}", v.Output,
 		"{prior}", prior,
 	).Replace(m.Task)
+}
+
+// readManifestFile opens path without following a link, checks that it is a
+// regular file and reads at most maxManifestLen bytes.
+func readManifestFile(path string) ([]byte, error) {
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !fi.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s is not a regular file", filepath.Base(path))
+	}
+	data, err := io.ReadAll(io.LimitReader(f, maxManifestLen+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxManifestLen {
+		return nil, errors.New("manifest is too large")
+	}
+	return data, nil
 }
 
 func regularFile(path string) error {

@@ -167,6 +167,41 @@ func TestLoadManifestChecksTheFolder(t *testing.T) {
 			t.Fatal("want an error")
 		}
 	})
+	t.Run("manifest too large", func(t *testing.T) {
+		t.Parallel()
+		dir := filepath.Join(t.TempDir(), "security-audit")
+		write(t, dir)
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		big := goodYAML + "# " + strings.Repeat("a", 65<<10) + "\n"
+		if err := os.WriteFile(filepath.Join(dir, ManifestFile), []byte(big), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := LoadManifest(dir); err == nil {
+			t.Fatal("want an error")
+		}
+	})
+	t.Run("manifest is a link", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		dir := filepath.Join(root, "security-audit")
+		write(t, dir)
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		real := filepath.Join(root, "real.yaml")
+		if err := os.WriteFile(real, []byte(goodYAML), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		os.Remove(filepath.Join(dir, ManifestFile))
+		if err := os.Symlink(real, filepath.Join(dir, ManifestFile)); err != nil {
+			t.Skip("no symlinks here")
+		}
+		if _, err := LoadManifest(dir); err == nil {
+			t.Fatal("want an error")
+		}
+	})
 	t.Run("entry missing", func(t *testing.T) {
 		t.Parallel()
 		dir := filepath.Join(t.TempDir(), "security-audit")
