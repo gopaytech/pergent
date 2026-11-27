@@ -1,0 +1,8 @@
+[
+  { "coverage_id": "a-unit", "attack_class": "ATTACK-CLASSES.md#Injection", "status": "not_applicable", "result_fingerprints": [] },
+  { "coverage_id": "b-unit", "attack_class": "ATTACK-CLASSES.md#Injection", "status": "candidate", "result_fingerprints": ["fp-high-1"] },
+  { "coverage_id": "c-unit", "attack_class": "ATTACK-CLASSES.md#Files", "status": "candidate", "result_fingerprints": ["fp-open-2"] },
+  { "coverage_id": "d-unit", "attack_class": "ATTACK-CLASSES.md#Access control", "status": "planned", "result_fingerprints": [] },
+  { "coverage_id": "e-unit", "attack_class": "ATTACK-CLASSES.md#Desktop", "status": "not_applicable", "result_fingerprints": [] },
+  { "coverage_id": "f-unit", "attack_class": "ATTACK-CLASSES.md#Cloud", "status": "out_of_scope", "result_fingerprints": [] }
+]

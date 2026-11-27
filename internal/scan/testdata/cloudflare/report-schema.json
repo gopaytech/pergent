@@ -1,0 +1,106 @@
+{
+  "type": "array",
+  "items": {
+    "oneOf": [
+      {
+        "type": "object",
+        "properties": {
+          "verdict": { "type": "string", "const": "confirmed" },
+          "fingerprint": { "type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$" },
+          "title": { "type": "string", "minLength": 1, "visibleContent": true },
+          "description": { "type": "string", "minLength": 1, "visibleContent": true },
+          "trace": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": { "type": "string", "enum": ["entrypoint", "propagation", "sink"] },
+                "file": { "type": "string", "minLength": 1 },
+                "line": { "type": "integer", "minimum": 1, "maximum": 10000000 }
+              },
+              "required": ["kind", "file", "line"],
+              "additionalProperties": false
+            }
+          },
+          "execution": {
+            "type": "object",
+            "properties": {
+              "attacker_perspective": { "type": "string", "minLength": 1, "visibleContent": true },
+              "observed_result": { "type": "string", "minLength": 1, "visibleContent": true }
+            },
+            "required": ["attacker_perspective", "observed_result"],
+            "additionalProperties": false
+          },
+          "remediation": {
+            "type": "object",
+            "properties": { "strategy": { "type": "string", "minLength": 1, "visibleContent": true } },
+            "required": ["strategy"],
+            "additionalProperties": false
+          },
+          "severity": {
+            "type": "object",
+            "properties": {
+              "overall_severity": { "type": "string", "enum": ["informational", "low", "medium", "high", "critical"] }
+            },
+            "required": ["overall_severity"],
+            "additionalProperties": false
+          },
+          "confidence": {
+            "type": "object",
+            "properties": { "score": { "type": "string", "enum": ["low", "medium", "high"] } },
+            "required": ["score"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["verdict", "fingerprint", "title", "description", "trace", "execution", "remediation", "severity", "confidence"],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "verdict": { "type": "string", "const": "needs_validation" },
+          "fingerprint": { "type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$" },
+          "title": { "type": "string", "minLength": 1, "visibleContent": true },
+          "description": { "type": "string", "minLength": 1, "visibleContent": true },
+          "trace": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": { "type": "string", "enum": ["entrypoint", "propagation", "sink"] },
+                "file": { "type": "string", "minLength": 1 },
+                "line": { "type": "integer", "minimum": 1, "maximum": 10000000 }
+              },
+              "required": ["kind", "file", "line"],
+              "additionalProperties": false
+            }
+          },
+          "validation_plan": {
+            "type": "object",
+            "properties": {
+              "local": { "type": "string", "minLength": 1, "visibleContent": true },
+              "deployment": { "type": "string", "minLength": 1, "visibleContent": true }
+            },
+            "additionalProperties": false
+          }
+        },
+        "required": ["verdict", "fingerprint", "title", "description", "trace", "validation_plan"],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "verdict": { "type": "string", "const": "rejected" },
+          "fingerprint": { "type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$" },
+          "title": { "type": "string", "minLength": 1, "visibleContent": true }
+        },
+        "required": ["verdict", "fingerprint", "title"],
+        "additionalProperties": false
+      }
+    ]
+  }
+}
