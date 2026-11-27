@@ -101,9 +101,12 @@ func TestBuildRedacts(t *testing.T) {
 	t.Setenv("OPENCODE_API_KEY", "sk-test-123456789")
 	out := validOut()
 	out.Results[0].Properties["description"] = "leak sk-test-123456789 here"
+	out.Results[0].Locations = []sarif.Location{{PhysicalLocation: sarif.PhysicalLocation{
+		ArtifactLocation: sarif.ArtifactLocation{URI: "a.go", URIBaseID: "base-sk-test-123456789"}}}}
+	usage := Usage{Source: "stats", Models: []ModelUsage{{Provider: "p-sk-test-123456789", Model: "m-sk-test-123456789"}}}
 	body, env := Build(EndInput{
 		Stop: StopFailed, FailKind: runner.CauseKind("k-sk-test-123456789"), Manifest: envManifest(), Commit: "abc",
-		Out: out, State: map[string]string{"findings.json": "key=sk-test-123456789"},
+		Out: out, State: map[string]string{"findings.json": "key=sk-test-123456789"}, Usage: usage,
 	})
 	if strings.Contains(string(body), "sk-test-123456789") {
 		t.Fatalf("the key is in the body: %s", body)
@@ -267,4 +270,49 @@ func TestEnvelopeJSONNames(t *testing.T) {
 		t.Fatalf("tokens = %s", e.Usage["tokens"])
 	}
 	_ = fmt.Sprint
+}
+
+func TestBuildLimits(t *testing.T) {
+	t.Parallel()
+	withRule := func(id string) sarif.Result { r := okResult("high"); r.RuleID = id; return r }
+	t.Run("unreferenced rules are dropped", func(t *testing.T) {
+		t.Parallel()
+		var rules []sarif.Rule
+		for i := 0; i < 20; i++ {
+			rules = append(rules, sarif.Rule{ID: fmt.Sprintf("r%d", i), Properties: &sarif.RuleProperties{Tags: []string{strings.Repeat("t", 200)}}})
+		}
+		out := Converted{Valid: true, RunStatus: "complete", Rules: rules, Results: []sarif.Result{withRule("r3")}}
+		_, env := build(EndInput{Manifest: envManifest(), Commit: "abc", Out: out}, limits{envelope: 1 << 20, sarif: 2000, results: 10})
+		run := env.SARIF.Runs[0]
+		if len(run.Results) != 1 || len(run.Tool.Driver.Rules) != 1 || run.Tool.Driver.Rules[0].ID != "r3" {
+			t.Fatalf("results %d, rules %+v", len(run.Results), run.Tool.Driver.Rules)
+		}
+		if b, _ := json.Marshal(env.SARIF); len(b) > 2000 {
+			t.Fatalf("sarif is %d bytes", len(b))
+		}
+	})
+	t.Run("a run that cannot fit is empty", func(t *testing.T) {
+		t.Parallel()
+		out := Converted{Valid: true, RunStatus: "complete", Results: []sarif.Result{withRule("r1")},
+			Rules: []sarif.Rule{{ID: "r1", Properties: &sarif.RuleProperties{Tags: []string{strings.Repeat("t", 3000)}}}}}
+		_, env := build(EndInput{Manifest: envManifest(), Commit: "abc", Out: out}, limits{envelope: 1 << 20, sarif: 1500, results: 10})
+		run := env.SARIF.Runs[0]
+		if env.Status != "partial" || env.Reason != reasonCut || len(run.Results) != 0 || len(run.Tool.Driver.Rules) != 0 {
+			t.Fatalf("got %q / %q, %d results, %d rules", env.Status, env.Reason, len(run.Results), len(run.Tool.Driver.Rules))
+		}
+	})
+	t.Run("last guard", func(t *testing.T) {
+		t.Parallel()
+		out := Converted{Valid: true, RunStatus: "complete"}
+		for i := 0; i < 3; i++ {
+			r := okResult("high")
+			r.Properties["description"] = strings.Repeat("d", 1000)
+			out.Results = append(out.Results, r)
+		}
+		body, env := build(EndInput{Manifest: envManifest(), Commit: "abc", Out: out,
+			State: map[string]string{"s": strings.Repeat("s", 4000)}}, limits{envelope: 2500, sarif: 5000, results: 10})
+		if len(body) > 2500 || env.Status != "failed" || env.Reason != reasonCut || len(env.State) != 0 || len(env.SARIF.Runs) != 1 || len(env.SARIF.Runs[0].Results) != 0 {
+			t.Fatalf("body %d bytes, %q / %q, state %d", len(body), env.Status, env.Reason, len(env.State))
+		}
+	})
 }

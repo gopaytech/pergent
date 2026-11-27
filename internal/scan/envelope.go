@@ -146,19 +146,30 @@ func ReadState(m Manifest, outDir string) map[string]string {
 
 // Build decides the status and makes the envelope. It returns the JSON body
 // and the envelope it came from.
-func Build(in EndInput) ([]byte, Envelope) {
+func Build(in EndInput) ([]byte, Envelope) { return build(in, defaultLimits) }
+
+// limits are the size limits Build keeps. Tests pass small ones.
+type limits struct{ envelope, sarif, results int }
+
+var defaultLimits = limits{envelope: MaxEnvelope, sarif: MaxSARIF, results: MaxResults}
+
+func build(in EndInput, lim limits) ([]byte, Envelope) {
 	m := in.Manifest
-	driver := sarif.Driver{Name: m.Name, Version: m.Commit}
+	// Every string of the envelope goes through redact.String once.
+	driver := sarif.Driver{Name: redact.String(m.Name), Version: redact.String(m.Commit)}
 	env := Envelope{
 		Kind:     "security",
-		Commit:   in.Commit,
-		Skill:    SkillRef{Name: m.Name, Commit: m.Commit},
+		Commit:   redact.String(in.Commit),
+		Skill:    SkillRef{Name: driver.Name, Commit: driver.Version},
 		Usage:    in.Usage,
 		Coverage: in.Out.Coverage,
 		State:    map[string]string{},
 	}
-	if env.Usage.Models == nil {
-		env.Usage.Models = []ModelUsage{}
+	env.Usage.Source = redact.String(in.Usage.Source)
+	env.Usage.Models = make([]ModelUsage, len(in.Usage.Models))
+	for i, mu := range in.Usage.Models {
+		mu.Provider, mu.Model = redact.String(mu.Provider), redact.String(mu.Model)
+		env.Usage.Models[i] = mu
 	}
 	for k, v := range in.State {
 		env.State[redact.String(k)] = redact.String(v)
@@ -213,7 +224,7 @@ func Build(in EndInput) ([]byte, Envelope) {
 		results = redactResults(in.Out.Results)
 		rules = redactRules(in.Out.Rules)
 		var cut bool
-		results, cut = cutResults(results, driver, rules)
+		results, rules, cut = cutResults(results, driver, rules, lim)
 		if cut {
 			status = "partial"
 			reasons = append(reasons, reasonCut)
@@ -223,6 +234,18 @@ func Build(in EndInput) ([]byte, Envelope) {
 	env.SARIF = sarif.Empty(driver)
 	if results != nil {
 		env.SARIF.Runs[0].Results = results
+	}
+
+	// A SARIF still over the limit (for example a huge driver) is an empty run.
+	if data, err := marshal(env.SARIF); err == nil && len(data) > lim.sarif {
+		driver.Rules = nil
+		env.SARIF = sarif.Empty(driver)
+		if status != "failed" {
+			status = "partial"
+			if !contains(reasons, reasonCut) {
+				reasons = append(reasons, reasonCut)
+			}
+		}
 	}
 
 	// The SARIF pergent built must pass the schema, or the scan failed.
@@ -239,16 +262,32 @@ func Build(in EndInput) ([]byte, Envelope) {
 		env.Reason = ""
 	}
 	body, _ := marshal(env)
-	if len(body) > MaxEnvelope {
+	if len(body) > lim.envelope {
 		// Models are the only unbounded part left; state follows if needed.
 		env.Usage.Models = []ModelUsage{}
 		body, _ = marshal(env)
-		if len(body) > MaxEnvelope {
+		if len(body) > lim.envelope {
 			env.State = map[string]string{}
+			body, _ = marshal(env)
+		}
+		if len(body) > lim.envelope {
+			// Last guard: never send a body pergent.sh refuses.
+			driver.Rules = nil
+			env.Status, env.Reason = "failed", reasonCut
+			env.SARIF = sarif.Empty(driver)
 			body, _ = marshal(env)
 		}
 	}
 	return body, env
+}
+
+func contains(rs []string, s string) bool {
+	for _, r := range rs {
+		if r == s {
+			return true
+		}
+	}
+	return false
 }
 
 func stopText(s Stop) string {
@@ -306,21 +345,19 @@ func severityRank(r sarif.Result) int {
 	return 0
 }
 
-// cutResults keeps the results that fit MaxResults and MaxSARIF. It drops the
-// lowest severity first and, inside one severity, the last result first. The
-// kept results stay in their first order.
-func cutResults(rs []sarif.Result, d sarif.Driver, rules []sarif.Rule) ([]sarif.Result, bool) {
-	d.Rules = rules
+// cutResults keeps the results that fit the limits. It drops the lowest
+// severity first and, inside one severity, the last result first. The kept
+// results stay in their first order. Only the rules a kept result points to
+// are kept, and their size counts. cut is true when a result was dropped.
+func cutResults(rs []sarif.Result, d sarif.Driver, rules []sarif.Rule, lim limits) ([]sarif.Result, []sarif.Rule, bool) {
+	d.Rules = nil
 	base, _ := marshal(sarif.Empty(d))
-	sizes := make([]int, len(rs))
-	total := len(base)
-	for i, r := range rs {
-		b, _ := marshal(r)
-		sizes[i] = len(b) + 1 // the comma
-		total += sizes[i]
-	}
-	if len(rs) <= MaxResults && total <= MaxSARIF {
-		return rs, false
+	ruleSize := map[string]int{}
+	for _, r := range rules {
+		if _, ok := ruleSize[r.ID]; !ok {
+			b, _ := marshal(r)
+			ruleSize[r.ID] = len(b) + 1
+		}
 	}
 	order := make([]int, len(rs))
 	for i := range order {
@@ -329,12 +366,19 @@ func cutResults(rs []sarif.Result, d sarif.Driver, rules []sarif.Rule) ([]sarif.
 	sort.SliceStable(order, func(a, b int) bool { return severityRank(rs[order[a]]) > severityRank(rs[order[b]]) })
 	keep := make([]bool, len(rs))
 	used, n := len(base), 0
+	seen := map[string]bool{}
 	for _, i := range order {
-		if n >= MaxResults || used+sizes[i] > MaxSARIF {
+		b, _ := marshal(rs[i])
+		need := len(b) + 1 // the comma
+		id := rs[i].RuleID
+		if _, has := ruleSize[id]; has && !seen[id] {
+			need += ruleSize[id]
+		}
+		if n >= lim.results || used+need > lim.sarif {
 			break
 		}
-		keep[i] = true
-		used += sizes[i]
+		keep[i], seen[id] = true, true
+		used += need
 		n++
 	}
 	out := make([]sarif.Result, 0, n)
@@ -343,7 +387,13 @@ func cutResults(rs []sarif.Result, d sarif.Driver, rules []sarif.Rule) ([]sarif.
 			out = append(out, r)
 		}
 	}
-	return out, true
+	var kept []sarif.Rule
+	for _, r := range rules {
+		if seen[r.ID] {
+			kept = append(kept, r)
+		}
+	}
+	return out, kept, n < len(rs)
 }
 
 func redactResults(in []sarif.Result) []sarif.Result {
@@ -356,6 +406,7 @@ func redactResults(in []sarif.Result) []sarif.Result {
 			locs := make([]sarif.Location, len(r.Locations))
 			for j, l := range r.Locations {
 				l.PhysicalLocation.ArtifactLocation.URI = redact.String(l.PhysicalLocation.ArtifactLocation.URI)
+				l.PhysicalLocation.ArtifactLocation.URIBaseID = redact.String(l.PhysicalLocation.ArtifactLocation.URIBaseID)
 				locs[j] = l
 			}
 			r.Locations = locs
