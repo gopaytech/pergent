@@ -2,13 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** `pergent scan` runs one built-in security skill over a whole checkout in one opencode session (with sub-agents), turns what the skill wrote into SARIF 2.1.0, and POSTs one envelope to pergent.sh, also when a limit, the token budget or a signal stops it; plus the `pergent-security` image and the `PERGENT_SECURITY_FINDINGS` review input.
+**Goal:** `pergent scan` downloads the source of one commit from pergent.sh (or takes a local clone), runs one built-in security skill over it in one opencode session (with sub-agents), turns what the skill wrote into SARIF 2.1.0, and POSTs one envelope to pergent.sh, also when a limit, the token budget or a signal stops it; plus the `pergent-security` image and the `PERGENT_SECURITY_FINDINGS` review input.
 
-**Architecture:** A new `internal/scan` package loads the skill's `pergent-scan.yaml`, converts its output, reads the prior state and builds the envelope. `internal/config/scan.go` writes the scan's opencode config. `internal/runner` gets a caller-owned data directory, a one-attempt mode, a live usage hook and `ReadStats` (`opencode stats`), so sub-agent tokens count. Two small pure packages check JSON: `internal/jsonschema` (the keywords the 2 schemas use, no new dependency) and `internal/sarif`. `cmd/scan.go` ties it together with a 30-second usage poll, the budget stop and `SIGTERM`.
+**Architecture:** A new `internal/scan` package downloads and safely unpacks the source archive, loads the skill's `pergent-scan.yaml`, converts its output, reads the prior state and builds the envelope. `internal/config/scan.go` writes the scan's opencode config. `internal/runner` gets a caller-owned data directory, a one-attempt mode, a live usage hook and `ReadStats` (`opencode stats`), so sub-agent tokens count. Two small pure packages check JSON: `internal/jsonschema` (the keywords the 2 schemas use, no new dependency) and `internal/sarif`. `cmd/scan.go` ties it together with a 30-second usage poll, the budget stop and `SIGTERM`.
 
 **Tech Stack:** Go 1.24, opencode 2.3.2 (pinned), `gopkg.in/yaml.v3` (the only dependency, kept so), `encoding/json`, Docker multi-stage build (CI only).
 
-**Spec:** pergent.sh `docs/superpowers/specs/2026-11-27-security-scan-design.md` (branch `feat/security-scan`, commit 8ce6ac6). Its Goals, Non-goals, "Tools in a scan", "The envelope", Testing and Risks bind this plan. The pergent.sh plan is written apart from this one: **the "Interface with pergent.sh" section below is the contract** it builds against. Change a row only with the owner, and tell that plan.
+**Spec:** pergent.sh `docs/superpowers/specs/2026-11-27-security-scan-design.md` (branch `feat/security-scan`, commit 06889f4). Its Goals, Non-goals, "How the code reaches the scan pod", "Tools in a scan", "The envelope", Testing and Risks bind this plan. The pergent.sh plan is written apart from this one: **the "Interface with pergent.sh" section below is the contract** it builds against. Change a row only with the owner, and tell that plan.
 
 ## Findings (checked 2026-11-27 on `origin/master` 01489db and the opencode v2.3.2 source)
 
@@ -27,9 +27,9 @@
 
 ## Global Constraints
 
-- Work on `feat/security-scan` off `origin/master`. **No release:** no tag, no version, no README version. The Dockerfile and workflows change only as Task 12 says.
+- Work on `feat/security-scan` off `origin/master`. **No release:** no tag, no version, no README version. The Dockerfile and workflows change only as Task 13 says.
 - **Local tests are focused only:** `go test ./internal/<pkg>/ -run '^(TestA|TestB)$' -count=1` on one package, plus `make vet` and `gofmt -l .`. Never `./...`, a whole package or `make test`. The full run is CI's.
-- **No container, no paid model, no network.** No step runs docker, orbctl or Postgres, calls `gh`, `glab` or `curl`, or runs a real scan. The image is built and checked on CI. The e2e tests (Task 10) use the fake model server and run on CI only.
+- **No container, no paid model, no network.** No step runs docker, orbctl or Postgres, calls `gh`, `glab` or `curl`, or runs a real scan. The image is built and checked on CI. The e2e tests (Task 11) use the fake model server and run on CI only.
 - Fast tests: unit tests under 100 ms, `t.Parallel()` where no package variable or env is set, no `time.Sleep`, injected tickers.
 - A scan never reports `complete` unless the run completed, `findings.json` passed the skill's schema and the skill marked the run complete. Only text pergent writes goes in `reason`.
 - No token reaches opencode beyond `OPENCODE_API_KEY`. Every string in the envelope passes `redact.String`.
@@ -43,14 +43,16 @@
 **Command** (in the `pergent-security` image):
 
 ```
-pergent scan --repo-path <clone> --result-url <url> [--head <sha>] [--prior <file>]
+pergent scan --repo-path <dir> --result-url <url> [--source-url <url>] [--head <sha>] [--prior <file>]
              [--max-turns N] [--max-subagent-turns M] [--timeout D] [--skill <dir>]
 ```
 
 | Input | Rule |
 |---|---|
-| `--repo-path` | Required. Work tree top of the default-branch clone. |
-| `--head` | Optional full lowercase SHA; when set, `HEAD` must equal it. When absent, pergent reads `HEAD` from the clone. Either way it is the envelope's `commit`. |
+| `--source-url` / `$PERGENT_SCAN_SOURCE_URL` | pergent.sh's `/security-scans/{id}/source`. pergent GETs it with `Authorization: Bearer $PERGENT_RESULT_TOKEN` (no redirects followed) and gets a `.tar.gz` of the repository at one commit, GitLab archive or GitHub tarball layout (one top folder). Needs `--head` and `PERGENT_RESULT_TOKEN`. The scan pod has no git token and no clone container. |
+| `--repo-path` | Required. With `--source-url`: an existing **empty** folder that pergent fills (no `.git` after it). Without: the work tree top of a local clone (local use and tests). |
+| `--head` | Full lowercase SHA. Required with `--source-url` (pergent.sh always passes it). Without `--source-url` it is optional: when set, the clone's `HEAD` must equal it; when absent, pergent reads `HEAD`. Either way it is the envelope's `commit`. |
+| Unpack limits | 200,000 files, 2 GiB unpacked, 500 MiB downloaded. Refused: absolute paths, `..`, links whose target leaves the folder, hard links, device files, FIFOs, any other entry type, a second top folder. |
 | `--skill` | Default `/opt/pergent/security-skills/security-audit`. Trusted, outside `--repo-path`. |
 | `--prior` / `$PERGENT_SCAN_PRIOR` | Optional JSON file, trusted, outside `--repo-path`, at most `MaxPrior` 800 KiB (pergent.sh passes it as `--prior /in/prior.json`, one Secret item). Shape below. Unreadable or malformed: a warning, the scan runs with no prior. |
 | `--max-turns` | Main agent step limit (the name matches `pergent agent`), 5 to 1000. Default the manifest's `steps.main` (600). |
@@ -105,7 +107,9 @@ pergent scan --repo-path <clone> --result-url <url> [--head <sha>] [--prior <fil
 
 | Condition | `status` | `reason` text |
 |---|---|---|
-| Setup failed before opencode ran | `failed` | `the scan could not start: <fixed cause>` |
+| The download failed or did not answer 200 | `failed` | `the source could not be downloaded` |
+| The archive broke an unpack rule or limit | `failed` | `the source archive was refused: <fixed cause>` |
+| Other setup failure before opencode ran | `failed` | `the scan could not start: <fixed cause>` |
 | The SARIF pergent built fails the SARIF schema | `failed` | `the SARIF did not pass the schema check` |
 | A stop: budget, step limit, timeout, signal | `partial` | `token budget reached` · `step limit reached` · `time limit reached` · `cancelled` |
 | opencode failed on its own, `findings.json` valid | `partial` | `the model run failed: <kind>` |
@@ -115,7 +119,7 @@ pergent scan --repo-path <clone> --result-url <url> [--head <sha>] [--prior <fil
 | SARIF cut to fit (bytes or count) | `partial` | `the SARIF was cut to fit the size limit` |
 | Otherwise | `complete` | `""` |
 
-On a `partial` with no valid `findings.json`, `sarif` has no results and `state` still holds what exists.
+Source causes (exact): `not a gzip tar archive`, `not one top folder`, `an absolute path`, `a path with ..`, `a link that leaves the folder`, `a hard link`, `a device file or FIFO`, `an entry type pergent does not take`, `a path twice`, `more than 200000 files`, `more than 2 GiB unpacked`, `more than 500 MiB downloaded`. A source failure is exit 3, and the envelope is still sent. On a `partial` with no valid `findings.json`, `sarif` has no results and `state` still holds what exists.
 
 **SARIF per result** (`cloudflare-findings` converter; `rejected` records are not results):
 
@@ -143,6 +147,8 @@ On a `partial` with no valid `findings.json`, `sarif` has no results and `state`
 | Skill text | `SKILL.md` is the agent prompt (`{file:}`, as today); the task line gains `Skill directory: {skill}.` | The skill needs its own folder path for its companion files. |
 | Output and prior folders | pergent makes `<tmp>/pergent-scan-*/out` and `.../prior/run-1`; no flag. | Outside the clone, inside the existing `pergent-*` read allow. |
 | Retries | One attempt (`runner.Options.Once`). | A retry would start a 3-hour audit again. |
+| Source download retries | Up to 3 tries on a connection error or a 5xx before the first body byte (2 s, 4 s); a 4xx is final. The download counts against `--timeout`. | A short pergent.sh restart should not fail a scan. |
+| Unpacked file modes | `0644`, or `0755` when any execute bit is set; directories `0755`; no setuid, owner or times kept. | The model's bash may run files; nothing else from the archive matters. |
 | Stats while running | `opencode stats --standalone --all --models --json` with its own state dir, no key, every 30 s, 20 s per call; the budget uses max(stats, stream). | Finding 3; the stream count is the fallback the spec names. |
 | Final usage after a signal | 5 s for the last stats read, then the last poll. | The Job's grace is 30 s and delivery needs 20 s. |
 | Checks in Go | Own small interpreter for the keywords the 2 schemas use; refuses an unknown keyword. Schema checks only, not `validate-findings.cjs`'s extra code checks. | No new dependency; the skill still runs its own validators during the run. |
@@ -150,13 +156,26 @@ On a `partial` with no valid `findings.json`, `sarif` has no results and `state`
 | `skill` in the envelope | Added. | pergent.sh needs the pinned commit for "Skill updated". |
 | Security findings runs | Batch and cross-batch, as `ci-results.md`. | "Like `PERGENT_CI_RESULTS`". |
 
+## Places on the scan path that use git (none may need it with `--source-url`)
+
+| Place | Today | With `--source-url` |
+|---|---|---|
+| `checkoutRoot` (`cmd/agent.go:913`, `git rev-parse --is-inside-work-tree`, `--show-toplevel`) | Finds the work tree top | Not called: the root is the real path of `--repo-path` (Task 10). |
+| The `HEAD` read and the `--head` check (Task 10) | `git rev-parse HEAD` | Not called: `--head` is the commit. |
+| `handleInstructionFiles` / `checkout.Scan` (`internal/checkout/checkout.go:60-82`) | A file walk; skips the root `.git` | Same walk, no git; there is no `.git` to skip (Task 10 test). |
+| `deleteDeniedFiles` / `checkout.DeniedFiles` (`checkout.go:164-182`) | A file walk | Same, no git (Task 10 test). |
+| `config.projectInstructions` (`internal/config/opencode.go`) | Reads `AGENTS.md`/`CLAUDE.md` | Not on the scan path (`ExplicitInstructions`). |
+| `baseClassifier`, `GIT_ATTR_SOURCE`, diffs | Agent mode only | Not on the scan path. |
+| opencode | `snapshot: false`, so no git | Same. Project folder from `$PWD`; ripgrep applies `.gitignore` only inside a git repo, so `glob`/`grep` also see ignored files. Task 11 runs with no `.git`. |
+| The skill | Reads the source ref with git | Gets `Source commit: {commit}` in the task line; a git call of its own fails harmlessly. |
+
 ## Review Focus
 
 1. **A symlink or a FIFO as an output file** (the model's bash can make one, for example `findings.json -> /proc/self/environ`): read as missing, never followed. Test in Task 6.
-2. **A stop before `findings.json` exists** (budget at minute 5): `partial`, empty results, the ledger's coverage and state still sent; never `complete`, never `failed`. Test in Task 8.
-3. **`opencode stats` hangs or exits 1** on every poll: the scan still ends on time, the budget runs on the stream count, `usage.source` is `stream`. Test in Task 9.
+2. **A stop before `findings.json` exists** (budget at minute 5): `partial`, empty results, the ledger's coverage and state still sent; never `complete`, never `failed`. Test in Task 9.
+3. **`opencode stats` hangs or exits 1** on every poll: the scan still ends on time, the budget runs on the stream count, `usage.source` is `stream`. Test in Task 10.
 4. **A record with a bad path** (absolute, `..` or a backslash): the result is kept without a location, so a complete scan never marks a real finding fixed by dropping it. Test in Task 6.
-5. **A secret in a finding or a state file** (the model echoes `OPENCODE_API_KEY`): replaced by `[REDACTED]` in SARIF strings, state and reason. Test in Task 8.
+5. **A secret in a finding or a state file** (the model echoes `OPENCODE_API_KEY`): replaced by `[REDACTED]` in SARIF strings, state and reason. Test in Task 9.
 
 ---
 
@@ -203,9 +222,9 @@ Keywords: annotations ignored (`$schema`, `$id`, `id`, `title`, `description`, `
 
 **Files:** Create `internal/scan/manifest.go`, `internal/scan/manifest_test.go`, `security-skills/security-audit/pergent-scan.yaml`.
 
-**Interfaces:** Produces `Manifest{Name, Commit, Entry string; Tools []string; Steps{Main, Subagent int}; Task string; Output ManifestOutput; State []string}`, `ManifestOutput{Path, Format string}`, `ParseManifest(data []byte) (Manifest, error)`, `LoadManifest(dir string) (Manifest, error)` (adds: `Name` = the folder's base name, `Entry` a regular file in `dir`, not a link), `TaskValues{Skill, Target, Output, Prior string}`, `(Manifest) TaskLine(v TaskValues) string` (`Prior ""` → `none`), `const FormatSARIF = "sarif"`, `FormatCloudflare = "cloudflare-findings"`, `ManifestFile = "pergent-scan.yaml"`.
+**Interfaces:** Produces `Manifest{Name, Commit, Entry string; Tools []string; Steps{Main, Subagent int}; Task string; Output ManifestOutput; State []string}`, `ManifestOutput{Path, Format string}`, `ParseManifest(data []byte) (Manifest, error)`, `LoadManifest(dir string) (Manifest, error)` (adds: `Name` = the folder's base name, `Entry` a regular file in `dir`, not a link), `TaskValues{Skill, Target, Commit, Output, Prior string}`, `(Manifest) TaskLine(v TaskValues) string` (`Prior ""` → `none`), `const FormatSARIF = "sarif"`, `FormatCloudflare = "cloudflare-findings"`, `ManifestFile = "pergent-scan.yaml"`.
 
-The repo file (the spec's manifest with `commit` and `{skill}` added):
+The repo file (the spec's manifest with `commit`, `{skill}` and `{commit}` added):
 
 ```yaml
 name: security-audit
@@ -217,7 +236,7 @@ steps:
   subagent: 100
 task: >-
   Full audit mode. Skill directory: {skill}. Target: {target}.
-  Output directory: {output}. Prior run: {prior}. Do not ask questions.
+  Source commit: {commit}. Output directory: {output}. Prior run: {prior}. Do not ask questions.
   No OS sandbox is available: do not build, test or run the target's code.
 output:
   path: findings.json
@@ -227,9 +246,9 @@ state: [findings.json, coverage-ledger.json]
 
 - [ ] **Step 1: Failing tests.**
   - `TestParseManifestRepoFile`: parses `../../security-skills/security-audit/pergent-scan.yaml`; every field equals the YAML above.
-  - `TestParseManifestRefuses`: table, each an error: unknown key; name `Security`; commit of 39 chars or upper case; tool `webfetch`; tool twice; `steps.main` 4 and 1001; `steps.subagent` 4 and 301, and missing while `task` is a tool; task without `{target}` or `{output}`; task with `{home}`; task over 2000 bytes; `output.path` `a/b` and `..`; format `csv`; state `../x`, a repeat, or 9 names.
+  - `TestParseManifestRefuses`: table, each an error: unknown key; name `Security`; commit of 39 chars or upper case; tool `webfetch`; tool twice; `steps.main` 4 and 1001; `steps.subagent` 4 and 301, and missing while `task` is a tool; task without `{target}`, `{commit}` or `{output}`; task with `{home}`; task over 2000 bytes; `output.path` `a/b` and `..`; format `csv`; state `../x`, a repeat, or 9 names.
   - `TestLoadManifestChecksTheFolder`: folder name `other` → error; `SKILL.md` a symlink → error; a good temp folder loads.
-  - `TestTaskLine`: all 4 placeholders replaced; `Prior: ""` gives `Prior run: none.`
+  - `TestTaskLine`: all 5 placeholders replaced; `Prior: ""` gives `Prior run: none.`
 - [ ] **Step 2: Run to fail.** `go test ./internal/scan/ -run '^(TestParseManifestRepoFile|TestParseManifestRefuses|TestLoadManifestChecksTheFolder|TestTaskLine)$' -count=1`. Expected: build failure. After the code step it must PASS.
 - [ ] **Step 3: Code.** yaml.v3 `KnownFields(true)`; names match `^[a-z0-9][a-z0-9-]{0,63}$`; a file name is a plain base name (no `/`, not `.` or `..`).
 - [ ] **Step 4: Commit** `feat(scan): the pergent-scan.yaml manifest`
@@ -316,13 +335,32 @@ Each dismissal becomes a `rejected` record in `run-1/findings.json`: an existing
 - [ ] **Step 3: Code** as the interfaces say.
 - [ ] **Step 4: Commit** `feat(scan): the prior state and dismissed findings`
 
-### Task 8: the envelope and its status
+### Task 8: download and unpack the source
+
+**Files:** Create `internal/scan/source.go`, `internal/scan/source_test.go`.
+
+**Interfaces:** Produces `SourceLimits{Files int; Unpacked, Download int64}`, `DefaultSourceLimits = SourceLimits{200_000, 2 << 30, 500 << 20}`, `SourceError{Download bool; Cause string}` (`Error()` gives the exact Status text: `the source could not be downloaded` when `Download`, else `the source archive was refused: <Cause>`), `FetchSource(ctx context.Context, url, token, dir string, lim SourceLimits) error`, `Unpack(r io.Reader, dir string, lim SourceLimits) error`.
+
+`FetchSource`: GET with the bearer token, no redirects, the retry rule from Choices, a non-200 or a body cut short is `SourceError{Download: true}`; the body is counted while read (over `Download` is refused). The log names the status code only, never the URL's query or the token. `Unpack`: gzip then `archive/tar`; skip `pax_global_header` (GitHub's) and other `TypeXGlobalHeader`; every other entry must start with the same top folder, which is stripped; refuse what the contract lists, with its fixed cause. A link target is cleaned against the link's own folder and must stay inside `dir`; an entry under a path that is a link is refused. Files are created with `O_EXCL|O_NOFOLLOW` and the modes from Choices. `dir` must exist and be empty, else a usage error from the caller.
+
+- [ ] **Step 1: Failing tests** (archives built in memory with `archive/tar` and `gzip`; downloads through `httptest`, no real network):
+  - `TestUnpackGitLabAndGitHubLayouts`: a `proj-<sha>-<sha>/` top folder, and a GitHub one with a `pax_global_header` first, both unpack to `a.go` and `sub/b.go` at the root of `dir`, no top folder left.
+  - `TestUnpackRefuses`: table, each the exact cause: `/etc/x`; `top/../x`; a link `top/l -> ../../x`; a link `top/l -> /etc`; a file `top/l/f` after a link `top/l -> sub`; a hard link; a char device; a FIFO; two top folders; one path twice; not gzip.
+  - `TestUnpackLimits`: `Files: 2` with 3 files; `Unpacked: 10` with 11 bytes; each refused with its cause.
+  - `TestUnpackModes`: a `0777` setuid file is `0755`, a `0600` file is `0644`.
+  - `TestFetchSource`: the server sees `Authorization: Bearer tok`; a 200 archive unpacks; a 404 and a 302 are `SourceError{Download: true}` with no retry; a 503 then 200 succeeds on the second try (retry waits injected, no sleep); a body over `Download` is refused.
+  - `TestFetchSourceErrorText`: the error texts equal the Status rows exactly, and hold no URL or token.
+- [ ] **Step 2: Run to fail.** `go test ./internal/scan/ -run '^(TestUnpackGitLabAndGitHubLayouts|TestUnpackRefuses|TestUnpackLimits|TestUnpackModes|TestFetchSource|TestFetchSourceErrorText)$' -count=1`. Expected: build failure. After the code step it must PASS.
+- [ ] **Step 3: Code** as the interfaces say.
+- [ ] **Step 4: Commit** `feat(scan): download and unpack the source safely`
+
+### Task 9: the envelope and its status
 
 **Files:** Create `internal/scan/envelope.go`, `internal/scan/envelope_test.go`.
 
 **Interfaces:**
 - Consumes: `Converted`, `runner.Stats`, `runner.Usage`, `sarif`.
-- Produces: `Envelope{Kind, Status, Reason, Commit string; Skill SkillRef; Usage Usage; Coverage Coverage; State map[string]string; SARIF sarif.Log}` with the contract's JSON names; `SkillRef{Name, Commit}`; `Usage{Source string; Sessions, Subagents, Steps int; Tokens result.Tokens; Models []ModelUsage}`; `ModelUsage{Provider, Model string; Steps int; Tokens result.Tokens}`; `Stop` (`StopNone`, `StopBudget`, `StopSteps`, `StopTimeout`, `StopSignal`, `StopFailed`, `StopSetup`); `EndInput{Commit string; Stop Stop; FailKind runner.CauseKind; SetupCause string; Out Converted; State map[string]string; Usage Usage; Manifest Manifest}`; `Build(in EndInput) ([]byte, Envelope)`; `UsageFrom(s *runner.Stats, source string, stream runner.Usage) Usage` (`s` nil = `stream` source; each of the 5 token counts is at least the stream's); constants `MaxEnvelope = 12 << 20`, `MaxSARIF = 8 << 20`, `MaxResults = 5000`, `MaxState = 512 << 10`, `MaxStateFile = 512 << 10`; `ReadState(m Manifest, outDir string) map[string]string`.
+- Produces: `Envelope{Kind, Status, Reason, Commit string; Skill SkillRef; Usage Usage; Coverage Coverage; State map[string]string; SARIF sarif.Log}` with the contract's JSON names; `SkillRef{Name, Commit}`; `Usage{Source string; Sessions, Subagents, Steps int; Tokens result.Tokens; Models []ModelUsage}`; `ModelUsage{Provider, Model string; Steps int; Tokens result.Tokens}`; `Stop` (`StopNone`, `StopBudget`, `StopSteps`, `StopTimeout`, `StopSignal`, `StopFailed`, `StopSetup`, `StopSource`); `EndInput{Commit string; Stop Stop; FailKind runner.CauseKind; SetupCause string; Source *SourceError; Out Converted; State map[string]string; Usage Usage; Manifest Manifest}`; `Build(in EndInput) ([]byte, Envelope)`; `UsageFrom(s *runner.Stats, source string, stream runner.Usage) Usage` (`s` nil = `stream` source; each of the 5 token counts is at least the stream's); constants `MaxEnvelope = 12 << 20`, `MaxSARIF = 8 << 20`, `MaxResults = 5000`, `MaxState = 512 << 10`, `MaxStateFile = 512 << 10`; `ReadState(m Manifest, outDir string) map[string]string`.
 
 `Build` applies the Status table, runs `redact.String` on every SARIF string, state value and reason, sets `driver.name`/`driver.version` from the manifest, cuts results (lowest severity, then last) to fit `MaxSARIF` and `MaxResults`, and checks the SARIF with `sarif.Validate`.
 
@@ -332,52 +370,55 @@ Each dismissal becomes a `rejected` record in `run-1/findings.json`: an existing
   - `TestBuildRedacts`: `t.Setenv("OPENCODE_API_KEY", "sk-test-123456789")`; the key in a description, a state file and a fail kind → absent from the JSON, `[REDACTED]` present.
   - `TestBuildCutsSARIF`: results over `MaxSARIF` → under it; 5001 small results → 5000; in both the critical ones kept, `partial`, `the SARIF was cut to fit the size limit`.
   - `TestReadStateCaps`: a 600 KiB state file is left out; a symlinked one is left out; total over `MaxState` drops the later file.
-  - `TestBuildFailedHasValidSARIF`: `StopSetup` → `sarif.Validate` empty, 1 run, 0 results.
+  - `TestBuildFailedHasValidSARIF`: `StopSetup` and `StopSource` → `sarif.Validate` empty, 1 run, 0 results.
   - `TestUsageFromNeverBelowStream`: stats 10 input, stream 25 input → 25; `s` nil → `source stream`, no models.
   - `TestEnvelopeJSONNames`: keys `kind`, `status`, `reason`, `commit`, `skill`, `usage`, `coverage`, `state`, `sarif`; `kind` = `security`; `driver.name` and `driver.version` equal `skill.name` and `skill.commit`.
 - [ ] **Step 2: Run to fail.** `go test ./internal/scan/ -run '^(TestBuildStatusTable|TestBuildStopBeforeFindings|TestBuildRedacts|TestBuildCutsSARIF|TestReadStateCaps|TestBuildFailedHasValidSARIF|TestUsageFromNeverBelowStream|TestEnvelopeJSONNames)$' -count=1`. Expected: build failure. After the code step it must PASS. (`TestBuildRedacts` uses `t.Setenv`: no `t.Parallel`.)
 - [ ] **Step 3: Code** as the interfaces say.
 - [ ] **Step 4: Commit** `feat(scan): the result envelope and its status`
 
-### Task 9: `pergent scan`
+### Task 10: `pergent scan`
 
 **Files:** Create `cmd/scan.go`, `cmd/scan_test.go`, `docs/concepts/security-scan.md`. Modify `cmd/main.go` (dispatch `scan`), `CLAUDE.md` (architecture lines for `internal/scan`, `internal/jsonschema`, `internal/sarif`, `cmd/scan.go`), `README.md` (one pointer to the new page).
 
 **Interfaces:**
-- Consumes: everything above; `checkoutRoot`, `deleteDeniedFiles`, `handleInstructionFiles(root, true, …)`, `resolvePath`, `within`, `checkOpencodeVersion` from `cmd/agent.go`; `result.Deliver`, `result.Target`.
+- Consumes: everything above (`FetchSource`, `DefaultSourceLimits`); `checkoutRoot` (clone mode only), `deleteDeniedFiles`, `handleInstructionFiles(root, true, …)`, `resolvePath`, `within`, `checkOpencodeVersion` from `cmd/agent.go`; `result.Deliver`, `result.Target`.
 - Produces: `scanMain(args []string)`, `runScan(ctx context.Context, args []string, d scanDeps) int`, `scanDeps{Getenv func(string) string; Stdout, Stderr io.Writer; Run func(context.Context, runner.Options) runner.RunResult; Stats func(context.Context, string) (runner.Stats, error); Tick <-chan time.Time; Signals <-chan os.Signal}` (nil fields = the real ones; `Tick` real = `time.NewTicker(30 * time.Second)`).
 
-Flow: parse (usage errors exit 2) → the commit (`--head` checked against `HEAD`, or `HEAD` read with `git rev-parse HEAD`) → `LoadManifest` → checkout checks and scrub → version check → `ReadPrior`/`WritePrior` → work dir, data dir, `GenerateScanConfig` (prompt = the entry file) → `Run` in a goroutine with `Once`, `DataDir`, `StepLimit` = `--max-turns`, `Timeout`, `Message` = `TaskLine`, `OnUsage`, and `ExcludeEnv` = `PERGENT_RESULT_TOKEN`, `GITHUB_TOKEN`, `GITLAB_TOKEN` plus `ProxyEnvNames` unless `PERGENT_SCAN_KEEP_PROXY=true` → each tick: `Stats` within `statsCallTimeout` (20 s; calls never overlap; an error logs once), and a budget stop through a context cause whose `StopReason` is `token budget reached` → a signal cancels with `cancelled` → map the end to a `Stop` (completed → `StopNone`; `CauseCancelled` → `StopBudget` or `StopSignal` by which one fired; `CauseTimeout` → `StopTimeout`; `CauseStepLimit` → `StopSteps`; else `StopFailed` with the kind) → final `Stats` (60 s, 5 s after a signal) → `Convert`, `ReadState`, `UsageFrom`, `Build` → deliver (short after a signal) → clean up. Logs go to stderr, redacted, with no model text.
+Flow: parse (usage errors exit 2) → the source: with `--source-url`, `--repo-path` must be an existing empty folder, `FetchSource` fills it, its real path is the root and `--head` is the commit (a `SourceError` sends a `failed` envelope, exit 3); without it, `checkoutRoot` and the commit (`--head` checked against `HEAD`, or `HEAD` read) → `LoadManifest` → scrub (`handleInstructionFiles(root, true, …)`, `deleteDeniedFiles`) → version check → `ReadPrior`/`WritePrior` → work dir, data dir, `GenerateScanConfig` (prompt = the entry file) → `Run` in a goroutine with `Once`, `DataDir`, `StepLimit` = `--max-turns`, `Timeout`, `Message` = `TaskLine` (with `Commit`), `OnUsage`, and `ExcludeEnv` = `PERGENT_RESULT_TOKEN`, `GITHUB_TOKEN`, `GITLAB_TOKEN` plus `ProxyEnvNames` unless `PERGENT_SCAN_KEEP_PROXY=true` → each tick: `Stats` within `statsCallTimeout` (20 s; calls never overlap; an error logs once), and a budget stop through a context cause whose `StopReason` is `token budget reached` → a signal cancels with `cancelled` → map the end to a `Stop` (completed → `StopNone`; `CauseCancelled` → `StopBudget` or `StopSignal` by which one fired; `CauseTimeout` → `StopTimeout`; `CauseStepLimit` → `StopSteps`; else `StopFailed` with the kind) → final `Stats` (60 s, 5 s after a signal) → `Convert`, `ReadState`, `UsageFrom`, `Build` → deliver (short after a signal) → clean up. Logs go to stderr, redacted, with no model text.
 
 - [ ] **Step 1: Failing tests** (fake `Run` writes the testdata outputs into the output folder it reads from `opts.Message`; a fake `Stats`; a test-fed `Tick`; a `--result` file target):
-  - `TestScanComplete`: no `--head`; fixtures with `run_status complete` → exit 0, envelope `complete`, `commit` = the clone's `HEAD`, 2 results, `usage.source stats` with the fake's tokens.
+  - `TestScanFromSourceURL`: an `httptest` server serves a tar.gz (checks the bearer token); `--repo-path` an empty temp dir, `--head` set → the fake `Run` sees the files in it and no `.git`; the message holds `Source commit: <sha>.`; envelope `commit` = `--head`; a nested `AGENTS.md` and a `.env` from the archive are gone before `Run`.
+  - `TestScanSourceFailures`: a 404 → exit 3, envelope `failed`, `the source could not be downloaded`; an archive with `../x` → `the source archive was refused: a path with ..`; `Run` never called.
+  - `TestScanComplete`: clone mode, no `--head`; fixtures with `run_status complete` → exit 0, envelope `complete`, `commit` = the clone's `HEAD`, 2 results, `usage.source stats` with the fake's tokens.
   - `TestScanBudgetStop`: `PERGENT_TOKEN_BUDGET=50`, fake stats 100, one tick → the run's context ends with reason `token budget reached`; `partial`.
   - `TestScanSignalSendsPartial`: send `SIGTERM` on `Signals` while the fake blocks → `partial`, `cancelled`, findings it wrote are in the SARIF.
   - `TestScanStatsFailsUsesStream`: `Stats` always errors, `OnUsage` fed 40 tokens → `usage.source stream`, tokens 40; budget 30 stops it. A second case: `Stats` blocks until its context ends, with the package var `statsCallTimeout` set to 1 ms (serial test) → the scan still ends and sends `stream`.
-  - `TestScanUsageErrors`: table → exit 2: no `--repo-path`; `--head` short; `--head` not `HEAD`; `--max-turns 4`; `--max-subagent-turns 301`; `--timeout 5m`; `PERGENT_TOKEN_BUDGET=0`, `abc`; `--prior` inside the repo; `--result-url` without `PERGENT_RESULT_TOKEN`; no `OPENCODE_PROVIDER`.
+  - `TestScanUsageErrors`: table → exit 2: no `--repo-path`; `--head` short; `--head` not `HEAD`; `--source-url` without `--head`; `--source-url` with a non-empty `--repo-path`; `--source-url` without `PERGENT_RESULT_TOKEN`; `--max-turns 4`; `--max-subagent-turns 301`; `--timeout 5m`; `PERGENT_TOKEN_BUDGET=0`, `abc`; `--prior` inside the repo; `--result-url` without `PERGENT_RESULT_TOKEN`; no `OPENCODE_PROVIDER`.
   - `TestScanDropsProxyEnv`: `HTTPS_PROXY` set → in `opts.ExcludeEnv`; with `PERGENT_SCAN_KEEP_PROXY=true` → not; `PERGENT_RESULT_TOKEN` always.
   - `TestScanConfigWiring`: the config the fake sees (`OPENCODE_CONFIG` from `opts.ConfigPath`) has `edit` allowing exactly the output folder of `opts.Message`, and the 3 agents.
   - `TestScanScrubsInstructions`: a nested `AGENTS.md` and a `.env` in the clone are gone before `Run`.
   - `TestScanMainDispatch`: `main()` in a child process (`-test.run` plus an env var) with `scan --bad` exits 2, proving `main` calls `scanMain`.
-- [ ] **Step 2: Run to fail.** `PATH="$(go env GOROOT)/bin:/opt/homebrew/bin:$PATH" go test ./cmd/ -run '^(TestScanComplete|TestScanBudgetStop|TestScanSignalSendsPartial|TestScanStatsFailsUsesStream|TestScanUsageErrors|TestScanDropsProxyEnv|TestScanConfigWiring|TestScanScrubsInstructions|TestScanMainDispatch)$' -count=1`. Expected: build failure. After the code step it must PASS.
+- [ ] **Step 2: Run to fail.** `PATH="$(go env GOROOT)/bin:/opt/homebrew/bin:$PATH" go test ./cmd/ -run '^(TestScanFromSourceURL|TestScanSourceFailures|TestScanComplete|TestScanBudgetStop|TestScanSignalSendsPartial|TestScanStatsFailsUsesStream|TestScanUsageErrors|TestScanDropsProxyEnv|TestScanConfigWiring|TestScanScrubsInstructions|TestScanMainDispatch)$' -count=1`. Expected: build failure. After the code step it must PASS.
 - [ ] **Step 3: Code** the flow.
-- [ ] **Step 4: Docs.** `docs/concepts/security-scan.md`: what a scan does, the command and inputs, the tools table (bash, edit only in the output folder, sub-agents `general` and `explore` with the same block), why the network is the real guard (bash can read `/proc/<pid>/environ`), the envelope, Status and SARIF tables from this plan, usage and the budget (one 30-second poll past it at most), and that sub-agent step limits are opencode's own. No em dashes.
+- [ ] **Step 4: Docs.** `docs/concepts/security-scan.md`: what a scan does, the command and inputs, the tools table (bash, edit only in the output folder, sub-agents `general` and `explore` with the same block), why the network is the real guard (bash can read `/proc/<pid>/environ`), how the source arrives (downloaded from pergent.sh, no git token in the pod, no `.git`, no Git LFS files or submodules, the unpack rules), the envelope, Status and SARIF tables from this plan, usage and the budget (one 30-second poll past it at most), and that sub-agent step limits are opencode's own. No em dashes.
 - [ ] **Step 5: Commit** `feat(scan): the pergent scan command`
 
-### Task 10: e2e checks on the real opencode (CI only)
+### Task 11: e2e checks on the real opencode (CI only)
 
 **Files:** Modify `cmd/opencode_e2e_test.go`, `cmd/fakemodel_test.go` (a turn may block on a channel).
 
 **Interfaces:** Consumes `config.GenerateScanConfig`, `runner.Run` with `DataDir`, `runner.ReadStats`.
 
 - [ ] **Step 1: Tests** (skip without `PERGENT_TEST_OPENCODE`, as the suite does):
+  - Each scan e2e test runs in a folder with no `.git`, as an unpacked source is.
   - `TestOpencodeE2E_ScanCountsSubagentTokens`: the fake model's main turn calls `subagent` with `agent: "general"`; the child answers; `ReadStats` gives `Subagents 1` and tokens = main + child (the fake reports fixed usage per reply).
   - `TestOpencodeE2E_ScanSubagentTools`: the tools the fake sees in the child's request hold `shell`, `edit`, `read`, `glob`, `grep` and no `webfetch`, `websearch`, `subagent`; an `edit` into the clone is denied, one into the output folder works.
   - `TestOpencodeE2E_ScanStatsOnALiveDatabase`: the fake holds its second reply until the test ran `ReadStats` once; that call succeeds and counts the first step. This answers the spec's open question.
 - [ ] **Step 2: Compile only, locally.** `go vet ./cmd/`. Expected: no output. They run in CI's `e2e` job.
 - [ ] **Step 3: Commit** `test(scan): e2e checks for sub-agent usage and permissions`
 
-### Task 11: `PERGENT_SECURITY_FINDINGS` in reviews
+### Task 12: `PERGENT_SECURITY_FINDINGS` in reviews
 
 **Files:** Modify `internal/review/review.go`, `internal/review/crossbatch.go`, `cmd/agent.go`, `docs/concepts/agent-mode.md`, `docs/concepts/multi-review.md`. Test in `internal/review/review_test.go`, `cmd/agent_test.go`.
 
@@ -393,7 +434,7 @@ The batch budget takes both inputs: `packBudget = max(budget - t(CI) - t(securit
 - [ ] **Step 4: Docs.** A `--security-findings` row in `docs/concepts/agent-mode.md` (next to `--ci-results`), the trusted-inputs list there, and the refused list in `docs/concepts/multi-review.md`.
 - [ ] **Step 5: Commit** `feat(review): security findings as review input`
 
-### Task 12: the `pergent-security` image
+### Task 13: the `pergent-security` image
 
 **Files:** Modify `Dockerfile`, `.github/workflows/test.yml`, `.github/workflows/master.yml`, `.github/workflows/release.yml`, `cmd/scan.go`, `docs/concepts/security-scan.md`. Test in `cmd/scan_test.go`, `internal/scan/manifest_test.go`.
 
@@ -418,6 +459,6 @@ Workflows: `test.yml` gets a `security-image` job (`docker build --target securi
 
 ## Self-review notes
 
-- **Spec coverage.** Command (T9), manifest (T3), config and the same block on sub-agents (T4), fixed task line (T3), converter (T6), SARIF check (T2), skill schema check in Go (T1, T6), usage by `opencode stats` with 30 s poll and final read (T5, T9), budget stop (T9), `SIGTERM` partial (T9), envelope (T8, T9), prior with dismissals as rejected records (T7), proxy drop (T5, T9), image (T12), review input (T11), docs (T9, T11, T12), first real scan: out of scope (owner, with a dollar limit). The live-database question is answered on CI by T10 at no cost.
-- **Not here (pergent.sh plan):** tables, the result route and its body limit, quotas and the budget value, `securityJobEgress`, `security.proxy`, Helm, the Security tab, building `security-findings.md`, retention.
-- **Not confirmed:** the SARIF schema file and its digest (owner step, T2); that the upstream repo has a root `LICENSE` (the image build fails if not); that `opencode stats` works on a database the run is still writing (T10 checks it); how many steps sub-agents really use (first real scan).
+- **Spec coverage.** Source download and safe unpack (T8, T10), command (T10), manifest (T3), config and the same block on sub-agents (T4), fixed task line (T3), converter (T6), SARIF check (T2), skill schema check in Go (T1, T6), usage by `opencode stats` with 30 s poll and final read (T5, T10), budget stop (T10), `SIGTERM` partial (T10), envelope (T9, T10), prior with dismissals as rejected records (T7), proxy drop (T5, T10), image (T13), review input (T12), docs (T10, T12, T13), first real scan: out of scope (owner, with a dollar limit). The live-database question is answered on CI by T11 at no cost.
+- **Not here (pergent.sh plan):** the `/security-scans/{id}/source` route and its archive stream, tables, the result route and its body limit, quotas and the budget value, `securityJobEgress`, `security.proxy`, Helm, the Security tab, building `security-findings.md`, retention.
+- **Not confirmed:** the SARIF schema file and its digest (owner step, T2); that the upstream repo has a root `LICENSE` (the image build fails if not); that `opencode stats` works on a database the run is still writing (T11 checks it); how many steps sub-agents really use (first real scan).
