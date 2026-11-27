@@ -44,6 +44,10 @@ type fakeModel struct {
 	// next, when it has an entry for turn N, builds that turn's calls from the
 	// request that asks for it (so from the results of the earlier turns).
 	next map[int]func(fakeRequest) []fakeCall
+	// hold, when it has a channel for turn N, keeps the reply to every request
+	// of that turn (tools only, so not the title agent's) back until the
+	// channel is closed or the request ends.
+	hold map[int]chan struct{}
 	mu   sync.Mutex
 	reqs []fakeRequest
 }
@@ -174,6 +178,14 @@ func (m *fakeModel) handle(w http.ResponseWriter, r *http.Request, turns [][]fak
 	case "hang":
 		<-r.Context().Done()
 		return
+	}
+
+	if ch := m.hold[turn]; ch != nil && len(req.Tools) > 0 {
+		select {
+		case <-ch:
+		case <-r.Context().Done():
+			return
+		}
 	}
 
 	var calls []fakeCall
