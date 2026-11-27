@@ -19,6 +19,10 @@ type progressWriter struct {
 	onStep func(step int)
 	// onError, if set, is called with each error event.
 	onError func(e EventError)
+	// onUsage, if set, is called after each step_finish that reports tokens,
+	// with the running total of the attempt.
+	onUsage func(total Usage)
+	usage   Usage
 	// prefix is written before every progress line; empty for none.
 	prefix string
 	// partial holds a line split across writes.
@@ -61,6 +65,11 @@ func (pw *progressWriter) formatEvent(event openCodeEvent) {
 			pw.onStep(pw.step)
 		}
 	case "step_finish":
+		if event.Part != nil && event.Part.Tokens != nil && pw.onUsage != nil {
+			t := event.Part.Tokens
+			pw.usage = pw.usage.Add(Usage{Input: t.Input, Output: t.Output, Reasoning: t.Reasoning, CacheRead: t.Cache.Read, CacheWrite: t.Cache.Write})
+			pw.onUsage(pw.usage)
+		}
 		if event.Part != nil && event.Part.Tokens != nil {
 			pw.printf("  Step %d: done (%d tokens)\n", pw.step, event.Part.Tokens.Output)
 		} else {

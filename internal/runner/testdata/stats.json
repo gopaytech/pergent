@@ -1,0 +1,31 @@
+{
+  "range": { "from": 0, "to": 1796000000000 },
+  "sessions": 1,
+  "subagents": 2,
+  "prompts": 1,
+  "steps": 7,
+  "tokens": { "input": 1200, "output": 340, "reasoning": 50, "cache": { "read": 9000, "write": 800 } },
+  "cost": 0.42,
+  "tools": {
+    "mode": "detail",
+    "totals": { "calls": 12 },
+    "usage": [{ "tool": "read", "calls": 9 }, { "tool": "grep", "calls": 3 }]
+  },
+  "activeDays": 1,
+  "streak": 1,
+  "activity": [{ "date": "2026-11-27", "steps": 7 }],
+  "models": [
+    {
+      "model": { "id": "big-model", "providerID": "acme" },
+      "steps": 4,
+      "tokens": { "input": 1000, "output": 300, "reasoning": 50, "cache": { "read": 8000, "write": 700 } },
+      "cost": 0.4
+    },
+    {
+      "model": { "id": "small-model", "providerID": "acme", "variant": "fast" },
+      "steps": 3,
+      "tokens": { "input": 200, "output": 40, "reasoning": 0, "cache": { "read": 1000, "write": 100 } },
+      "cost": 0.02
+    }
+  ]
+}
