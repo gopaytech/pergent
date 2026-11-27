@@ -1,0 +1,15 @@
+name: security-audit
+commit: c1c8a8c1471069fb0e188eeaff69b8e8db6564a8
+entry: SKILL.md
+tools: [bash, write, task]
+steps:
+  main: 600
+  subagent: 100
+task: >-
+  Full audit mode. Skill directory: {skill}. Target: {target}.
+  Source commit: {commit}. Output directory: {output}. Prior run: {prior}. Do not ask questions.
+  No OS sandbox is available: do not build, test or run the target's code.
+output:
+  path: findings.json
+  format: cloudflare-findings
+state: [findings.json, coverage-ledger.json]
