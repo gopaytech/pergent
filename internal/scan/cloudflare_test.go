@@ -192,11 +192,11 @@ func TestConvertInvalid(t *testing.T) {
 		}
 	}
 	writeFindings(t, dir, `[{"a":1,"a":2}]`)
-	if c = Convert(cfManifest(), dir, dir); c.Valid || c.Problem != "findings.json is not valid JSON" {
+	if c = Convert(cfManifest(), dir, dir); c.Valid || c.Problem != "findings.json did not pass the skill's schema check" {
 		t.Errorf("bad json: %+v", c)
 	}
 	writeFindings(t, dir, `[]`)
-	if c = Convert(cfManifest(), t.TempDir(), dir); c.Valid || c.Problem != "the skill has no report-schema.json" {
+	if c = Convert(cfManifest(), t.TempDir(), dir); c.Valid || c.Problem != "findings.json did not pass the skill's schema check" {
 		t.Errorf("no schema: %+v", c)
 	}
 	writeFindings(t, dir, `[]`)
@@ -239,12 +239,16 @@ func TestReadOutFileRefusesLinksAndFIFOs(t *testing.T) {
 			t.Errorf("%q: no error", name)
 		}
 	}
+	if err := os.WriteFile(filepath.Join(dir, "findings.json"), make([]byte, 6<<20), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	// Convert reports each of them as a missing findings.json.
 	schema := copyFixtures(t, "report-schema.json")
 	for _, mk := range []func(string){
 		func(p string) { _ = os.Symlink(real, p) },
 		func(p string) { _ = syscall.Mkfifo(p, 0o600) },
 		func(p string) { _ = os.Mkdir(p, 0o700) },
+		func(p string) { _ = os.WriteFile(p, make([]byte, 6<<20), 0o600) },
 	} {
 		out := t.TempDir()
 		mk(filepath.Join(out, "findings.json"))
@@ -282,14 +286,20 @@ func TestConvertSARIFFormat(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := Convert(m, dir, dir)
-	if !c.Valid || len(c.Results) != 1 || len(c.Rules) != 1 {
+	if !c.Valid || len(c.Results) != 1 || len(c.Rules) != 1 || c.RunStatus != "complete" {
 		t.Errorf("good: %+v", c)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "out.sarif"), []byte(`{"version":"2.1.0"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if c = Convert(m, dir, dir); c.Valid || c.Problem == "" {
+	if c = Convert(m, dir, dir); c.Valid || c.Problem != "the SARIF did not pass the schema check" {
 		t.Errorf("bad: %+v", c)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "out.sarif"), []byte(`{`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if c = Convert(m, dir, dir); c.Valid || c.Problem != ProblemSARIFSchema {
+		t.Errorf("bad json: %+v", c)
 	}
 	if c = Convert(m, dir, t.TempDir()); c.Valid || c.Problem != "out.sarif is missing" {
 		t.Errorf("missing: %+v", c)

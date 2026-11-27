@@ -2,7 +2,6 @@ package scan
 
 import (
 	"encoding/json"
-	"errors"
 	"sort"
 	"strings"
 
@@ -53,34 +52,38 @@ func Convert(m Manifest, skillDir, outDir string) Converted {
 	return convertCloudflare(skillDir, outDir)
 }
 
-func missingOrBig(name string, err error) string {
-	if errors.Is(err, ErrTooBig) {
-		return name + " is too large"
-	}
-	return name + " is missing"
+// The only Problem texts Convert gives. The envelope copies them as the reason.
+
+// problemMissing is for a file that is missing, a link, a FIFO, a folder or too big.
+func problemMissing(name string) string { return name + " is missing" }
+
+// problemSchema is for a file that is not valid JSON or fails the skill's schema.
+func problemSchema(name string) string {
+	return name + " did not pass the skill's schema check"
 }
+
+// ProblemSARIFSchema is for a sarif-format file that is bad JSON or fails the SARIF schema.
+const ProblemSARIFSchema = "the SARIF did not pass the schema check"
 
 func convertSARIF(m Manifest, outDir string) Converted {
 	name := m.Output.Path
 	data, err := ReadOutFile(outDir, name, maxSARIFFile)
 	if err != nil {
-		return Converted{Problem: missingOrBig(name, err)}
+		return Converted{Problem: problemMissing(name)}
 	}
-	if _, err := jsonschema.Decode(data, maxSARIFFile, jsonDepth); err != nil {
-		return Converted{Problem: name + " is not valid JSON"}
-	}
-	if len(sarif.Validate(data)) > 0 {
-		return Converted{Problem: name + " did not pass the SARIF schema check"}
+	if _, err := jsonschema.Decode(data, maxSARIFFile, jsonDepth); err != nil || len(sarif.Validate(data)) > 0 {
+		return Converted{Problem: ProblemSARIFSchema}
 	}
 	var log sarif.Log
 	if err := json.Unmarshal(data, &log); err != nil || len(log.Runs) == 0 {
-		return Converted{Problem: name + " is not valid JSON"}
+		return Converted{Problem: ProblemSARIFSchema}
 	}
 	run := log.Runs[0]
 	if run.Results == nil {
 		run.Results = []sarif.Result{}
 	}
-	return Converted{Results: run.Results, Rules: run.Tool.Driver.Rules, Valid: true}
+	// A sarif-format skill writes no run-metadata.json, so a valid file is a complete run.
+	return Converted{Results: run.Results, Rules: run.Tool.Driver.Rules, Valid: true, RunStatus: "complete"}
 }
 
 // The fields of the skill's records that the converter reads. The schema check
@@ -133,29 +136,27 @@ var severityMap = map[string]struct{ level, severity, score string }{
 }
 
 func convertCloudflare(skillDir, outDir string) Converted {
+	bad := Converted{Problem: problemSchema(findingsFile)}
 	data, err := ReadOutFile(outDir, findingsFile, maxFindings)
 	if err != nil {
-		return Converted{Problem: missingOrBig(findingsFile, err)}
+		return Converted{Problem: problemMissing(findingsFile)}
 	}
 	raw, err := jsonschema.Decode(data, maxFindings, jsonDepth)
 	if err != nil {
-		return Converted{Problem: findingsFile + " is not valid JSON"}
+		return bad
 	}
+	// A missing or broken skill schema fails closed.
 	schemaData, err := ReadOutFile(skillDir, schemaFile, maxSchema)
 	if err != nil {
-		return Converted{Problem: "the skill has no " + schemaFile}
+		return bad
 	}
 	schema, err := jsonschema.Compile(schemaData)
-	if err != nil {
-		return Converted{Problem: "the skill's " + schemaFile + " is not usable"}
-	}
-	const schemaProblem = findingsFile + " did not pass the skill's schema check"
-	if len(schema.Validate(raw)) > 0 {
-		return Converted{Problem: schemaProblem}
+	if err != nil || len(schema.Validate(raw)) > 0 {
+		return bad
 	}
 	var records []cfRecord
 	if err := json.Unmarshal(data, &records); err != nil {
-		return Converted{Problem: schemaProblem}
+		return bad
 	}
 
 	units, coverage := readLedger(outDir)
