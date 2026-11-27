@@ -43,17 +43,18 @@
 **Command** (in the `pergent-security` image):
 
 ```
-pergent scan --repo-path <clone> --head <sha> --result-url <url> [--prior <file>]
-             [--max-steps N] [--max-subagent-steps M] [--timeout D] [--skill <dir>]
+pergent scan --repo-path <clone> --result-url <url> [--head <sha>] [--prior <file>]
+             [--max-turns N] [--max-subagent-turns M] [--timeout D] [--skill <dir>]
 ```
 
 | Input | Rule |
 |---|---|
-| `--repo-path` | Required. Work tree top of the default-branch clone. `HEAD` must equal `--head` (full lowercase SHA). |
+| `--repo-path` | Required. Work tree top of the default-branch clone. |
+| `--head` | Optional full lowercase SHA; when set, `HEAD` must equal it. When absent, pergent reads `HEAD` from the clone. Either way it is the envelope's `commit`. |
 | `--skill` | Default `/opt/pergent/security-skills/security-audit`. Trusted, outside `--repo-path`. |
-| `--prior` / `$PERGENT_SCAN_PRIOR` | Optional JSON file, trusted, outside `--repo-path`, at most 8 MiB. Shape below. Unreadable or malformed: a warning, the scan runs with no prior. |
-| `--max-steps` | Main agent step limit, 5 to 1000. Default the manifest's `steps.main` (600). |
-| `--max-subagent-steps` | Each sub-agent's step limit, 5 to 300. Default `steps.subagent` (100). |
+| `--prior` / `$PERGENT_SCAN_PRIOR` | Optional JSON file, trusted, outside `--repo-path`, at most `MaxPrior` 800 KiB (pergent.sh passes it as `--prior /in/prior.json`, one Secret item). Shape below. Unreadable or malformed: a warning, the scan runs with no prior. |
+| `--max-turns` | Main agent step limit (the name matches `pergent agent`), 5 to 1000. Default the manifest's `steps.main` (600). |
+| `--max-subagent-turns` | Each sub-agent's step limit, 5 to 300. Default `steps.subagent` (100). |
 | `--timeout` | 10m to 6h, default 3h. The Job deadline must be at least `--timeout` + 2 min. |
 | `--result` / `--result-url` | As in `pergent agent`; the URL is pergent.sh's `/security-scans/{id}/result`, bearer `PERGENT_RESULT_TOKEN`. |
 | `OPENCODE_PROVIDER`, `OPENCODE_MODEL`, `OPENCODE_API_KEY`, `OPENCODE_BASE_URL`, `OPENCODE_NPM` | As for a review; provider and model required. |
@@ -66,36 +67,39 @@ pergent scan --repo-path <clone> --head <sha> --result-url <url> [--prior <file>
 ```json
 { "state": { "findings.json": "<text>", "coverage-ledger.json": "<text>" },
   "dismissed": [ { "fingerprint": "f1", "title": "t", "file": "a/b.go", "line": 12,
-                   "reason": "false_positive", "comment": "text" } ] }
+                   "reason": "false_positive", "comment": "text", "rule": "optional" } ] }
 ```
 
-`reason` is one of `false_positive`, `wont_fix`, `used_in_tests`, `mitigated`, `acceptable_risk`; `comment` is at most 1000 bytes. State keys not in the manifest's `state` list are ignored.
+`reason` is one of `false_positive`, `wont_fix`, `used_in_tests`, `mitigated`, `acceptable_risk`; `comment` is at most 1000 bytes; `rule` is optional, at most 200 bytes, accepted and not used in the record. State keys not in the manifest's `state` list are ignored.
 
-**Envelope** (the spec's, plus `skill`; caps are pergent's, pergent.sh sets its body limit to `MaxEnvelope`):
+**Envelope** (the spec's, plus `commit` and `skill`; caps are pergent's, pergent.sh sets its body limit to `MaxEnvelope`):
 
 ```json
 {
   "kind": "security",
   "status": "complete",
   "reason": "",
+  "commit": "<full sha of HEAD>",
   "skill": { "name": "security-audit", "commit": "c1c8a8c1471069fb0e188eeaff69b8e8db6564a8" },
   "usage": { "source": "stats", "sessions": 1, "subagents": 12, "steps": 840,
              "tokens": { "input": 0, "output": 0, "reasoning": 0, "cache_read": 0, "cache_write": 0 },
              "models": [ { "provider": "anthropic", "model": "m", "steps": 840, "tokens": { "...": "same 5 keys" } } ] },
   "coverage": { "done": 48, "planned": 48 },
   "state": { "findings.json": "...", "coverage-ledger.json": "..." },
-  "sarif": { "$schema": "...", "version": "2.1.0", "runs": [ { "tool": { "driver": { "name": "security-audit" } }, "results": [] } ] }
+  "sarif": { "$schema": "...", "version": "2.1.0", "runs": [ { "tool": { "driver": { "name": "security-audit", "version": "c1c8a8c1471069fb0e188eeaff69b8e8db6564a8" } }, "results": [] } ] }
 }
 ```
 
 | Field | Rule |
 |---|---|
+| `commit` | Always set: `--head`, or `HEAD` of the clone. |
+| `skill`, `sarif.runs[0].tool.driver` | `skill.name` = `driver.name` = the manifest's `name`; `skill.commit` = `driver.version` = its pinned `commit`. |
 | `status`, `reason` | See "Status". `reason` is `""` for `complete`, else one or more fixed texts joined by `; `. |
 | `usage.source` | `stats` (final `opencode stats` read), `stats_poll` (final read failed, last poll value), `stream` (no stats read worked: main session only, sub-agents missing). `tokens` is never lower than the stream count. |
 | `coverage` | From `coverage-ledger.json`: `planned` = units not `not_applicable` or `out_of_scope`; `done` = units `covered` or `candidate`. Both 0 when the ledger is missing or bad. |
-| `state` | Each manifest `state` file present in the output folder: regular, valid UTF-8, at most `MaxStateFile` 4 MiB; all together at most `MaxState` 6 MiB (files over it left out, in manifest order). |
-| `sarif` | Always one valid run, also for `failed`. At most `MaxSARIF` 8 MiB: past it, results are cut from the lowest severity and `status` becomes `partial`. |
-| Envelope | At most `MaxEnvelope` 16 MiB. |
+| `state` | Each manifest `state` file present in the output folder: regular, valid UTF-8, at most `MaxStateFile` 512 KiB; all together at most `MaxState` 512 KiB (files over it left out, in manifest order). |
+| `sarif` | Always one valid run, also for `failed`. At most `MaxSARIF` 8 MiB and `MaxResults` 5000 results: past either, results are cut from the lowest severity and `status` becomes `partial`. |
+| Envelope | At most `MaxEnvelope` 12 MiB. |
 
 **Status** (decided in this order; texts are exact):
 
@@ -108,7 +112,7 @@ pergent scan --repo-path <clone> --head <sha> --result-url <url> [--prior <file>
 | opencode failed on its own, `findings.json` missing or bad | `failed` | same |
 | Run completed, `findings.json` missing or bad | `failed` | `findings.json is missing` · `findings.json did not pass the skill's schema check` |
 | Run completed, `run_status` not `complete` | `partial` | `the skill did not mark the run complete` (+ `: <incomplete_reason>` when it matches `^[a-z0-9_]{1,64}$`) |
-| SARIF cut to fit | `partial` | `the SARIF was cut to fit the size limit` |
+| SARIF cut to fit (bytes or count) | `partial` | `the SARIF was cut to fit the size limit` |
 | Otherwise | `complete` | `""` |
 
 On a `partial` with no valid `findings.json`, `sarif` has no results and `state` still holds what exists.
@@ -192,7 +196,7 @@ Keywords: annotations ignored (`$schema`, `$id`, `id`, `title`, `description`, `
   - `TestFullResultPasses`: a `Log` with every field the converter sets passes.
   - `TestValidateRefuses`: `level:"fatal"`, a result with no `message`, `version:"2.0.0"` each give errors.
 - [ ] **Step 3: Run to fail.** `go test ./internal/sarif/ -run '^(TestSchemaFileDigest|TestSchemaCompiles|TestEmptyLogPasses|TestFullResultPasses|TestValidateRefuses)$' -count=1`. Expected: build failure. After the code step it must PASS.
-- [ ] **Step 4: Code.** `//go:embed sarif-schema-2.1.0.json`, compiled once (`sync.OnceValues`); `Validate` decodes with 16 MiB and depth 64.
+- [ ] **Step 4: Code.** `//go:embed sarif-schema-2.1.0.json`, compiled once (`sync.OnceValues`); `Validate` decodes with 12 MiB and depth 64.
 - [ ] **Step 5: Commit** `feat(sarif): SARIF 2.1.0 types and the schema check`
 
 ### Task 3: the manifest
@@ -298,7 +302,7 @@ The scan block = `reviewPermission(true, nil)` plus: `external_directory` allows
 
 **Files:** Create `internal/scan/prior.go`, `internal/scan/prior_test.go`.
 
-**Interfaces:** Produces `Prior{State map[string]string; Dismissed []Dismissed}`, `Dismissed{Fingerprint, Title, File string; Line int; Reason, Comment string}`, `ReadPrior(path string) (Prior, error)` (8 MiB, unknown keys refused, bad entries dropped with a log line), `WritePrior(p Prior, m Manifest, skillDir, dir string) (string, error)` → writes `<dir>/run-1/<state files>` and returns that folder, or `""` when there is no state and no dismissal.
+**Interfaces:** Produces `Prior{State map[string]string; Dismissed []Dismissed}`, `Dismissed{Fingerprint, Title, File string; Line int; Reason, Comment, Rule string}`, `ReadPrior(path string) (Prior, error)` (`MaxPrior = 800 << 10`, unknown keys refused, bad entries dropped with a log line), `WritePrior(p Prior, m Manifest, skillDir, dir string) (string, error)` → writes `<dir>/run-1/<state files>` and returns that folder, or `""` when there is no state and no dismissal.
 
 Each dismissal becomes a `rejected` record in `run-1/findings.json`: an existing record with that fingerprint is replaced; else a new one with `title`, `description` = title, `claimed_root_cause` = title, one `trace` entry `{kind:"sink", file, line, scope: file, description: title}` and one `evidence` entry `{file, line, description: title}`. `reason` = `A maintainer dismissed this finding as <words>.` (+ ` <comment>`), `<words>` = `a false positive`, `won't fix`, `used in tests`, `mitigated`, `an acceptable risk`. The merged file must pass `report-schema.json`; a dismissal that would break it is dropped and logged.
 
@@ -306,7 +310,7 @@ Each dismissal becomes a `rejected` record in `run-1/findings.json`: an existing
   - `TestWritePriorStateFiles`: both state files written byte for byte; a key not in the manifest is not written.
   - `TestWritePriorDismissalReplaces`: a confirmed `f1` plus a dismissal of `f1` → one `rejected` `f1` with the reason text above.
   - `TestWritePriorDismissalAdds`: a dismissal of `f9` with no state → a `findings.json` of 1 rejected record that passes the testdata schema.
-  - `TestReadPriorRefuses`: over 8 MiB, an unknown key, a bad `reason`, a fingerprint `-x`, a comment over 1000 bytes (entry dropped, rest kept).
+  - `TestReadPriorRefuses`: over 800 KiB, an unknown key, a bad `reason`, a fingerprint `-x`, a comment over 1000 bytes or a `rule` over 200 bytes (entry dropped, rest kept); a good `rule` is accepted.
   - `TestWritePriorNone`: empty prior → `""`.
 - [ ] **Step 2: Run to fail.** `go test ./internal/scan/ -run '^(TestWritePriorStateFiles|TestWritePriorDismissalReplaces|TestWritePriorDismissalAdds|TestReadPriorRefuses|TestWritePriorNone)$' -count=1`. Expected: build failure. After the code step it must PASS.
 - [ ] **Step 3: Code** as the interfaces say.
@@ -318,19 +322,19 @@ Each dismissal becomes a `rejected` record in `run-1/findings.json`: an existing
 
 **Interfaces:**
 - Consumes: `Converted`, `runner.Stats`, `runner.Usage`, `sarif`.
-- Produces: `Envelope{Kind, Status, Reason string; Skill SkillRef; Usage Usage; Coverage Coverage; State map[string]string; SARIF sarif.Log}` with the contract's JSON names; `SkillRef{Name, Commit}`; `Usage{Source string; Sessions, Subagents, Steps int; Tokens result.Tokens; Models []ModelUsage}`; `ModelUsage{Provider, Model string; Steps int; Tokens result.Tokens}`; `Stop` (`StopNone`, `StopBudget`, `StopSteps`, `StopTimeout`, `StopSignal`, `StopFailed`, `StopSetup`); `EndInput{Stop Stop; FailKind runner.CauseKind; SetupCause string; Out Converted; State map[string]string; Usage Usage; Manifest Manifest}`; `Build(in EndInput) ([]byte, Envelope)`; `UsageFrom(s *runner.Stats, source string, stream runner.Usage) Usage` (`s` nil = `stream` source; each of the 5 token counts is at least the stream's); constants `MaxEnvelope = 16 << 20`, `MaxSARIF = 8 << 20`, `MaxState = 6 << 20`, `MaxStateFile = 4 << 20`; `ReadState(m Manifest, outDir string) map[string]string`.
+- Produces: `Envelope{Kind, Status, Reason, Commit string; Skill SkillRef; Usage Usage; Coverage Coverage; State map[string]string; SARIF sarif.Log}` with the contract's JSON names; `SkillRef{Name, Commit}`; `Usage{Source string; Sessions, Subagents, Steps int; Tokens result.Tokens; Models []ModelUsage}`; `ModelUsage{Provider, Model string; Steps int; Tokens result.Tokens}`; `Stop` (`StopNone`, `StopBudget`, `StopSteps`, `StopTimeout`, `StopSignal`, `StopFailed`, `StopSetup`); `EndInput{Commit string; Stop Stop; FailKind runner.CauseKind; SetupCause string; Out Converted; State map[string]string; Usage Usage; Manifest Manifest}`; `Build(in EndInput) ([]byte, Envelope)`; `UsageFrom(s *runner.Stats, source string, stream runner.Usage) Usage` (`s` nil = `stream` source; each of the 5 token counts is at least the stream's); constants `MaxEnvelope = 12 << 20`, `MaxSARIF = 8 << 20`, `MaxResults = 5000`, `MaxState = 512 << 10`, `MaxStateFile = 512 << 10`; `ReadState(m Manifest, outDir string) map[string]string`.
 
-`Build` applies the Status table, runs `redact.String` on every SARIF string, state value and reason, cuts results (lowest severity, then last) to fit `MaxSARIF`, and checks the SARIF with `sarif.Validate`.
+`Build` applies the Status table, runs `redact.String` on every SARIF string, state value and reason, sets `driver.name`/`driver.version` from the manifest, cuts results (lowest severity, then last) to fit `MaxSARIF` and `MaxResults`, and checks the SARIF with `sarif.Validate`.
 
 - [ ] **Step 1: Failing tests.**
   - `TestBuildStatusTable`: one subtest per row of the Status table, asserting `status` and the exact `reason`.
   - `TestBuildStopBeforeFindings`: `StopBudget`, `Out.Valid false`, a ledger with 3 planned → `partial`, `token budget reached`, 0 results, `coverage.planned 3`, state present.
   - `TestBuildRedacts`: `t.Setenv("OPENCODE_API_KEY", "sk-test-123456789")`; the key in a description, a state file and a fail kind → absent from the JSON, `[REDACTED]` present.
-  - `TestBuildCutsSARIF`: results over `MaxSARIF` → under it, the critical ones kept, `partial`, cut reason.
-  - `TestReadStateCaps`: a 5 MiB state file is left out; a symlinked one is left out; total over `MaxState` drops the later file.
+  - `TestBuildCutsSARIF`: results over `MaxSARIF` → under it; 5001 small results → 5000; in both the critical ones kept, `partial`, `the SARIF was cut to fit the size limit`.
+  - `TestReadStateCaps`: a 600 KiB state file is left out; a symlinked one is left out; total over `MaxState` drops the later file.
   - `TestBuildFailedHasValidSARIF`: `StopSetup` → `sarif.Validate` empty, 1 run, 0 results.
   - `TestUsageFromNeverBelowStream`: stats 10 input, stream 25 input → 25; `s` nil → `source stream`, no models.
-  - `TestEnvelopeJSONNames`: keys `kind`, `status`, `reason`, `skill`, `usage`, `coverage`, `state`, `sarif`; `kind` = `security`.
+  - `TestEnvelopeJSONNames`: keys `kind`, `status`, `reason`, `commit`, `skill`, `usage`, `coverage`, `state`, `sarif`; `kind` = `security`; `driver.name` and `driver.version` equal `skill.name` and `skill.commit`.
 - [ ] **Step 2: Run to fail.** `go test ./internal/scan/ -run '^(TestBuildStatusTable|TestBuildStopBeforeFindings|TestBuildRedacts|TestBuildCutsSARIF|TestReadStateCaps|TestBuildFailedHasValidSARIF|TestUsageFromNeverBelowStream|TestEnvelopeJSONNames)$' -count=1`. Expected: build failure. After the code step it must PASS. (`TestBuildRedacts` uses `t.Setenv`: no `t.Parallel`.)
 - [ ] **Step 3: Code** as the interfaces say.
 - [ ] **Step 4: Commit** `feat(scan): the result envelope and its status`
@@ -343,14 +347,14 @@ Each dismissal becomes a `rejected` record in `run-1/findings.json`: an existing
 - Consumes: everything above; `checkoutRoot`, `deleteDeniedFiles`, `handleInstructionFiles(root, true, …)`, `resolvePath`, `within`, `checkOpencodeVersion` from `cmd/agent.go`; `result.Deliver`, `result.Target`.
 - Produces: `scanMain(args []string)`, `runScan(ctx context.Context, args []string, d scanDeps) int`, `scanDeps{Getenv func(string) string; Stdout, Stderr io.Writer; Run func(context.Context, runner.Options) runner.RunResult; Stats func(context.Context, string) (runner.Stats, error); Tick <-chan time.Time; Signals <-chan os.Signal}` (nil fields = the real ones; `Tick` real = `time.NewTicker(30 * time.Second)`).
 
-Flow: parse (usage errors exit 2) → `LoadManifest` → checkout checks and scrub → version check → `ReadPrior`/`WritePrior` → work dir, data dir, `GenerateScanConfig` (prompt = the entry file) → `Run` in a goroutine with `Once`, `DataDir`, `StepLimit` = `--max-steps`, `Timeout`, `Message` = `TaskLine`, `OnUsage`, and `ExcludeEnv` = `PERGENT_RESULT_TOKEN`, `GITHUB_TOKEN`, `GITLAB_TOKEN` plus `ProxyEnvNames` unless `PERGENT_SCAN_KEEP_PROXY=true` → each tick: `Stats` within `statsCallTimeout` (20 s; calls never overlap; an error logs once), and a budget stop through a context cause whose `StopReason` is `token budget reached` → a signal cancels with `cancelled` → map the end to a `Stop` (completed → `StopNone`; `CauseCancelled` → `StopBudget` or `StopSignal` by which one fired; `CauseTimeout` → `StopTimeout`; `CauseStepLimit` → `StopSteps`; else `StopFailed` with the kind) → final `Stats` (60 s, 5 s after a signal) → `Convert`, `ReadState`, `UsageFrom`, `Build` → deliver (short after a signal) → clean up. Logs go to stderr, redacted, with no model text.
+Flow: parse (usage errors exit 2) → the commit (`--head` checked against `HEAD`, or `HEAD` read with `git rev-parse HEAD`) → `LoadManifest` → checkout checks and scrub → version check → `ReadPrior`/`WritePrior` → work dir, data dir, `GenerateScanConfig` (prompt = the entry file) → `Run` in a goroutine with `Once`, `DataDir`, `StepLimit` = `--max-turns`, `Timeout`, `Message` = `TaskLine`, `OnUsage`, and `ExcludeEnv` = `PERGENT_RESULT_TOKEN`, `GITHUB_TOKEN`, `GITLAB_TOKEN` plus `ProxyEnvNames` unless `PERGENT_SCAN_KEEP_PROXY=true` → each tick: `Stats` within `statsCallTimeout` (20 s; calls never overlap; an error logs once), and a budget stop through a context cause whose `StopReason` is `token budget reached` → a signal cancels with `cancelled` → map the end to a `Stop` (completed → `StopNone`; `CauseCancelled` → `StopBudget` or `StopSignal` by which one fired; `CauseTimeout` → `StopTimeout`; `CauseStepLimit` → `StopSteps`; else `StopFailed` with the kind) → final `Stats` (60 s, 5 s after a signal) → `Convert`, `ReadState`, `UsageFrom`, `Build` → deliver (short after a signal) → clean up. Logs go to stderr, redacted, with no model text.
 
 - [ ] **Step 1: Failing tests** (fake `Run` writes the testdata outputs into the output folder it reads from `opts.Message`; a fake `Stats`; a test-fed `Tick`; a `--result` file target):
-  - `TestScanComplete`: fixtures with `run_status complete` → exit 0, envelope `complete`, 2 results, `usage.source stats` with the fake's tokens.
+  - `TestScanComplete`: no `--head`; fixtures with `run_status complete` → exit 0, envelope `complete`, `commit` = the clone's `HEAD`, 2 results, `usage.source stats` with the fake's tokens.
   - `TestScanBudgetStop`: `PERGENT_TOKEN_BUDGET=50`, fake stats 100, one tick → the run's context ends with reason `token budget reached`; `partial`.
   - `TestScanSignalSendsPartial`: send `SIGTERM` on `Signals` while the fake blocks → `partial`, `cancelled`, findings it wrote are in the SARIF.
   - `TestScanStatsFailsUsesStream`: `Stats` always errors, `OnUsage` fed 40 tokens → `usage.source stream`, tokens 40; budget 30 stops it. A second case: `Stats` blocks until its context ends, with the package var `statsCallTimeout` set to 1 ms (serial test) → the scan still ends and sends `stream`.
-  - `TestScanUsageErrors`: table → exit 2: no `--repo-path`; `--head` short; `--max-steps 4`; `--max-subagent-steps 301`; `--timeout 5m`; `PERGENT_TOKEN_BUDGET=0`, `abc`; `--prior` inside the repo; `--result-url` without `PERGENT_RESULT_TOKEN`; no `OPENCODE_PROVIDER`.
+  - `TestScanUsageErrors`: table → exit 2: no `--repo-path`; `--head` short; `--head` not `HEAD`; `--max-turns 4`; `--max-subagent-turns 301`; `--timeout 5m`; `PERGENT_TOKEN_BUDGET=0`, `abc`; `--prior` inside the repo; `--result-url` without `PERGENT_RESULT_TOKEN`; no `OPENCODE_PROVIDER`.
   - `TestScanDropsProxyEnv`: `HTTPS_PROXY` set → in `opts.ExcludeEnv`; with `PERGENT_SCAN_KEEP_PROXY=true` → not; `PERGENT_RESULT_TOKEN` always.
   - `TestScanConfigWiring`: the config the fake sees (`OPENCODE_CONFIG` from `opts.ConfigPath`) has `edit` allowing exactly the output folder of `opts.Message`, and the 3 agents.
   - `TestScanScrubsInstructions`: a nested `AGENTS.md` and a `.env` in the clone are gone before `Run`.
