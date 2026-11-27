@@ -40,7 +40,7 @@ The judge Job needs no reviewer's key: the judge does every check. No run gets a
 
 **Accepted with `--multi-review`:** `--repo-path`, `--base`, `--head`, `--skills-dir` or `--skill`, `--instructions`, `--dismissals`, `--rules`, `--no-built-in-rules`, `--built-in-rules`, `--check-deleted`, `--scrub-instructions`, `--max-comment-size`, `--result` and `--result-url`, `--max-turns`, `--context-limit`, `--concurrency`, `--timeout`. The skills that are merged are the loaded skills, in their order. The merged skill's `files.rules` is the lowest-numbered usable reviewer's.
 
-**Refused with `--multi-review`:** `--previous`, `--carried`, `--ci-results`, `--change-description`, `--linked-repos`, `--graph` and `--no-skill-verify` each give `--<flag> can't be used with --multi-review`. A judge Job does not use the environment defaults of these inputs.
+**Refused with `--multi-review`:** `--previous`, `--carried`, `--ci-results`, `--security-findings`, `--change-description`, `--linked-repos`, `--graph` and `--no-skill-verify` each give `--<flag> can't be used with --multi-review`. A judge Job does not use the environment defaults of these inputs.
 
 The flags of the old 2-model merge are gone: each one is `flag provided but not defined`.
 
