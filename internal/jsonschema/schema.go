@@ -13,6 +13,7 @@ import (
 	"math/big"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -23,6 +24,8 @@ const (
 	maxSchemaSize = 1 << 20
 	maxSchemaDeep = 64
 	maxRecursion  = 256
+	maxNumDigits  = 400
+	maxNumExp     = 400
 )
 
 // Decode reads one JSON value. Objects become map[string]any, numbers become
@@ -34,7 +37,7 @@ func Decode(data []byte, maxBytes, maxDepth int) (any, error) {
 	}
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()
-	v, err := decodeValue(dec, 1, maxDepth)
+	v, err := decodeValue(dec, 1, maxDepth, "")
 	if err != nil {
 		return nil, err
 	}
@@ -44,13 +47,16 @@ func Decode(data []byte, maxBytes, maxDepth int) (any, error) {
 	return v, nil
 }
 
-func decodeValue(dec *json.Decoder, depth, maxDepth int) (any, error) {
+func decodeValue(dec *json.Decoder, depth, maxDepth int, path string) (any, error) {
 	tok, err := dec.Token()
 	if err != nil {
 		return nil, err
 	}
 	d, ok := tok.(json.Delim)
 	if !ok {
+		if num, isNum := tok.(json.Number); isNum && !numberInBounds(num.String()) {
+			return nil, fmt.Errorf("%s: number is too large or too long to check", pointerOrRoot(path))
+		}
 		return tok, nil
 	}
 	if depth > maxDepth {
@@ -59,7 +65,7 @@ func decodeValue(dec *json.Decoder, depth, maxDepth int) (any, error) {
 	if d == '[' {
 		arr := []any{}
 		for dec.More() {
-			v, err := decodeValue(dec, depth+1, maxDepth)
+			v, err := decodeValue(dec, depth+1, maxDepth, fmt.Sprintf("%s/%d", path, len(arr)))
 			if err != nil {
 				return nil, err
 			}
@@ -80,7 +86,7 @@ func decodeValue(dec *json.Decoder, depth, maxDepth int) (any, error) {
 		if _, dup := obj[key]; dup {
 			return nil, errors.New("json has a duplicate object key")
 		}
-		v, err := decodeValue(dec, depth+1, maxDepth)
+		v, err := decodeValue(dec, depth+1, maxDepth, path+"/"+escapePointer(key))
 		if err != nil {
 			return nil, err
 		}
@@ -90,6 +96,33 @@ func decodeValue(dec *json.Decoder, depth, maxDepth int) (any, error) {
 		return nil, err
 	}
 	return obj, nil
+}
+
+func pointerOrRoot(p string) string {
+	if p == "" {
+		return "/"
+	}
+	return p
+}
+
+// numberInBounds keeps big.Rat work small: at most maxNumDigits digits and an
+// exponent no bigger than maxNumExp. The text is a number the JSON decoder
+// already accepted.
+func numberInBounds(s string) bool {
+	mant, exp := s, ""
+	if i := strings.IndexAny(s, "eE"); i >= 0 {
+		mant, exp = s[:i], s[i+1:]
+	}
+	if len(mant) > maxNumDigits {
+		return false
+	}
+	if exp != "" {
+		e, err := strconv.Atoi(exp)
+		if err != nil || e > maxNumExp || e < -maxNumExp {
+			return false
+		}
+	}
+	return true
 }
 
 // Schema is a compiled schema.
@@ -108,6 +141,7 @@ type node struct {
 	minItems   *int
 	unique     bool
 	minimum    *big.Rat
+	maximum    *big.Rat
 	minLength  *int
 	enum       []any
 	hasConst   bool
@@ -157,6 +191,9 @@ func Compile(data []byte) (*Schema, error) {
 				}
 			}
 		}
+	}
+	if err := c.noProgressCycle(); err != nil {
+		return nil, err
 	}
 	return &Schema{root: root}, nil
 }
@@ -288,6 +325,16 @@ func (c *compiler) build(n *node, raw any, where string) error {
 				return fmt.Errorf("schema: %s/minimum is not a number", where)
 			}
 			n.minimum = r
+		case "maximum":
+			num, ok := v.(json.Number)
+			if !ok {
+				return fmt.Errorf("schema: %s/maximum must be a number", where)
+			}
+			r, ok := new(big.Rat).SetString(num.String())
+			if !ok {
+				return fmt.Errorf("schema: %s/maximum is not a number", where)
+			}
+			n.maximum = r
 		case "enum":
 			arr, ok := v.([]any)
 			if !ok || len(arr) == 0 {
@@ -321,9 +368,6 @@ func (c *compiler) build(n *node, raw any, where string) error {
 			if n.target, err = c.ref(s); err != nil {
 				return err
 			}
-			if err = refLoop(n); err != nil {
-				return err
-			}
 		case "definitions":
 			if _, ok := v.(map[string]any); !ok {
 				return fmt.Errorf("schema: %s/definitions must be an object", where)
@@ -334,6 +378,9 @@ func (c *compiler) build(n *node, raw any, where string) error {
 				return fmt.Errorf("schema: %s/visibleContent must be a boolean", where)
 			}
 			n.visible = b
+			if b && !(len(m) > 0 && isStringType(m["type"])) {
+				return fmt.Errorf("schema: %s uses visibleContent, which needs \"type\": \"string\" in the same schema", where)
+			}
 		default:
 			if !annotations[k] {
 				return fmt.Errorf("schema: %s uses the keyword %q, which is not supported", where, k)
@@ -344,6 +391,11 @@ func (c *compiler) build(n *node, raw any, where string) error {
 		}
 	}
 	return nil
+}
+
+func isStringType(v any) bool {
+	s, ok := v.(string)
+	return ok && s == "string"
 }
 
 func buildType(n *node, v any, where string) error {
@@ -380,16 +432,49 @@ func intKeyword(v any, where, k string) (*int, error) {
 	return &x, nil
 }
 
-// refLoop refuses a chain of $ref nodes that comes back to itself. The target
-// of a node still being built may have no ref set yet, so that case is caught
-// again at validation by the recursion guard.
-func refLoop(n *node) error {
-	seen := map[*node]bool{n: true}
-	for t := n.target; t != nil && t.ref != ""; t = t.target {
-		if seen[t] {
-			return fmt.Errorf("schema: $ref %q loops with no progress", n.ref)
+// noProgressCycle refuses a loop of $ref, allOf, anyOf and oneOf edges. Such
+// a loop asks the same question of the same value for ever. A loop through
+// properties or items moves down into the value, so it is fine. Every loop
+// passes a $ref target, and every target is in the cache.
+func (c *compiler) noProgressCycle() error {
+	const (
+		visiting = 1
+		done     = 2
+	)
+	state := map[*node]int{}
+	var walk func(n *node) bool
+	walk = func(n *node) bool {
+		switch state[n] {
+		case visiting:
+			return true
+		case done:
+			return false
 		}
-		seen[t] = true
+		state[n] = visiting
+		next := []*node{}
+		if n.target != nil {
+			next = append(next, n.target)
+		}
+		next = append(next, n.allOf...)
+		next = append(next, n.anyOf...)
+		next = append(next, n.oneOf...)
+		for _, m := range next {
+			if walk(m) {
+				return true
+			}
+		}
+		state[n] = done
+		return false
+	}
+	refs := make([]string, 0, len(c.cache))
+	for r := range c.cache {
+		refs = append(refs, r)
+	}
+	sort.Strings(refs)
+	for _, r := range refs {
+		if walk(c.cache[r]) {
+			return fmt.Errorf("schema: $ref %q loops with no progress", r)
+		}
 	}
 	return nil
 }
@@ -469,12 +554,10 @@ func validate(c *collector, n *node, v any, path string, depth int) {
 				c.add(path, "is below the minimum")
 			}
 		}
-		if n.visible {
-			c.add(path, "has no visible content")
-		}
-	default:
-		if n.visible {
-			c.add(path, "has no visible content")
+		if n.maximum != nil {
+			if r, ok := new(big.Rat).SetString(x.String()); ok && r.Cmp(n.maximum) > 0 {
+				c.add(path, "is above the maximum")
+			}
 		}
 	}
 	validateCombiners(c, n, v, path, depth)
@@ -518,15 +601,65 @@ func validateArray(c *collector, n *node, a []any, path string, depth int) {
 		}
 	}
 	if n.unique {
-	outer:
-		for i := range a {
-			for j := i + 1; j < len(a); j++ {
-				if equal(a[i], a[j]) {
-					c.add(path, fmt.Sprintf("has items %d and %d that are equal", i, j))
-					break outer
-				}
+		seen := make(map[string]int, len(a))
+		for i, it := range a {
+			key := canonical(it)
+			if first, dup := seen[key]; dup {
+				c.add(path, fmt.Sprintf("has items %d and %d that are equal", first, i))
+				break
 			}
+			seen[key] = i
 		}
+	}
+}
+
+// canonical is a text form of a value: sorted keys, numbers by value. Equal
+// values give equal text, so a map finds duplicates in linear time.
+func canonical(v any) string {
+	var b strings.Builder
+	writeCanonical(&b, v)
+	return b.String()
+}
+
+func writeCanonical(b *strings.Builder, v any) {
+	switch x := v.(type) {
+	case nil:
+		b.WriteString("n")
+	case bool:
+		if x {
+			b.WriteString("t")
+		} else {
+			b.WriteString("f")
+		}
+	case string:
+		b.WriteString(strconv.Quote(x))
+	case json.Number:
+		if r, ok := new(big.Rat).SetString(x.String()); ok {
+			b.WriteString("#" + r.String())
+		} else {
+			b.WriteString("?" + x.String())
+		}
+	case []any:
+		b.WriteByte('[')
+		for _, it := range x {
+			writeCanonical(b, it)
+			b.WriteByte(',')
+		}
+		b.WriteByte(']')
+	case map[string]any:
+		keys := make([]string, 0, len(x))
+		for k := range x {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		b.WriteByte('{')
+		for _, k := range keys {
+			b.WriteString(strconv.Quote(k))
+			b.WriteByte(':')
+			writeCanonical(b, x[k])
+			b.WriteByte(',')
+		}
+		b.WriteByte('}')
 	}
 }
 
