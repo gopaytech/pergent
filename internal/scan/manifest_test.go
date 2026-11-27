@@ -238,3 +238,34 @@ func TestTaskLine(t *testing.T) {
 		t.Fatalf("value was replaced twice: %q", got)
 	}
 }
+
+// TestManifestCommitMatchesDockerfile keeps the image's pinned skill commit
+// and the manifest's commit the same: one is what the image fetches, the
+// other is what a scan reports.
+func TestManifestCommitMatchesDockerfile(t *testing.T) {
+	t.Parallel()
+	dockerfile, err := os.ReadFile("../../Dockerfile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var arg string
+	for _, line := range strings.Split(string(dockerfile), "\n") {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "ARG SECURITY_AUDIT_COMMIT="); ok {
+			arg = v
+		}
+	}
+	if arg == "" {
+		t.Fatal("the Dockerfile has no ARG SECURITY_AUDIT_COMMIT with a default")
+	}
+	data, err := os.ReadFile(repoManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := ParseManifest(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if arg != m.Commit {
+		t.Errorf("Dockerfile SECURITY_AUDIT_COMMIT is %q, the manifest's commit is %q", arg, m.Commit)
+	}
+}

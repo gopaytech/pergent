@@ -776,3 +776,60 @@ func TestScanMainDispatch(t *testing.T) {
 		t.Errorf("stderr %q does not name pergent scan", se.String())
 	}
 }
+
+// TestScanCheckSkill runs `pergent scan --check-skill`, the image's build
+// check: a good folder passes, and a missing or bad part fails.
+func TestScanCheckSkill(t *testing.T) {
+	t.Parallel()
+	good := func(t *testing.T) string {
+		dir := scanSkillDir(t)
+		writeFile(t, dir, "LICENSE", "MIT License\n")
+		return dir
+	}
+	cases := []struct {
+		name string
+		dir  func(t *testing.T) string
+		args func(dir string) []string
+		code int
+		want string
+	}{
+		{"good folder", good, func(d string) []string { return []string{"--check-skill", d} }, 0, "skill ok"},
+		{"no LICENSE", func(t *testing.T) string {
+			dir := good(t)
+			os.Remove(filepath.Join(dir, "LICENSE"))
+			return dir
+		}, func(d string) []string { return []string{"--check-skill", d} }, 1, "LICENSE"},
+		{"LICENSE is a link", func(t *testing.T) string {
+			dir := good(t)
+			os.Remove(filepath.Join(dir, "LICENSE"))
+			if err := os.Symlink("SKILL.md", filepath.Join(dir, "LICENSE")); err != nil {
+				t.Fatal(err)
+			}
+			return dir
+		}, func(d string) []string { return []string{"--check-skill", d} }, 1, "LICENSE"},
+		{"unknown schema keyword", func(t *testing.T) string {
+			dir := good(t)
+			writeFile(t, dir, "report-schema.json", `{"type":"object","madeUpKeyword":1}`)
+			return dir
+		}, func(d string) []string { return []string{"--check-skill", d} }, 1, "report-schema.json"},
+		{"no entry file", func(t *testing.T) string {
+			dir := good(t)
+			os.Remove(filepath.Join(dir, "SKILL.md"))
+			return dir
+		}, func(d string) []string { return []string{"--check-skill", d} }, 1, "entry"},
+		{"not alone", good, func(d string) []string { return []string{"--check-skill", d, "--repo-path", "x"} }, 1, "alone"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var out, errb bytes.Buffer
+			code := runScan(context.Background(), tc.args(tc.dir(t)), scanDeps{Stdout: &out, Stderr: &errb})
+			if code != tc.code {
+				t.Fatalf("exit %d, want %d; stderr:\n%s", code, tc.code, errb.String())
+			}
+			if got := out.String() + errb.String(); !strings.Contains(got, tc.want) {
+				t.Errorf("output %q does not contain %q", got, tc.want)
+			}
+		})
+	}
+}

@@ -168,3 +168,18 @@ Each token count is never lower than the main session's own count. A failing rea
 ## Signals
 
 SIGTERM or SIGINT stops opencode. The envelope is still sent: `partial`, `cancelled`, with the findings the run wrote so far, the last usage (5 seconds for the last stats read, then the last poll) and a short delivery (one quick retry within 20 seconds), so it fits a Job's 30-second grace period. A signal during the download makes the download fail (`the source could not be downloaded`).
+
+## The image
+
+A scan runs in `ghcr.io/gopaytech/pergent-security`, a second target of the Dockerfile (`--target security`). It has the same tags as the `pergent` review image. The `pergent` image is not changed.
+
+Inside:
+
+- `pergent`, `opencode` (the same pinned version as the review image), `git`, `ripgrep` and `node`, which the skill's validators need.
+- No `curl` and no `wget`. The build fails if either is there.
+- The Cloudflare `security-audit` skill, at one commit, in `/opt/pergent/security-skills/security-audit`. It has the skill's MIT `LICENSE` and our `pergent-scan.yaml`. The commit is a build argument (`SECURITY_AUDIT_COMMIT`), and a test checks that it equals the manifest's `commit`.
+- Root owns the skill folder and no file in it is writable by group or other. pergent reads the skill's `report-schema.json` after the model had a shell, so the user the scan runs as must not be able to change it. The build checks this.
+
+`pergent scan --check-skill <folder>` is the build's last check of the skill. It stands alone (no other flag). It exits 0 when the folder has a valid `pergent-scan.yaml`, an entry file, a `report-schema.json` that compiles, a `LICENSE` that is a regular file, and the SARIF schema compiles. Otherwise it exits 1 and says why.
+
+A new version of the skill is a new pergent release: change the commit in the Dockerfile and in `pergent-scan.yaml` together, and read the skill's changes first.

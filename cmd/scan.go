@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -22,6 +23,7 @@ import (
 	"github.com/gopaytech/pergent/internal/redact"
 	"github.com/gopaytech/pergent/internal/result"
 	"github.com/gopaytech/pergent/internal/runner"
+	"github.com/gopaytech/pergent/internal/sarif"
 	"github.com/gopaytech/pergent/internal/scan"
 )
 
@@ -204,6 +206,9 @@ type scanner struct {
 // model text. It returns the exit code: 0 delivered (any status), 2 usage,
 // 3 no scan possible (a failed envelope delivered), 4 a delivery failed.
 func runScan(ctx context.Context, args []string, d scanDeps) int {
+	if len(args) > 0 && (args[0] == "--check-skill" || strings.HasPrefix(args[0], "--check-skill=")) {
+		return checkSkillCommand(args, d)
+	}
 	if d.Getenv == nil {
 		d.Getenv = os.Getenv
 	}
@@ -555,6 +560,61 @@ func loadScanSkill(dir string) (scan.Manifest, []byte, error) {
 		}
 	}
 	return m, entry, nil
+}
+
+// checkSkillCommand is `pergent scan --check-skill <dir>`, the image's build
+// check. It stands alone: no other flag, no source and no model. It returns
+// 0 when the skill folder is usable and 1 when it is not.
+func checkSkillCommand(args []string, d scanDeps) int {
+	if d.Stdout == nil {
+		d.Stdout = os.Stdout
+	}
+	if d.Stderr == nil {
+		d.Stderr = os.Stderr
+	}
+	dir := ""
+	switch {
+	case len(args) == 2 && args[0] == "--check-skill":
+		dir = args[1]
+	case len(args) == 1 && strings.HasPrefix(args[0], "--check-skill="):
+		dir = strings.TrimPrefix(args[0], "--check-skill=")
+	default:
+		fmt.Fprintln(d.Stderr, "pergent scan: --check-skill takes one folder and must be used alone")
+		return 1
+	}
+	if err := checkSkill(dir); err != nil {
+		fmt.Fprintf(d.Stderr, "pergent scan: skill check failed: %v\n", redact.String(err.Error()))
+		return 1
+	}
+	fmt.Fprintf(d.Stdout, "skill ok: %s\n", dir)
+	return 0
+}
+
+// checkSkill checks a skill folder as the image ships it: the manifest and
+// the entry file pass (loadScanSkill, which also compiles the skill's
+// report-schema.json for a cloudflare-findings skill), LICENSE is a regular
+// file, and the embedded SARIF schema compiles.
+func checkSkill(dir string) error {
+	if _, _, err := loadScanSkill(dir); err != nil {
+		return err
+	}
+	// Lstat: a link is not a licence file.
+	fi, err := os.Lstat(filepath.Join(dir, "LICENSE"))
+	if err != nil {
+		return fmt.Errorf("LICENSE: %w", err)
+	}
+	if !fi.Mode().IsRegular() {
+		return errors.New("LICENSE is not a regular file")
+	}
+	// An empty log is valid, so a problem here means the schema itself fails.
+	empty, err := json.Marshal(sarif.Empty(sarif.Driver{Name: "check"}))
+	if err != nil {
+		return err
+	}
+	if problems := sarif.Validate(empty); len(problems) > 0 {
+		return fmt.Errorf("the SARIF schema: %s", problems[0])
+	}
+	return nil
 }
 
 // writePrior reads --prior and writes the folder the skill reads. Any
