@@ -55,7 +55,11 @@ export OPENCODE_BASE_URL=https://your-proxy.example.com/v1
 The diff, skill instructions and the files the agent read no longer fit in the model's context. Either:
 - Use a model with a larger context window
 - Lower `--max-turns`, so the agent reads less before answering
-- If opencode doesn't know your model's limits (custom `OPENCODE_BASE_URL`), set `--context-limit` to the real window
+- If opencode doesn't know your model's limits (custom `OPENCODE_BASE_URL`), set `--context-limit` to the real window. Set `--output-limit` too: the window must hold the longest reply
+
+## `the model's replies were cut at the max output: set Max output on the model entry`
+
+The model's replies hit the max output that opencode used, 3 times in a row. opencode takes that max from its catalog, or uses 32,000 for a model id it does not know. Thinking shares it with the answer. pergent does not start the run again. Set `--output-limit` (or `PERGENT_OUTPUT_LIMIT`). In pergent.sh, set **Max output** on the model entry. For a model id opencode does not know, set `--context-limit` too.
 
 ## `Configuration is invalid` from opencode
 

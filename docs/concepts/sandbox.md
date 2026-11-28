@@ -8,7 +8,7 @@ When `OPENCODE_PROVIDER` is set, pergent writes a temporary `opencode.json` for 
 - sets `lsp: false`. opencode 2 never starts language servers, but the setting is kept: a server can be a program from the reviewed branch (such as `node_modules/.bin/biome`), and an older opencode or a global config could turn it on
 - turns off opencode's snapshots (`snapshot: false`), which would run git in the checkout and write to its object store
 - turns off opencode's auto-compaction (`compaction.auto: false`), so a run that fills the model's context fails with the overflow error instead of continuing from a summary
-- leaves the model's context and output limits to opencode's model registry, unless you set `--context-limit`
+- leaves the model's context and output limits to opencode's model registry, unless you set `--context-limit` or `--output-limit`
 
 Every `opencode run` starts with `--standalone`, so it uses its own server and reads this config: a plain run could attach to a shared server that ignores it. Each run also gets its own empty state directory (`XDG_STATE_HOME`), and `PWD` is set to the checkout, because opencode 2 takes its project directory from `$PWD`.
 

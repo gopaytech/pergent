@@ -31,6 +31,8 @@ stdout carries only the envelope, and only with `--result -`. All logs go to std
 | `--head` | A full lowercase commit SHA. Required with `--source-url`. Without it, the clone's `HEAD` must equal it when it is set, and pergent reads `HEAD` when it is not. Either way it is the envelope's `commit`. |
 | `--skill` | The skill folder. Default `/opt/pergent/security-skills/security-audit`. Trusted, must be outside `--repo-path`. |
 | `--prior` / `$PERGENT_SCAN_PRIOR` | Optional JSON file, trusted, outside `--repo-path`, at most 800 KiB. pergent follows its links first (a Kubernetes Secret item is a link, `prior.json -> ..data/prior.json`): the real path must be outside `--repo-path` and a regular file. A file that can't be read or is malformed is a warning: the scan runs with no prior. |
+| `--context-limit` / `$PERGENT_CONTEXT_LIMIT` | Optional. The model's context window in tokens, for a model opencode has no limits for. Empty or 0 means opencode's own value. A negative value or text is a usage error. A flag that is not 0 wins over the variable. |
+| `--output-limit` / `$PERGENT_OUTPUT_LIMIT` | Optional. The most tokens one reply may use, thinking included. Same rules as `--context-limit`. |
 | `--max-turns` | The main agent's step limit, 5 to 1000. Default: the manifest's `steps.main`. |
 | `--max-subagent-turns` | Each sub-agent's step limit, 5 to 300. Default: the manifest's `steps.subagent`. |
 | `--timeout` | 10m to 6h, default 3h. The download counts against it. Give the Job a deadline of at least `--timeout` + 2 minutes. |
@@ -126,6 +128,8 @@ Decided in this order. The texts are exact.
 | Another failure before opencode ran | `failed` | `the scan could not start: <cause>` |
 | The SARIF pergent built fails the SARIF schema | `failed` | `the SARIF did not pass the schema check` |
 | A stop: budget, step limit, time limit, signal | `partial` | `token budget reached`, `step limit reached`, `time limit reached` or `cancelled` |
+| opencode stopped because replies were cut at the max output, `findings.json` valid | `partial` | `the model's replies were cut at the max output: set Max output on the model entry` |
+| opencode stopped because replies were cut at the max output, `findings.json` missing or bad | `failed` | the same |
 | opencode failed on its own, `findings.json` valid | `partial` | `the model run failed: <kind>` |
 | opencode failed on its own, `findings.json` missing or bad | `failed` | the same |
 | The run completed, `findings.json` missing or bad | `failed` | `findings.json is missing` or `findings.json did not pass the skill's schema check` |
