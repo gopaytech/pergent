@@ -127,10 +127,25 @@ func TestBatch_Empty(t *testing.T) {
 }
 
 func TestBatchBudget(t *testing.T) {
-	if got := BatchBudget(0); got != 40000 {
-		t.Errorf("BatchBudget(0) = %d, want 40000", got)
+	cases := []struct {
+		name         string
+		contextLimit int
+		want         int
+	}{
+		{"unknown limit", 0, 40000},
+		{"negative limit", -1, 40000},
+		{"small window is a quarter", 400, 100},
+		{"quarter under the cap", 100000, 25000},
+		{"quarter at the cap", 160000, 40000},
+		{"quarter over the cap", 200000, 40000},
+		{"large window is capped", 1000000, 40000},
 	}
-	if got := BatchBudget(100000); got != 25000 {
-		t.Errorf("BatchBudget(100000) = %d, want 25000", got)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := BatchBudget(tc.contextLimit); got != tc.want {
+				t.Errorf("BatchBudget(%d) = %d, want %d", tc.contextLimit, got, tc.want)
+			}
+		})
 	}
 }

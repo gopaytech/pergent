@@ -8,10 +8,11 @@ import (
 const defaultBatchBudget = 40000
 
 // BatchBudget returns the per-batch token budget for a model with the given
-// context limit: a quarter of the limit, or a default when it is unknown.
+// context limit: a quarter of the limit, at most the default, so a big window
+// stops overflows without making batches bigger. A default when it is unknown.
 func BatchBudget(contextLimit int) int {
 	if contextLimit > 0 {
-		return contextLimit / 4
+		return min(contextLimit/4, defaultBatchBudget)
 	}
 	return defaultBatchBudget
 }
