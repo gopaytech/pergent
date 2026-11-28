@@ -79,6 +79,44 @@ func agentPermission(t *testing.T, agent map[string]any) map[string]any {
 	return p
 }
 
+func TestScanConfigLimits(t *testing.T) {
+	tests := []struct {
+		name         string
+		context, out int
+		wantLimit    bool
+	}{
+		{"model registry limits by default", 0, 0, false},
+		{"context only", 64000, 0, true},
+		{"output only", 0, 64000, true},
+		{"both", 1000000, 64000, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o := scanOptions()
+			o.ContextLimit, o.OutputLimit = tt.context, tt.out
+			cfg := scanConfig(t, o)
+			provider := cfg["provider"].(map[string]any)["anthropic"].(map[string]any)
+			entry, ok := provider["models"].(map[string]any)["claude-sonnet-4"].(map[string]any)
+			if !ok {
+				t.Fatalf("provider.models = %v, want an entry for the model", provider["models"])
+			}
+			limit, hasLimit := entry["limit"].(map[string]any)
+			if !tt.wantLimit {
+				if hasLimit {
+					t.Errorf("limit = %v, want none", limit)
+				}
+				return
+			}
+			if !hasLimit {
+				t.Fatalf("model entry = %v, want a limit", entry)
+			}
+			if limit["context"] != float64(tt.context) || limit["output"] != float64(tt.out) {
+				t.Errorf("limit = %v, want context %d output %d", limit, tt.context, tt.out)
+			}
+		})
+	}
+}
+
 func TestScanConfigAgents(t *testing.T) {
 	cfg := scanConfig(t, scanOptions("bash", "write", "task"))
 	agents := scanAgents(t, cfg)

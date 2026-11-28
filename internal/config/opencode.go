@@ -74,7 +74,7 @@ type openCodeModelLimits struct {
 type openCodeLimit struct {
 	Context int `json:"context"`
 	// Output is required by opencode's schema; 0 makes opencode use its
-	// default output cap.
+	// own value.
 	Output int `json:"output"`
 }
 
@@ -98,6 +98,9 @@ type OpenCodeOptions struct {
 	// ContextLimit overrides the model's context window when > 0; otherwise
 	// opencode uses the limits from its model registry.
 	ContextLimit int
+	// OutputLimit is the most tokens one reply may use, thinking included,
+	// when > 0; otherwise opencode uses its registry value or its own default.
+	OutputLimit int
 	// Prompt is the agent's system prompt.
 	Prompt string
 	// RepoPath is where AGENTS.md/CLAUDE.md are looked up when
@@ -262,7 +265,7 @@ func GenerateOpenCodeConfigWith(o OpenCodeOptions) (string, func(), error) {
 		return "", nil, fmt.Errorf("OPENCODE_MODEL is required when OPENCODE_PROVIDER is set")
 	}
 
-	fullModel, providers := providerConfig(m, contextLimit)
+	fullModel, providers := providerConfig(m, contextLimit, o.OutputLimit)
 
 	instructions := o.Instructions
 	if !o.ExplicitInstructions {
@@ -310,8 +313,9 @@ func GenerateOpenCodeConfigWith(o OpenCodeOptions) (string, func(), error) {
 
 // providerConfig returns the model as opencode names it ("provider/model")
 // and the provider block that declares it. contextLimit overrides the model's
-// context window when > 0.
-func providerConfig(m Model, contextLimit int) (fullModel string, p map[string]openCodeProvider) {
+// context window and outputLimit its max reply size, each when > 0. The limit
+// block has both numbers, so a 0 means opencode's own value.
+func providerConfig(m Model, contextLimit, outputLimit int) (fullModel string, p map[string]openCodeProvider) {
 	npm := m.NPM
 	baseURL := m.BaseURL
 
@@ -325,8 +329,8 @@ func providerConfig(m Model, contextLimit int) (fullModel string, p map[string]o
 	// custom base URL otherwise ("Model not found"). An entry without a limit
 	// keeps the limits from opencode's model registry.
 	modelEntry := openCodeModelLimits{}
-	if contextLimit > 0 {
-		modelEntry.Limit = &openCodeLimit{Context: contextLimit}
+	if contextLimit > 0 || outputLimit > 0 {
+		modelEntry.Limit = &openCodeLimit{Context: contextLimit, Output: outputLimit}
 	}
 
 	return m.Provider + "/" + m.Model, map[string]openCodeProvider{

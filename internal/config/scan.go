@@ -20,6 +20,9 @@ type ScanOptions struct {
 	MaxSteps, SubagentSteps int
 	// ContextLimit overrides the model's context window when > 0.
 	ContextLimit int
+	// OutputLimit is the most tokens one reply may use, thinking included,
+	// when > 0; otherwise opencode uses its registry value or its own default.
+	OutputLimit int
 	// Prompt is the main agent's system prompt.
 	Prompt string
 	// Tools are the manifest's tools: "bash", "write" and "task". Each one
@@ -96,7 +99,7 @@ func GenerateScanConfig(o ScanOptions) (path string, cleanup func(), err error) 
 		return p
 	}
 
-	fullModel, providers := providerConfig(m, o.ContextLimit)
+	fullModel, providers := providerConfig(m, o.ContextLimit, o.OutputLimit)
 	var mainSubagent any
 	if has("task") {
 		allow := map[string]string{"*": "deny"}

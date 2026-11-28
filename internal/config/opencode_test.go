@@ -421,16 +421,20 @@ func TestGenerateOpenCodeConfig_LimitsAndCompaction(t *testing.T) {
 	t.Setenv("OPENCODE_MODEL", "claude-sonnet-4")
 
 	tests := []struct {
-		name         string
-		contextLimit int
-		wantLimit    bool
+		name                      string
+		contextLimit, outputLimit int
+		wantLimit                 bool
 	}{
-		{"model registry limits by default", 0, false},
-		{"explicit context limit", 64000, true},
+		{"model registry limits by default", 0, 0, false},
+		{"context only", 64000, 0, true},
+		{"output only", 0, 64000, true},
+		{"both", 1000000, 64000, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			configPath, cleanup, err := GenerateOpenCodeConfig(20, tt.contextLimit, "", t.TempDir())
+			configPath, cleanup, err := GenerateOpenCodeConfigWith(OpenCodeOptions{
+				MaxTurns: 20, ContextLimit: tt.contextLimit, OutputLimit: tt.outputLimit, RepoPath: t.TempDir(),
+			})
 			if err != nil {
 				t.Fatalf("GenerateOpenCodeConfig() error: %v", err)
 			}
@@ -474,9 +478,9 @@ func TestGenerateOpenCodeConfig_LimitsAndCompaction(t *testing.T) {
 			if limit["context"] != float64(tt.contextLimit) {
 				t.Errorf("limit.context = %v, want %d", limit["context"], tt.contextLimit)
 			}
-			// opencode's schema requires output; 0 means its default output cap
-			if limit["output"] != float64(0) {
-				t.Errorf("limit.output = %v, want 0", limit["output"])
+			// opencode's schema requires output; 0 means its own value
+			if limit["output"] != float64(tt.outputLimit) {
+				t.Errorf("limit.output = %v, want %d", limit["output"], tt.outputLimit)
 			}
 		})
 	}
