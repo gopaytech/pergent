@@ -18,6 +18,7 @@ func TestResolve_BadEnvValuesAreErrors(t *testing.T) {
 		{"timeout text", "PERGENT_TIMEOUT", "ten minutes", []string{"PERGENT_TIMEOUT", `"ten minutes"`}},
 		{"timeout no unit", "PERGENT_TIMEOUT", "600", []string{"PERGENT_TIMEOUT", `"600"`}},
 		{"context limit text", "PERGENT_CONTEXT_LIMIT", "128k", []string{"PERGENT_CONTEXT_LIMIT", `"128k"`}},
+		{"output limit text", "PERGENT_OUTPUT_LIMIT", "64k", []string{"PERGENT_OUTPUT_LIMIT", `"64k"`}},
 		{"previous review text", "PERGENT_PREVIOUS_REVIEW", "yes", []string{"PERGENT_PREVIOUS_REVIEW", `"yes"`}},
 	}
 	for _, tt := range tests {
@@ -44,7 +45,7 @@ func TestResolve_BadEnvValuesAreErrors(t *testing.T) {
 
 func TestResolve_EmptyEnvValuesMeanTheDefault(t *testing.T) {
 	setupValidGitHub(t)
-	for _, name := range []string{"PERGENT_MAX_TURNS", "PERGENT_CONCURRENCY", "PERGENT_TIMEOUT", "PERGENT_CONTEXT_LIMIT", "PERGENT_PREVIOUS_REVIEW"} {
+	for _, name := range []string{"PERGENT_MAX_TURNS", "PERGENT_CONCURRENCY", "PERGENT_TIMEOUT", "PERGENT_CONTEXT_LIMIT", "PERGENT_OUTPUT_LIMIT", "PERGENT_PREVIOUS_REVIEW"} {
 		t.Setenv(name, "")
 	}
 
@@ -52,7 +53,7 @@ func TestResolve_EmptyEnvValuesMeanTheDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve() error: %v", err)
 	}
-	if cfg.MaxTurns != 20 || cfg.Concurrency != 4 || cfg.ContextLimit != 0 || cfg.PreviousReview {
+	if cfg.MaxTurns != 20 || cfg.Concurrency != 4 || cfg.ContextLimit != 0 || cfg.OutputLimit != 0 || cfg.PreviousReview {
 		t.Errorf("cfg = %+v, want the defaults", cfg)
 	}
 }
@@ -64,6 +65,7 @@ func TestResolve_FlagBeatsBadEnv(t *testing.T) {
 	t.Setenv("PERGENT_CONCURRENCY", "many")
 	t.Setenv("PERGENT_TIMEOUT", "soon")
 	t.Setenv("PERGENT_CONTEXT_LIMIT", "lots")
+	t.Setenv("PERGENT_OUTPUT_LIMIT", "lots")
 	t.Setenv("PERGENT_PREVIOUS_REVIEW", "maybe")
 
 	cfg, err := Resolve(Options{
@@ -74,13 +76,14 @@ func TestResolve_FlagBeatsBadEnv(t *testing.T) {
 		ConcurrencySet:    true,
 		Timeout:           60_000_000_000,
 		ContextLimit:      1000,
+		OutputLimit:       2000,
 		PreviousReview:    true,
 		PreviousReviewSet: true,
 	})
 	if err != nil {
 		t.Fatalf("Resolve() error: %v", err)
 	}
-	if cfg.MaxTurns != 5 || cfg.Concurrency != 2 || cfg.ContextLimit != 1000 || !cfg.PreviousReview {
+	if cfg.MaxTurns != 5 || cfg.Concurrency != 2 || cfg.ContextLimit != 1000 || cfg.OutputLimit != 2000 || !cfg.PreviousReview {
 		t.Errorf("cfg = %+v, want the flag values", cfg)
 	}
 }

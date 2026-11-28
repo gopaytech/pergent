@@ -56,6 +56,8 @@ func TestBuildStatusTable(t *testing.T) {
 		{"signal", EndInput{Stop: StopSignal, Out: validOut()}, "partial", "cancelled", 1},
 		{"failed with findings", EndInput{Stop: StopFailed, FailKind: runner.CauseOpencodeError, Out: validOut()}, "partial", "the model run failed: opencode_error", 1},
 		{"failed no findings", EndInput{Stop: StopFailed, FailKind: runner.CauseTimeout, Out: missing}, "failed", "the model run failed: timeout", 0},
+		{"output limit with findings", EndInput{Stop: StopFailed, FailKind: runner.CauseOpencodeError, OutputLimited: true, Out: validOut()}, "partial", runner.OutputLimitReason, 1},
+		{"output limit no findings", EndInput{Stop: StopFailed, FailKind: runner.CauseOpencodeError, OutputLimited: true, Out: missing}, "failed", runner.OutputLimitReason, 0},
 		{"missing", EndInput{Out: missing}, "failed", "findings.json is missing", 0},
 		{"bad schema", EndInput{Out: schema}, "failed", "findings.json did not pass the skill's schema check", 0},
 		{"sarif problem", EndInput{Out: Converted{Problem: ProblemSARIFSchema}}, "failed", "the SARIF did not pass the schema check", 0},

@@ -11,7 +11,8 @@
 | `--previous-review` | Attach the findings from pergent's previous review comment as context on re-runs (platform mode only) | `false` |
 | `--platform` | `github` or `gitlab` | auto-detect |
 | `--max-turns` | Max agentic turns per opencode run | `20` |
-| `--context-limit` | Model context window in tokens. Only for models opencode has no limits for (e.g. behind a custom `OPENCODE_BASE_URL`); otherwise opencode's model registry is used | unset |
+| `--context-limit` | Model context window in tokens. Only for models opencode has no limits for (e.g. behind a custom `OPENCODE_BASE_URL`); otherwise opencode's model registry is used. It also sets the batch size: a quarter of the window, at most 40,000 tokens. **Behaviour change:** a `--context-limit` above 160,000 used to give bigger batches and now gives 40,000-token batches. A smaller one still gives smaller batches. Set both limits, or neither. When only one is set, pergent writes the other as 0, and opencode then ignores its own value for it. 0 or unset means not set. With neither set, the config is as before. A flag that is not 0 wins over `PERGENT_CONTEXT_LIMIT` | unset |
+| `--output-limit` | The most tokens one reply may use, thinking included. Only for models opencode has no limits for. opencode asks for at most 256,000 itself. 64,000 is enough for reviews and scans. A provider that counts the asked amount against a rate limit may slow a higher value. Set both limits, or neither: see `--context-limit`. 0 or unset means not set. A flag that is not 0 wins over `PERGENT_OUTPUT_LIMIT` | unset |
 | `--max-tokens` | **Deprecated and ignored.** It used to set the context window, which made opencode compact far below the model's real limit. Prints a warning | — |
 | `--timeout` | **Breaking:** max wall-clock time for the whole review, all skills, batches, retries and checks together. It used to apply to each skill run separately, so a job that relied on a per-skill limit now shares one budget | `10m` |
 | `--concurrency` | Max opencode runs in flight at once, across all skills and batches. Must be at least 1 | `4` |
@@ -47,7 +48,8 @@
 | Variable | Description |
 |---|---|
 | `PERGENT_MAX_TURNS` | Max agentic turns per opencode run |
-| `PERGENT_CONTEXT_LIMIT` | Model context window in tokens (see `--context-limit`) |
+| `PERGENT_CONTEXT_LIMIT` | Model context window in tokens, also the batch size (see `--context-limit`, including its behaviour change) |
+| `PERGENT_OUTPUT_LIMIT` | The most tokens one reply may use (see `--output-limit`) |
 | `PERGENT_MAX_TOKENS` | **Deprecated and ignored** (see `--max-tokens`) |
 | `PERGENT_TIMEOUT` | Max wall-clock time for the whole review (see `--timeout`; **breaking**: it used to be per skill run) |
 | `PERGENT_CONCURRENCY` | Max opencode runs in flight at once (see `--concurrency`) |
@@ -69,4 +71,4 @@
 
 Config resolution priority: CLI flags > `PERGENT_*` env vars > auto-detect from CI > defaults.
 
-An unset or empty variable means the default. A value that can't be used is a config error that names the variable and the value (`PERGENT_TIMEOUT="600" is not a duration such as 90s or 10m`), not a silent fall back to the default. Numbers must be whole (`PERGENT_MAX_TURNS` and `PERGENT_CONCURRENCY` at least 1, `PERGENT_CONTEXT_LIMIT` not negative), `PERGENT_TIMEOUT` needs a unit, and `PERGENT_PREVIOUS_REVIEW`, `PERGENT_CHECK_DELETED` and `PERGENT_USE_OPENCODE_CONFIG` are `true` or `false`. `--max-turns` below 1 is rejected as well. A flag that is passed wins, and its variable is not read.
+An unset or empty variable means the default. A value that can't be used is a config error that names the variable and the value (`PERGENT_TIMEOUT="600" is not a duration such as 90s or 10m`), not a silent fall back to the default. Numbers must be whole (`PERGENT_MAX_TURNS` and `PERGENT_CONCURRENCY` at least 1, `PERGENT_CONTEXT_LIMIT` and `PERGENT_OUTPUT_LIMIT` not negative), `PERGENT_TIMEOUT` needs a unit, and `PERGENT_PREVIOUS_REVIEW`, `PERGENT_CHECK_DELETED` and `PERGENT_USE_OPENCODE_CONFIG` are `true` or `false`. `--max-turns` below 1 is rejected as well. A flag that is passed wins, and its variable is not read.

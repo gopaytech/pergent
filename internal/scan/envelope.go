@@ -30,6 +30,8 @@ const (
 	reasonStartFmt   = "the scan could not start: "
 	reasonModelFails = "the model run failed: "
 	reasonDownload   = "the source could not be downloaded"
+	// reasonOutputLimit is runner's text, which pergent.sh shows.
+	reasonOutputLimit = runner.OutputLimitReason
 	// reasonUnknownStop is for a Stop value no case knows: a bug, so the
 	// scan fails closed and is never complete.
 	reasonUnknownStop = "the scan ended for a reason pergent does not know"
@@ -90,15 +92,17 @@ const (
 
 // EndInput is everything Build needs.
 type EndInput struct {
-	Commit     string
-	Stop       Stop
-	FailKind   runner.CauseKind
-	SetupCause string
-	Source     *SourceError
-	Out        Converted
-	State      map[string]string
-	Usage      Usage
-	Manifest   Manifest
+	Commit   string
+	Stop     Stop
+	FailKind runner.CauseKind
+	// OutputLimited is true when the model's replies were cut at the max output.
+	OutputLimited bool
+	SetupCause    string
+	Source        *SourceError
+	Out           Converted
+	State         map[string]string
+	Usage         Usage
+	Manifest      Manifest
 }
 
 // UsageFrom makes the usage of a scan. s is the final or last polled stats
@@ -205,7 +209,11 @@ func build(in EndInput, lim limits) ([]byte, Envelope) {
 		if in.Out.Valid {
 			status = "partial"
 		}
-		reasons = append(reasons, reasonModelFails+string(in.FailKind))
+		if in.OutputLimited {
+			reasons = append(reasons, reasonOutputLimit)
+		} else {
+			reasons = append(reasons, reasonModelFails+string(in.FailKind))
+		}
 	case StopNone:
 		if !in.Out.Valid {
 			status = "failed"

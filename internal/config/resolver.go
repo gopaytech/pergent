@@ -16,6 +16,7 @@ type Options struct {
 	MaxTurns          int
 	MaxTokens         int // deprecated: accepted for compatibility, ignored
 	ContextLimit      int
+	OutputLimit       int
 	Concurrency       int
 	ConcurrencySet    bool // true when the flag was explicitly passed on the command line
 	Timeout           time.Duration
@@ -66,6 +67,7 @@ type Config struct {
 	Platform       string
 	MaxTurns       int
 	ContextLimit   int           // explicit model context window; 0 = use opencode's model registry
+	OutputLimit    int           // explicit model max output tokens; 0 = use opencode's model registry
 	Concurrency    int           // most opencode runs in flight at once
 	Timeout        time.Duration // bounds the whole review, all skills and batches together
 	RepoPath       string
@@ -202,7 +204,7 @@ const (
 )
 
 // ResolveAgent resolves the review settings agent mode uses: Timeout,
-// Concurrency, MaxTurns, ContextLimit, CheckDeleted, NoBuiltInRules and
+// Concurrency, MaxTurns, ContextLimit, OutputLimit, CheckDeleted, NoBuiltInRules and
 // BuiltInRules (flags > PERGENT_* env > defaults, validated as Resolve does).
 // It never detects a platform, and leaves every other field empty.
 func ResolveAgent(opts Options) (Config, error) {
@@ -217,7 +219,10 @@ func resolveReview(opts Options) (Config, error) {
 	if cfg.MaxTurns, err = resolveInt(opts.MaxTurns, "PERGENT_MAX_TURNS", 20); err != nil {
 		return Config{}, err
 	}
-	if cfg.ContextLimit, err = resolveInt(opts.ContextLimit, "PERGENT_CONTEXT_LIMIT", 0); err != nil {
+	if cfg.ContextLimit, err = ResolveLimit(opts.ContextLimit, "PERGENT_CONTEXT_LIMIT", "context-limit", os.Getenv); err != nil {
+		return Config{}, err
+	}
+	if cfg.OutputLimit, err = ResolveLimit(opts.OutputLimit, "PERGENT_OUTPUT_LIMIT", "output-limit", os.Getenv); err != nil {
 		return Config{}, err
 	}
 	if opts.ConcurrencySet {
@@ -247,9 +252,6 @@ func resolveReview(opts Options) (Config, error) {
 
 	if cfg.MaxTurns < 1 {
 		return Config{}, fmt.Errorf("--max-turns must be at least 1, got %d", cfg.MaxTurns)
-	}
-	if cfg.ContextLimit < 0 {
-		return Config{}, fmt.Errorf("--context-limit must be a positive number of tokens, got %d", cfg.ContextLimit)
 	}
 	if cfg.Timeout < 0 {
 		return Config{}, fmt.Errorf("--timeout must be positive, got %s", cfg.Timeout)
@@ -366,6 +368,26 @@ func resolveInt(flag int, envKey string, defaultVal int) (int, error) {
 		return v, nil
 	}
 	return defaultVal, nil
+}
+
+// ResolveLimit returns a token limit: flag when not 0, else the number in
+// envKey, else 0 (the model's own value). A negative result is an error that
+// names flagName (for example "output-limit"). getenv reads the variable.
+func ResolveLimit(flag int, envKey, flagName string, getenv func(string) string) (int, error) {
+	v := flag
+	if v == 0 {
+		if env := getenv(envKey); env != "" {
+			n, err := strconv.Atoi(env)
+			if err != nil {
+				return 0, fmt.Errorf("%s=%q is not a whole number", envKey, env)
+			}
+			v = n
+		}
+	}
+	if v < 0 {
+		return 0, fmt.Errorf("--%s must be a positive number of tokens, got %d", flagName, v)
+	}
+	return v, nil
 }
 
 // resolveDuration returns flag, else the duration in envKey, else defaultVal.

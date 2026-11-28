@@ -353,6 +353,7 @@ func agentRequest(in *agentInputs, run review.RunFunc) review.Request {
 		Concurrency:  in.Review.Concurrency,
 		MaxTurns:     in.Review.MaxTurns,
 		ContextLimit: in.Review.ContextLimit,
+		OutputLimit:  in.Review.OutputLimit,
 		Dismissals:   in.Dismissals,
 		CheckDeleted: in.Review.CheckDeleted,
 		Rules:        in.Rules,
@@ -409,14 +410,14 @@ func samePath(a, b string) bool {
 func parseAgent(args []string, getenv func(string) string) (agentInputs, *result.Error) {
 	var in agentInputs
 	var (
-		skills                                  stringSlice
-		resultPath, resultURL, instructions     string
-		maxTurns, maxTokens, contextLimit, conc int
-		timeout                                 time.Duration
-		local, previousReview                   bool
-		platformFlag, baseBranch                string
-		checkDeleted, noBuiltInRules            bool
-		builtInRules                            string
+		skills                                               stringSlice
+		resultPath, resultURL, instructions                  string
+		maxTurns, maxTokens, contextLimit, outputLimit, conc int
+		timeout                                              time.Duration
+		local, previousReview                                bool
+		platformFlag, baseBranch                             string
+		checkDeleted, noBuiltInRules                         bool
+		builtInRules                                         string
 	)
 
 	flags := flag.NewFlagSet("pergent agent", flag.ContinueOnError)
@@ -446,6 +447,7 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 	flags.IntVar(&maxTurns, "max-turns", 0, "Max agentic turns per opencode run (default 20)")
 	flags.IntVar(&maxTokens, "max-tokens", 0, "Deprecated and ignored; see --context-limit")
 	flags.IntVar(&contextLimit, "context-limit", 0, "Model context window in tokens, only for models opencode has no limits for")
+	flags.IntVar(&outputLimit, "output-limit", 0, "Max output tokens of one model reply, thinking included, only for models opencode has no limits for; 64000 is enough for reviews (default: opencode's model registry)")
 	flags.IntVar(&conc, "concurrency", 0, "Max opencode runs in flight at once (default 4)")
 	flags.DurationVar(&timeout, "timeout", 0, "Max wall-clock time for the whole review (default 10m)")
 	flags.BoolVar(&checkDeleted, "check-deleted", false, "Review deleted files and check what still uses deleted and renamed files (off by default)")
@@ -577,6 +579,7 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 		MaxTurns:          maxTurns,
 		MaxTokens:         maxTokens,
 		ContextLimit:      contextLimit,
+		OutputLimit:       outputLimit,
 		Concurrency:       conc,
 		ConcurrencySet:    set["concurrency"],
 		Timeout:           timeout,

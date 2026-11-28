@@ -428,6 +428,42 @@ func TestResolve_ContextLimit(t *testing.T) {
 	}
 }
 
+func TestResolve_OutputLimit(t *testing.T) {
+	tests := []struct {
+		name, env string
+		flag      int
+		want      int
+		wantErr   string
+	}{
+		{"unset", "", 0, 0, ""},
+		{"from env", "64000", 0, 64000, ""},
+		{"flag wins", "32000", 64000, 64000, ""},
+		{"flag 0 is unset", "64000", 0, 64000, ""},
+		{"negative flag", "", -1, 0, "--output-limit must be a positive number of tokens, got -1"},
+		{"negative env", "-5", 0, 0, "--output-limit must be a positive number of tokens, got -5"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setupValidGitHub(t)
+			t.Setenv("PERGENT_OUTPUT_LIMIT", tt.env)
+
+			cfg, err := Resolve(Options{Skills: []string{"code-review"}, Platform: "github", OutputLimit: tt.flag})
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("Resolve() error = %v, want %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Resolve() error: %v", err)
+			}
+			if cfg.OutputLimit != tt.want {
+				t.Errorf("OutputLimit = %d, want %d", cfg.OutputLimit, tt.want)
+			}
+		})
+	}
+}
+
 func TestResolve_MaxTokensDeprecated(t *testing.T) {
 	setupValidGitHub(t)
 

@@ -65,7 +65,7 @@ Every skill skips these files, and the comment's Files list shows them as skippe
 - **Always skipped:** deleted files, binary files, and files with no content changes (for example a pure rename). With `--check-deleted` (off by default) a deleted file in a skill's scope is reviewed through its removed lines, and the runs also check what still depends on deleted files and on the old paths of renamed files: see [Deleted files](deleted-files.md).
 - **Skipped unless a skill's `paths` match them:** lockfiles (`package-lock.json`, `go.sum`, `yarn.lock`, `pnpm-lock.yaml`, `Cargo.lock`, `composer.lock`, `Gemfile.lock`, `poetry.lock`, `Pipfile.lock`), vendored code (anything under a `vendor`, `node_modules` or `third_party` directory), and generated files (paths marked `linguist-generated` in the repo's `.gitattributes`, unless a later matching line unsets it with `-linguist-generated`, `linguist-generated=false` or `!linguist-generated`, or files whose first lines say the code is generated and not to be edited).
 
-A file larger than a batch can hold (about a quarter of the model's context window, 40,000 tokens when the window is unknown) is not reviewed and is reported as a failure for that file.
+A file larger than a batch can hold (about a quarter of the model's context window and at most 40,000 tokens, 40,000 when the window is unknown; a `--context-limit` above 160,000 used to give bigger batches, so this is a behaviour change) is not reviewed and is reported as a failure for that file.
 
 ## The `## Blocking` section
 
