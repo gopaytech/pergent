@@ -780,6 +780,47 @@ func TestRun_GeneratesConfigPerRun(t *testing.T) {
 	assertRemoved(t, configs)
 }
 
+// The context and output limits of the request reach the config of every run.
+func TestRun_LimitsReachTheConfig(t *testing.T) {
+	s := skill.Skill{Name: "s", Body: "Check the manifests."}
+	f := &fake{}
+	calls := 0
+	f.respond = func(_ int, c call) runner.RunResult {
+		calls++
+		data, err := os.ReadFile(c.opts.ConfigPath)
+		if err != nil {
+			t.Errorf("reading config: %v", err)
+			return completed(answer(t))
+		}
+		var cfg struct {
+			Provider map[string]struct {
+				Models map[string]struct {
+					Limit map[string]int `json:"limit"`
+				} `json:"models"`
+			} `json:"provider"`
+		}
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			t.Errorf("config is not JSON: %v", err)
+			return completed(answer(t))
+		}
+		got := cfg.Provider["anthropic"].Models["test-model"].Limit
+		if got["context"] != 1000000 || got["output"] != 64000 || len(got) != 2 {
+			t.Errorf("limit = %v, want context 1000000 and output 64000", got)
+		}
+		return completed(answer(t))
+	}
+	req := newRequest(t, f, patch("cmd/a.go", "x"), s)
+	t.Setenv("OPENCODE_PROVIDER", "anthropic")
+	t.Setenv("OPENCODE_MODEL", "test-model")
+	req.ContextLimit = 1000000
+	req.OutputLimit = 64000
+
+	Run(context.Background(), req)
+	if calls == 0 {
+		t.Fatal("runner was never called")
+	}
+}
+
 func TestRun_UnsplittableDiffFailsEverySkill(t *testing.T) {
 	f := &fake{respond: func(int, call) runner.RunResult { return completed(answer(t)) }}
 	req := newRequest(t, f, "--- a/x.go\n+++ b/x.go\n@@ -1 +1 @@\n-old\n+new\n",

@@ -50,7 +50,7 @@ type Request struct {
 	Budget time.Duration
 	// Concurrency is the most opencode runs in flight at once across the
 	// whole review (1 when not positive).
-	Concurrency, MaxTurns, ContextLimit int
+	Concurrency, MaxTurns, ContextLimit, OutputLimit int
 	// Previous holds each skill's findings from the previous review, by
 	// skill name.
 	Previous map[string][]finding.Finding
@@ -1096,6 +1096,7 @@ func (r *reviewer) runWith(ctx context.Context, s skill.Skill, label, prompt str
 	opts := config.OpenCodeOptions{
 		MaxTurns:     r.req.MaxTurns,
 		ContextLimit: r.req.ContextLimit,
+		OutputLimit:  r.req.OutputLimit,
 		Prompt:       prompt,
 		RepoPath:     r.req.RepoPath,
 		Linked:       mode.linked,

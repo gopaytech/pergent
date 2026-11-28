@@ -55,7 +55,7 @@ func main() {
 	var platformFlag string
 	var maxTurns int
 	var maxTokens int
-	var contextLimit int
+	var contextLimit, outputLimit int
 	var concurrency int
 	var timeout time.Duration
 	var repoPath string
@@ -75,6 +75,7 @@ func main() {
 	flag.IntVar(&maxTurns, "max-turns", 0, "Max agentic turns per opencode run (default 20)")
 	flag.IntVar(&maxTokens, "max-tokens", 0, "Deprecated and ignored; see --context-limit")
 	flag.IntVar(&contextLimit, "context-limit", 0, "Model context window in tokens, only for models opencode has no limits for (default: opencode's model registry)")
+	flag.IntVar(&outputLimit, "output-limit", 0, "Max output tokens of one model reply, thinking included, only for models opencode has no limits for; 64000 is enough for reviews (default: opencode's model registry)")
 	flag.IntVar(&concurrency, "concurrency", 0, "Max opencode runs in flight at once, across all skills and batches (default 4)")
 	flag.DurationVar(&timeout, "timeout", 0, "Max wall-clock time for the whole review (default 10m)")
 	flag.StringVar(&repoPath, "repo-path", "", "Path to repo root (default .)")
@@ -117,6 +118,7 @@ func main() {
 		MaxTurns:          maxTurns,
 		MaxTokens:         maxTokens,
 		ContextLimit:      contextLimit,
+		OutputLimit:       outputLimit,
 		Concurrency:       concurrency,
 		ConcurrencySet:    concurrencySet,
 		Timeout:           timeout,
@@ -217,6 +219,7 @@ func main() {
 		Concurrency:  cfg.Concurrency,
 		MaxTurns:     cfg.MaxTurns,
 		ContextLimit: cfg.ContextLimit,
+		OutputLimit:  cfg.OutputLimit,
 		Previous:     previous,
 		Description:  description,
 		CheckDeleted: cfg.CheckDeleted,

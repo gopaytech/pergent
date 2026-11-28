@@ -139,6 +139,7 @@ func TestParseAgent_OK(t *testing.T) {
 		"--skills-dir", "/in/skills", "--skill", "code-review", "--instructions", instr,
 		"--max-comment-size", "65536", "--result", "out.json", "--result-url", "https://example.com/r",
 		"--concurrency", "2", "--timeout", "3m",
+		"--context-limit", "1000000", "--output-limit", "64000",
 	}, agentEnv(map[string]string{"PERGENT_RESULT_TOKEN": "tok"}))
 	if e != nil {
 		t.Fatalf("parseAgent() error: %+v", e)
@@ -157,6 +158,12 @@ func TestParseAgent_OK(t *testing.T) {
 	}
 	if in.Review.Concurrency != 2 || in.Review.Timeout.String() != "3m0s" || in.Review.MaxTurns != 20 {
 		t.Errorf("Review = %+v, want concurrency 2, timeout 3m, default max turns", in.Review)
+	}
+	if in.Review.ContextLimit != 1000000 || in.Review.OutputLimit != 64000 {
+		t.Errorf("limits = %d and %d, want 1000000 and 64000", in.Review.ContextLimit, in.Review.OutputLimit)
+	}
+	if got := agentRequest(&in, nil).OutputLimit; got != 64000 {
+		t.Errorf("agentRequest OutputLimit = %d, want 64000", got)
 	}
 }
 
@@ -195,6 +202,7 @@ func TestParseAgent_Usage(t *testing.T) {
 		{"uppercase sha", append(without("--base"), "--base", strings.Repeat("A", 40)), nil},
 		{"41 hex characters", append(without("--base"), "--base", strings.Repeat("a", 41)), nil},
 		{"negative max comment size", with("--max-comment-size", "-1"), nil},
+		{"negative output limit", with("--output-limit", "-1"), nil},
 		{"explicit concurrency zero", with("--concurrency", "0"), nil},
 		{"unknown flag", with("--nope"), nil},
 		{"positional argument", with("extra"), nil},
