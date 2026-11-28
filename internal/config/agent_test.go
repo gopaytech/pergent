@@ -38,20 +38,21 @@ func TestResolveAgent_FlagsBeatEnv(t *testing.T) {
 	t.Setenv("PERGENT_CONCURRENCY", "8")
 	t.Setenv("PERGENT_TIMEOUT", "3m")
 	t.Setenv("PERGENT_CONTEXT_LIMIT", "1000")
+	t.Setenv("PERGENT_OUTPUT_LIMIT", "2000")
 
 	cfg, err := ResolveAgent(Options{})
 	if err != nil {
 		t.Fatalf("ResolveAgent() error: %v", err)
 	}
-	if cfg.MaxTurns != 50 || cfg.Concurrency != 8 || cfg.Timeout != 3*time.Minute || cfg.ContextLimit != 1000 {
+	if cfg.MaxTurns != 50 || cfg.Concurrency != 8 || cfg.Timeout != 3*time.Minute || cfg.ContextLimit != 1000 || cfg.OutputLimit != 2000 {
 		t.Errorf("ResolveAgent() = %+v, want the env values", cfg)
 	}
 
-	cfg, err = ResolveAgent(Options{MaxTurns: 5, Concurrency: 2, Timeout: time.Minute, ContextLimit: 99})
+	cfg, err = ResolveAgent(Options{MaxTurns: 5, Concurrency: 2, Timeout: time.Minute, ContextLimit: 99, OutputLimit: 77})
 	if err != nil {
 		t.Fatalf("ResolveAgent() error: %v", err)
 	}
-	if cfg.MaxTurns != 5 || cfg.Concurrency != 2 || cfg.Timeout != time.Minute || cfg.ContextLimit != 99 {
+	if cfg.MaxTurns != 5 || cfg.Concurrency != 2 || cfg.Timeout != time.Minute || cfg.ContextLimit != 99 || cfg.OutputLimit != 77 {
 		t.Errorf("ResolveAgent() = %+v, want the flag values", cfg)
 	}
 }
@@ -66,6 +67,7 @@ func TestResolveAgent_Invalid(t *testing.T) {
 		{"explicit concurrency zero", Options{Concurrency: 0, ConcurrencySet: true}, "--concurrency must be at least 1, got 0"},
 		{"negative timeout", Options{Timeout: -time.Second}, "--timeout must be positive"},
 		{"negative context limit", Options{ContextLimit: -1}, "--context-limit must be a positive number"},
+		{"negative output limit", Options{OutputLimit: -1}, "--output-limit must be a positive number"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
