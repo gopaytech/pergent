@@ -293,6 +293,8 @@ func TestEventError_Transient(t *testing.T) {
 	}{
 		{EventError{Name: "provider.internal", StatusCode: 500, Message: "Internal Server Error"}, true},
 		{EventError{Name: "output-limit", Message: "Response still truncated after two output token limit continuations"}, false},
+		// The name alone decides: a message that looks transient must not start a new run.
+		{EventError{Name: "output-limit", Message: "Response still truncated: provider overloaded"}, false},
 		{EventError{Name: "provider.rate-limit", StatusCode: 429, Message: "Too Many Requests"}, true},
 		{EventError{Name: "provider.internal", StatusCode: 529, Message: "Overloaded"}, true},
 		{EventError{Name: "provider.transport", Message: "Cannot connect to API: ECONNREFUSED"}, true},

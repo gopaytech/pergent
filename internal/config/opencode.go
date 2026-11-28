@@ -73,8 +73,9 @@ type openCodeModelLimits struct {
 
 type openCodeLimit struct {
 	Context int `json:"context"`
-	// Output is required by opencode's schema; 0 makes opencode use its
-	// own value.
+	// Output is required by opencode's schema. A 0 here replaces opencode's
+	// own value for the model: it then uses 32,000. Set both limits or
+	// neither.
 	Output int `json:"output"`
 }
 
@@ -314,7 +315,10 @@ func GenerateOpenCodeConfigWith(o OpenCodeOptions) (string, func(), error) {
 // providerConfig returns the model as opencode names it ("provider/model")
 // and the provider block that declares it. contextLimit overrides the model's
 // context window and outputLimit its max reply size, each when > 0. The limit
-// block has both numbers, so a 0 means opencode's own value.
+// block always has both numbers. opencode puts them over its own values, so
+// a 0 replaces opencode's value: no output limit means a 32,000 fallback, and
+// no context limit means replies are not fitted to the room left. Set both
+// limits or neither.
 func providerConfig(m Model, contextLimit, outputLimit int) (fullModel string, p map[string]openCodeProvider) {
 	npm := m.NPM
 	baseURL := m.BaseURL

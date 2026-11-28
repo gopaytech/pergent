@@ -232,6 +232,10 @@ func (e EventError) ProviderError() bool {
 // Transient reports whether an opencode error event is a transient failure
 // (HTTP 429, 5xx, connection errors) that a new attempt may get past.
 func (e EventError) Transient() bool {
+	// A cut reply costs the same tokens again, so it is never tried again.
+	if e.Name == outputLimitType {
+		return false
+	}
 	switch e.Name {
 	case "provider.rate-limit", "provider.transport", "provider.internal", "provider.timeout":
 		return true
