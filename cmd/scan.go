@@ -93,7 +93,9 @@ const (
 type scanInputs struct {
 	repoPath, sourceURL, head, priorPath, skillDir string
 	maxTurns, subTurns                             int
-	timeout                                        time.Duration
+	// contextLimit and outputLimit are in tokens, 0 for the model's own.
+	contextLimit, outputLimit int
+	timeout                   time.Duration
 	// budget is PERGENT_TOKEN_BUDGET, 0 for none.
 	budget    int64
 	keepProxy bool
@@ -123,6 +125,8 @@ func parseScan(args []string, getenv func(string) string) (scanInputs, string) {
 	flags.StringVar(&in.skillDir, "skill", defaultScanSkill, "The skill folder, with its pergent-scan.yaml, outside --repo-path")
 	flags.IntVar(&in.maxTurns, "max-turns", 0, "The main agent's step limit, 5 to 1000 (default: the manifest's)")
 	flags.IntVar(&in.subTurns, "max-subagent-turns", 0, "Each sub-agent's step limit, 5 to 300 (default: the manifest's)")
+	flags.IntVar(&in.contextLimit, "context-limit", 0, "Model context window in tokens, only for models opencode has no limits for ($PERGENT_CONTEXT_LIMIT)")
+	flags.IntVar(&in.outputLimit, "output-limit", 0, "Max output tokens of one model reply, thinking included, only for models opencode has no limits for; 64000 is enough for a scan ($PERGENT_OUTPUT_LIMIT)")
 	flags.DurationVar(&in.timeout, "timeout", defaultScanTimeout, "Max wall-clock time of the scan, download included, 10m to 6h")
 	flags.StringVar(&resultPath, "result", "", "Write the envelope JSON to this file, or - for stdout")
 	flags.StringVar(&resultURL, "result-url", "", "POST the envelope JSON here, with PERGENT_RESULT_TOKEN as the bearer token")
@@ -173,6 +177,13 @@ func parseScan(args []string, getenv func(string) string) (scanInputs, string) {
 			return usage("PERGENT_TOKEN_BUDGET must be a positive whole number, got %q", v)
 		}
 		in.budget = n
+	}
+	var err error
+	if in.contextLimit, err = config.ResolveLimit(in.contextLimit, "PERGENT_CONTEXT_LIMIT", "context-limit", getenv); err != nil {
+		return usage("%v", err)
+	}
+	if in.outputLimit, err = config.ResolveLimit(in.outputLimit, "PERGENT_OUTPUT_LIMIT", "output-limit", getenv); err != nil {
+		return usage("%v", err)
 	}
 	if _, err := config.ExtraEnvNames(getenv(config.ExtraEnvVar)); err != nil {
 		return usage("%v", err)
@@ -391,7 +402,8 @@ func (s *scanner) scan(ctx context.Context) int {
 	}
 	defer os.RemoveAll(dataDir)
 	cfgPath, cleanup, err := config.GenerateScanConfig(config.ScanOptions{
-		MaxSteps: in.maxTurns, SubagentSteps: in.subTurns, Prompt: string(entry),
+		MaxSteps: in.maxTurns, SubagentSteps: in.subTurns,
+		ContextLimit: in.contextLimit, OutputLimit: in.outputLimit, Prompt: string(entry),
 		Tools: m.Tools, OutputDir: outDir, SkillDir: in.skillDir,
 	})
 	if err != nil {

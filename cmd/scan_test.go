@@ -67,6 +67,7 @@ func scanEnv(t *testing.T, extra map[string]string) {
 		"XDG_DATA_HOME":        t.TempDir(),
 		"PERGENT_TOKEN_BUDGET": "", "PERGENT_SCAN_KEEP_PROXY": "", "PERGENT_RESULT_TOKEN": "",
 		"PERGENT_SCAN_SOURCE_URL": "", "PERGENT_SCAN_PRIOR": "", "PERGENT_OPENCODE_ENV": "",
+		"PERGENT_CONTEXT_LIMIT": "", "PERGENT_OUTPUT_LIMIT": "",
 	}
 	for k, v := range extra {
 		env[k] = v
@@ -274,6 +275,55 @@ func TestScanConfigWiring(t *testing.T) {
 	if cfg.Agent["pergent"].Steps != 50 || cfg.Agent["general"].Steps != 7 || cfg.Agent["explore"].Steps != 7 {
 		t.Errorf("steps main %d general %d explore %d, want 50, 7, 7",
 			cfg.Agent["pergent"].Steps, cfg.Agent["general"].Steps, cfg.Agent["explore"].Steps)
+	}
+}
+
+func TestScanLimits(t *testing.T) {
+	repo, _ := scanClone(t, nil)
+	skill := scanSkillDir(t)
+	type limit struct{ Context, Output int }
+	cases := []struct {
+		name string
+		args []string
+		env  map[string]string
+		want *limit
+	}{
+		{"none", nil, nil, nil},
+		{"flags", []string{"--context-limit", "1000000", "--output-limit", "64000"}, nil, &limit{1000000, 64000}},
+		{"env", nil, map[string]string{"PERGENT_CONTEXT_LIMIT": "1000000", "PERGENT_OUTPUT_LIMIT": "64000"}, &limit{1000000, 64000}},
+		{"flag beats env", []string{"--output-limit", "32000"}, map[string]string{"PERGENT_OUTPUT_LIMIT": "64000"}, &limit{0, 32000}},
+		{"flag 0 is unset", []string{"--output-limit", "0"}, map[string]string{"PERGENT_OUTPUT_LIMIT": "64000"}, &limit{0, 64000}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			scanEnv(t, c.env)
+			var cfg struct {
+				Provider map[string]struct {
+					Models map[string]struct {
+						Limit *limit `json:"limit"`
+					} `json:"models"`
+				} `json:"provider"`
+			}
+			f := &fakeScan{files: allFixtures, check: func(o runner.Options) {
+				data, err := os.ReadFile(o.ConfigPath)
+				if err != nil {
+					t.Errorf("config: %v", err)
+					return
+				}
+				if err := json.Unmarshal(data, &cfg); err != nil {
+					t.Errorf("config: %v", err)
+				}
+			}}
+			st := newScanTest()
+			args := append([]string{"--repo-path", repo, "--skill", skill, "--result", resultFile(t)}, c.args...)
+			if code := runScan(context.Background(), args, st.deps(f.run(t), fixedStats(1))); code != 0 {
+				t.Fatalf("exit %d; stderr:\n%s", code, st.stderr.String())
+			}
+			got := cfg.Provider["anthropic"].Models["some-model"].Limit
+			if (got == nil) != (c.want == nil) || (got != nil && *got != *c.want) {
+				t.Errorf("limit %v, want %v", got, c.want)
+			}
+		})
 	}
 }
 
@@ -793,6 +843,10 @@ func TestScanUsageErrors(t *testing.T) {
 		{"result url without token", []string{"--repo-path", repo, "--result-url", "http://127.0.0.1:1/r"}, nil},
 		{"no provider", []string{"--repo-path", repo}, map[string]string{"OPENCODE_PROVIDER": ""}},
 		{"an argument", []string{"--repo-path", repo, "extra"}, nil},
+		{"context limit negative", []string{"--repo-path", repo, "--context-limit", "-1"}, nil},
+		{"output limit negative", []string{"--repo-path", repo, "--output-limit", "-1"}, nil},
+		{"context limit text", []string{"--repo-path", repo}, map[string]string{"PERGENT_CONTEXT_LIMIT": "lots"}},
+		{"output limit text", []string{"--repo-path", repo}, map[string]string{"PERGENT_OUTPUT_LIMIT": "64k"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
