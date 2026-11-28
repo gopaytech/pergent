@@ -1006,3 +1006,260 @@ func TestOpencodeE2E_ConfigContentIgnored(t *testing.T) {
 		t.Error("a request carried OPENCODE_CONFIG_CONTENT's instruction")
 	}
 }
+
+// scanE2E is the folders and the config of one scan run on the real binary.
+// The source has no .git, as an unpacked source has none.
+type scanE2E struct {
+	root, out, skill, config, dataDir string
+}
+
+const scanMainMarker = "SCAN-MAIN-AGENT-PROMPT"
+
+// newScanE2E builds a scan the way `pergent scan` does: the output folder is
+// under $TMPDIR/pergent-scan-*, outside the source. On CI (Linux) /tmp has no
+// symlink. macOS $TMPDIR is behind one (/var -> /private/var) and is not
+// covered here.
+func newScanE2E(t *testing.T, m *fakeModel, tools ...string) scanE2E {
+	t.Helper()
+	useFakeModel(t, m)
+	// NewDataDir copies auth.json from here: never the developer's.
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	s := scanE2E{root: t.TempDir(), skill: t.TempDir()}
+	writeFile(t, s.root, "a.txt", "keep\n")
+	writeFile(t, s.skill, "SKILL.md", "---\nname: scan\n---\nskill text\n")
+	work, err := os.MkdirTemp("", config.TempPrefix+"scan-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(work) })
+	s.out = filepath.Join(work, "out")
+	if err := os.Mkdir(s.out, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, s.out, "notes.txt", "alpha\n")
+	s.dataDir, err = runner.NewDataDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(s.dataDir) })
+	cfg, cleanup, err := config.GenerateScanConfig(config.ScanOptions{
+		MaxSteps: 20, SubagentSteps: 10, Prompt: scanMainMarker,
+		Tools: tools, OutputDir: s.out, SkillDir: s.skill,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(cleanup)
+	s.config = cfg
+	return s
+}
+
+func (s scanE2E) options(onUsage func(runner.Usage)) runner.Options {
+	return runner.Options{
+		SkillName: "scan", ConfigPath: s.config, Message: "scan the source", RepoPath: s.root,
+		Timeout: 3 * time.Minute, DataDir: s.dataDir, Once: true, OnUsage: onUsage,
+	}
+}
+
+// splitScanRequests splits the fake model's requests that carry tools into the main
+// agent's (its system prompt holds the scan prompt) and the sub-agent's.
+func splitScanRequests(reqs []fakeRequest) (main, sub []fakeRequest) {
+	for _, r := range reqs {
+		if len(r.Tools) == 0 {
+			continue
+		}
+		if strings.Contains(r.System, scanMainMarker) {
+			main = append(main, r)
+		} else {
+			sub = append(sub, r)
+		}
+	}
+	return main, sub
+}
+
+func requireCompleted(t *testing.T, res runner.RunResult) {
+	t.Helper()
+	if res.Status != runner.StatusCompleted {
+		t.Fatalf("the scan run ended %v, cause %+v", res.Status, res.Cause)
+	}
+}
+
+// opencode stats is where a sub-agent's tokens show: the run's own output
+// carries the main session only.
+func TestOpencodeE2E_ScanCountsSubagentTokens(t *testing.T) {
+	requireOpencode(t)
+	m := newFakeModel(t, nil, "")
+	m.next = map[int]func(fakeRequest) []fakeCall{0: func(r fakeRequest) []fakeCall {
+		if strings.Contains(r.System, scanMainMarker) {
+			return []fakeCall{{Name: "subagent", Args: map[string]any{"agent": "general", "description": "look", "prompt": "say hi"}}}
+		}
+		return nil
+	}}
+	s := newScanE2E(t, m, "task")
+	var mu sync.Mutex
+	var mainUsage runner.Usage
+	res := runner.Run(context.Background(), s.options(func(u runner.Usage) {
+		mu.Lock()
+		mainUsage = u
+		mu.Unlock()
+	}))
+	requireCompleted(t, res)
+
+	stats, err := runner.ReadStats(context.Background(), s.dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mainReqs, subReqs := splitScanRequests(m.Requests())
+	if len(subReqs) == 0 {
+		t.Fatal("the sub-agent never asked the model, so the test proves nothing")
+	}
+	if stats.Subagents != 1 {
+		t.Errorf("Subagents = %d, want 1 (stats %+v)", stats.Subagents, stats)
+	}
+	// The fake reports 100 in and 20 out for every reply.
+	n := len(mainReqs) + len(subReqs)
+	if stats.Tokens.Input != 100*n || stats.Tokens.Output != 20*n {
+		t.Errorf("tokens = %+v, want %d in and %d out: the main agent's %d replies and the sub-agent's %d", stats.Tokens, 100*n, 20*n, len(mainReqs), len(subReqs))
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if mainUsage.Input != 100*len(mainReqs) || stats.Tokens.Input <= mainUsage.Input {
+		t.Errorf("the main session's usage is %+v and stats %+v: stats must hold the sub-agent on top", mainUsage, stats.Tokens)
+	}
+}
+
+// A sub-agent gets the tools the scan config names, and the scan's edit rule.
+func TestOpencodeE2E_ScanSubagentTools(t *testing.T) {
+	requireOpencode(t)
+	m := newFakeModel(t, nil, "")
+	var s scanE2E
+	m.next = map[int]func(fakeRequest) []fakeCall{0: func(r fakeRequest) []fakeCall {
+		if strings.Contains(r.System, scanMainMarker) {
+			return []fakeCall{{Name: "subagent", Args: map[string]any{"agent": "general", "description": "edit", "prompt": "edit two files"}}}
+		}
+		return []fakeCall{
+			{Name: "edit", Args: map[string]any{"filePath": "a.txt", "path": "a.txt", "oldString": "keep", "newString": "pwned"}},
+			{Name: "edit", Args: map[string]any{"filePath": filepath.Join(s.out, "notes.txt"), "path": filepath.Join(s.out, "notes.txt"), "oldString": "alpha", "newString": "beta"}},
+		}
+	}}
+	s = newScanE2E(t, m, "bash", "write", "task")
+	requireCompleted(t, runner.Run(context.Background(), s.options(nil)))
+
+	_, subReqs := splitScanRequests(m.Requests())
+	if len(subReqs) == 0 {
+		t.Fatal("the sub-agent never asked the model, so the test proves nothing")
+	}
+	have := map[string]bool{}
+	for _, n := range subReqs[0].Tools {
+		have[n] = true
+	}
+	for _, n := range []string{"shell", "edit", "read", "glob", "grep"} {
+		if !have[n] {
+			t.Errorf("the sub-agent was not offered %q (offered %v)", n, subReqs[0].Tools)
+		}
+	}
+	for _, n := range []string{"webfetch", "websearch", "subagent"} {
+		if have[n] {
+			t.Errorf("the sub-agent was offered %q", n)
+		}
+	}
+
+	var results map[string]string
+	for _, r := range subReqs {
+		if len(r.ToolResults) > 0 {
+			results = r.ToolResults
+		}
+	}
+	if !isRefusal(results["call_0_0"]) {
+		t.Errorf("the edit into the source was not refused: %q", results["call_0_0"])
+	}
+	if isRefusal(results["call_0_1"]) {
+		t.Errorf("the edit into the output folder was refused: %q", results["call_0_1"])
+	}
+	if got, _ := os.ReadFile(filepath.Join(s.root, "a.txt")); string(got) != "keep\n" {
+		t.Errorf("a.txt = %q, want it unchanged", got)
+	}
+	if got, _ := os.ReadFile(filepath.Join(s.out, "notes.txt")); string(got) != "beta\n" {
+		t.Errorf("out/notes.txt = %q, want the edit", got)
+	}
+}
+
+// The main agent may edit in the output folder only: a file in the source or in
+// the skill folder is denied.
+func TestOpencodeE2E_ScanMainAgentEdits(t *testing.T) {
+	requireOpencode(t)
+	m := newFakeModel(t, nil, "")
+	var s scanE2E
+	m.next = map[int]func(fakeRequest) []fakeCall{0: func(fakeRequest) []fakeCall {
+		skillFile := filepath.Join(s.skill, "SKILL.md")
+		outFile := filepath.Join(s.out, "notes.txt")
+		return []fakeCall{
+			{Name: "edit", Args: map[string]any{"filePath": "a.txt", "path": "a.txt", "oldString": "keep", "newString": "pwned"}},
+			{Name: "edit", Args: map[string]any{"filePath": outFile, "path": outFile, "oldString": "alpha", "newString": "beta"}},
+			{Name: "edit", Args: map[string]any{"filePath": skillFile, "path": skillFile, "oldString": "skill text", "newString": "pwned"}},
+		}
+	}}
+	s = newScanE2E(t, m, "write")
+	requireCompleted(t, runner.Run(context.Background(), s.options(nil)))
+
+	results := allResults(m)
+	if !isRefusal(results["call_0_0"]) || !isRefusal(results["call_0_2"]) {
+		t.Errorf("an edit outside the output folder was not refused: %q, %q", results["call_0_0"], results["call_0_2"])
+	}
+	if isRefusal(results["call_0_1"]) {
+		t.Errorf("the edit into the output folder was refused: %q", results["call_0_1"])
+	}
+	for path, want := range map[string]string{
+		filepath.Join(s.root, "a.txt"):     "keep\n",
+		filepath.Join(s.out, "notes.txt"):  "beta\n",
+		filepath.Join(s.skill, "SKILL.md"): "---\nname: scan\n---\nskill text\n",
+	} {
+		if got, _ := os.ReadFile(path); string(got) != want {
+			t.Errorf("%s = %q, want %q", path, got, want)
+		}
+	}
+}
+
+// pergent reads `opencode stats` while the run is still writing its database.
+// The fake model holds its second reply until that read is done.
+func TestOpencodeE2E_ScanStatsOnALiveDatabase(t *testing.T) {
+	requireOpencode(t)
+	m := newFakeModel(t, [][]fakeCall{{{Name: "read", Args: map[string]any{"path": "a.txt"}}}}, "")
+	release := make(chan struct{})
+	m.hold = map[int]chan struct{}{1: release}
+	var releaseOnce sync.Once
+	open := func() { releaseOnce.Do(func() { close(release) }) }
+	defer open()
+	s := newScanE2E(t, m, "task")
+
+	firstStep := make(chan struct{})
+	var firstOnce sync.Once
+	done := make(chan runner.RunResult, 1)
+	go func() {
+		done <- runner.Run(context.Background(), s.options(func(runner.Usage) { firstOnce.Do(func() { close(firstStep) }) }))
+	}()
+	select {
+	case <-firstStep:
+	case res := <-done:
+		t.Fatalf("the run ended before its first step: %v, %+v", res.Status, res.Cause)
+	case <-time.After(2 * time.Minute):
+		t.Fatal("the first step never finished")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	stats, err := runner.ReadStats(ctx, s.dataDir)
+	if err != nil {
+		t.Fatalf("ReadStats on a live database: %v", err)
+	}
+	if stats.Steps < 1 || stats.Tokens.Input < 100 {
+		t.Errorf("stats %+v do not count the first step", stats)
+	}
+	open()
+	select {
+	case res := <-done:
+		requireCompleted(t, res)
+	case <-time.After(2 * time.Minute):
+		t.Fatal("the run did not end after the second reply")
+	}
+}

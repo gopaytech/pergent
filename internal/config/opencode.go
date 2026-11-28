@@ -48,6 +48,8 @@ type openCodeConfig struct {
 	Compaction   openCodeCompaction          `json:"compaction"`
 	LSP          bool                        `json:"lsp"`
 	Snapshot     bool                        `json:"snapshot"`
+	// Formatter is set (to false) by the scan only: a review cannot edit.
+	Formatter *bool `json:"formatter,omitempty"`
 }
 
 type openCodeCompaction struct {
@@ -77,7 +79,9 @@ type openCodeLimit struct {
 }
 
 type openCodeAgent struct {
-	Description string `json:"description"`
+	// Description is left out when empty, so a built-in agent the config
+	// changes (a scan's general and explore) keeps opencode's own text.
+	Description string `json:"description,omitempty"`
 	Mode        string `json:"mode"`
 	Model       string `json:"model"`
 	Steps       int    `json:"steps"`
@@ -199,14 +203,27 @@ func wildcardMatch(pattern, s string) bool {
 // the root, or has a wildcard character in its name gets none: the pattern
 // would reach further than the one clone it is meant for.
 func linkedAllows(dir string) []string {
-	if dir == "" || !filepath.IsAbs(dir) || strings.ContainsAny(dir, "*?[]{}") {
-		return nil
-	}
-	dir = filepath.Clean(dir)
-	if dir == string(filepath.Separator) {
+	dir, ok := safeDir(dir)
+	if !ok {
 		return nil
 	}
 	return []string{dir, filepath.Join(dir, "*")}
+}
+
+// safeDir returns dir cleaned, and whether a permission pattern may name it:
+// it must be absolute, not the root, and have no wildcard character in its
+// name. A pattern on any other directory would reach further than the one
+// directory it is meant for. The braces are refused too, so the path can
+// carry no {env:} or {file:} token that opencode would expand.
+func safeDir(dir string) (string, bool) {
+	if dir == "" || !filepath.IsAbs(dir) || strings.ContainsAny(dir, "*?[]{}") {
+		return "", false
+	}
+	dir = filepath.Clean(dir)
+	if dir == string(filepath.Separator) {
+		return "", false
+	}
+	return dir, true
 }
 
 // GeneratesConfig reports whether GenerateOpenCodeConfigWith writes a config
@@ -235,95 +252,33 @@ func GenerateOpenCodeConfigWith(o OpenCodeOptions) (string, func(), error) {
 	if o.Model != nil {
 		m = *o.Model
 	}
-	provider, model := m.Provider, m.Model
 
 	// If no provider set, skip config generation — opencode uses its own config
 	if !GeneratesConfig() {
 		noop := func() {}
 		return "", noop, nil
 	}
-	if model == "" {
+	if m.Model == "" {
 		return "", nil, fmt.Errorf("OPENCODE_MODEL is required when OPENCODE_PROVIDER is set")
 	}
 
-	fullModel := provider + "/" + model
-	npm := m.NPM
-	baseURL := m.BaseURL
-
-	// Default to openai-compatible SDK when using a custom base URL
-	// This forces /chat/completions instead of /responses
-	if npm == "" && baseURL != "" {
-		npm = "@ai-sdk/openai-compatible"
-	}
-
-	// The model is always declared: opencode doesn't know models served from a
-	// custom base URL otherwise ("Model not found"). An entry without a limit
-	// keeps the limits from opencode's model registry.
-	modelEntry := openCodeModelLimits{}
-	if contextLimit > 0 {
-		modelEntry.Limit = &openCodeLimit{Context: contextLimit}
-	}
+	fullModel, providers := providerConfig(m, contextLimit)
 
 	instructions := o.Instructions
 	if !o.ExplicitInstructions {
 		instructions = projectInstructions(o.RepoPath, o.DenySecretFiles)
 	}
 
-	readRules := ReadRules(o.DenySecretFiles)
-
-	externalDirectory := map[string]string{
-		"*": "deny",
-		filepath.Join(os.TempDir(), TempPrefix+"*"):                                    "allow",
-		filepath.Join(os.TempDir(), DataDirPrefix+"*", "opencode", "tool-output", "*"): "allow",
-	}
-	for _, dir := range o.Linked {
-		for _, pattern := range linkedAllows(dir) {
-			externalDirectory[pattern] = "allow"
-		}
-	}
-
-	// An allow-list: "*" denies every tool, then only the read tools are
-	// allowed, so a tool opencode adds later (opencode 2 added execute,
-	// question and image generation) is denied without a change here.
-	// Rules are last-match-wins. encoding/json sorts map keys, and "*" sorts
-	// before letters, so "*" is written first and the specific allows after it,
-	// which is the order these rules need. The read patterns inside "read" are
-	// emitted as "*", "*.env", "*.env.*", "*.env.example" (then "*.key",
-	// "*.pem", "*.tfvars" with DenySecretFiles) for the same reason.
 	// The block is also set on the agent: opencode 2 appends agent rules after
 	// the global ones, so a user's global config cannot loosen it.
-	permission := map[string]any{
-		"*":    "deny",
-		"read": readRules,
-		"glob": "allow",
-		"grep": "allow",
-		// "*": "deny" would also deny the files pergent attaches, the diffs and
-		// the index it writes for runs (all in pergent-* temp directories), and
-		// the <data>/opencode/tool-output folder where opencode saves a long tool
-		// result and points the model at it, so those are allowed here. Only that
-		// folder of the data directory is allowed. If a version moves it, that
-		// read is denied. A denied call only fails that one tool call. An impact
-		// run also reads its linked repositories' clones.
-		"external_directory": externalDirectory,
-		// Not a permission action in opencode 2; kept for compatibility.
-		"doom_loop": "allow",
-	}
+	permission := reviewPermission(o.DenySecretFiles, o.Linked)
 
 	cfg := openCodeConfig{
 		Schema:       "https://opencode.ai/config.json",
 		Model:        fullModel,
 		DefaultAgent: AgentName,
 		Instructions: instructions,
-		Provider: map[string]openCodeProvider{
-			provider: {
-				NPM: npm,
-				Options: openCodeProviderOptions{
-					APIKey:  "{env:OPENCODE_API_KEY}",
-					BaseURL: baseURL,
-				},
-				Models: map[string]openCodeModelLimits{model: modelEntry},
-			},
-		},
+		Provider:     providers,
 		Agent: map[string]openCodeAgent{
 			AgentName: {
 				Description: "pergent review agent",
@@ -350,6 +305,86 @@ func GenerateOpenCodeConfigWith(o OpenCodeOptions) (string, func(), error) {
 		Snapshot: false,
 	}
 
+	return writeOpenCodeConfig(cfg, skillPrompt)
+}
+
+// providerConfig returns the model as opencode names it ("provider/model")
+// and the provider block that declares it. contextLimit overrides the model's
+// context window when > 0.
+func providerConfig(m Model, contextLimit int) (fullModel string, p map[string]openCodeProvider) {
+	npm := m.NPM
+	baseURL := m.BaseURL
+
+	// Default to openai-compatible SDK when using a custom base URL
+	// This forces /chat/completions instead of /responses
+	if npm == "" && baseURL != "" {
+		npm = "@ai-sdk/openai-compatible"
+	}
+
+	// The model is always declared: opencode doesn't know models served from a
+	// custom base URL otherwise ("Model not found"). An entry without a limit
+	// keeps the limits from opencode's model registry.
+	modelEntry := openCodeModelLimits{}
+	if contextLimit > 0 {
+		modelEntry.Limit = &openCodeLimit{Context: contextLimit}
+	}
+
+	return m.Provider + "/" + m.Model, map[string]openCodeProvider{
+		m.Provider: {
+			NPM: npm,
+			Options: openCodeProviderOptions{
+				APIKey:  "{env:OPENCODE_API_KEY}",
+				BaseURL: baseURL,
+			},
+			Models: map[string]openCodeModelLimits{m.Model: modelEntry},
+		},
+	}
+}
+
+// reviewPermission is a review's permission block. It returns new maps on
+// each call, so a caller may add to one without changing another.
+func reviewPermission(denySecretFiles bool, linked []string) map[string]any {
+	externalDirectory := map[string]string{
+		"*": "deny",
+		filepath.Join(os.TempDir(), TempPrefix+"*"):                                    "allow",
+		filepath.Join(os.TempDir(), DataDirPrefix+"*", "opencode", "tool-output", "*"): "allow",
+	}
+	for _, dir := range linked {
+		for _, pattern := range linkedAllows(dir) {
+			externalDirectory[pattern] = "allow"
+		}
+	}
+
+	// An allow-list: "*" denies every tool, then only the read tools are
+	// allowed, so a tool opencode adds later (opencode 2 added execute,
+	// question and image generation) is denied without a change here.
+	// Rules are last-match-wins. encoding/json sorts map keys, and "*" sorts
+	// before letters, so "*" is written first and the specific allows after it,
+	// which is the order these rules need. The read patterns inside "read" are
+	// emitted as "*", "*.env", "*.env.*", "*.env.example" (then "*.key",
+	// "*.pem", "*.tfvars" with denySecretFiles) for the same reason.
+	return map[string]any{
+		"*":    "deny",
+		"read": ReadRules(denySecretFiles),
+		"glob": "allow",
+		"grep": "allow",
+		// "*": "deny" would also deny the files pergent attaches, the diffs and
+		// the index it writes for runs (all in pergent-* temp directories), and
+		// the <data>/opencode/tool-output folder where opencode saves a long tool
+		// result and points the model at it, so those are allowed here. Only that
+		// folder of the data directory is allowed. If a version moves it, that
+		// read is denied. A denied call only fails that one tool call. An impact
+		// run also reads its linked repositories' clones.
+		"external_directory": externalDirectory,
+		// Not a permission action in opencode 2; kept for compatibility.
+		"doom_loop": "allow",
+	}
+}
+
+// writeOpenCodeConfig writes cfg as opencode.json in a new temp directory,
+// with prompt (when not empty) in a file next to it that AgentName's prompt
+// names. cleanup removes the directory.
+func writeOpenCodeConfig(cfg openCodeConfig, prompt string) (string, func(), error) {
 	tmpDir, err := os.MkdirTemp("", "pergent-*")
 	if err != nil {
 		return "", nil, fmt.Errorf("creating temp dir: %w", err)
@@ -360,14 +395,14 @@ func GenerateOpenCodeConfigWith(o OpenCodeOptions) (string, func(), error) {
 	// body naming {env:GITLAB_TOKEN} would carry the token) or fail every run
 	// (a stray {file:missing}). A {file:} token is replaced by the file's
 	// content, which is not scanned again, so the prompt stays literal there.
-	if skillPrompt != "" {
+	if prompt != "" {
 		promptPath := filepath.Join(tmpDir, PromptFileName)
 		// A "}" would end the token early.
 		if strings.Contains(promptPath, "}") {
 			os.RemoveAll(tmpDir)
 			return "", nil, fmt.Errorf("temp dir path %q contains a closing brace, which opencode's {file:} cannot take", tmpDir)
 		}
-		if err := os.WriteFile(promptPath, []byte(skillPrompt), 0600); err != nil {
+		if err := os.WriteFile(promptPath, []byte(prompt), 0600); err != nil {
 			os.RemoveAll(tmpDir)
 			return "", nil, fmt.Errorf("writing prompt: %w", err)
 		}

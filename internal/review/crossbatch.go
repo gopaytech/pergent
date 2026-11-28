@@ -63,6 +63,10 @@ func (r *reviewer) crossBatch(ctx context.Context, s skill.Skill, res *SkillResu
 		attachments = append(attachments, struct{ name, content string }{ciFile, r.req.CIResults})
 		message += " " + ciMessage
 	}
+	if r.req.SecurityFindings != "" {
+		attachments = append(attachments, struct{ name, content string }{securityFile, r.req.SecurityFindings})
+		message += " " + securityMessage
+	}
 	var files []string
 	for _, a := range attachments {
 		p := filepath.Join(dir, a.name)

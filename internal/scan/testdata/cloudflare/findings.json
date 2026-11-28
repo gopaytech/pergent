@@ -1,0 +1,32 @@
+[
+  {
+    "verdict": "confirmed",
+    "fingerprint": "fp-high-1",
+    "title": "SQL injection in the user search",
+    "description": "The search term is joined into a query.",
+    "trace": [
+      { "kind": "entrypoint", "file": "src/api.go", "line": 10 },
+      { "kind": "sink", "file": "src/db.go", "line": 42 },
+      { "kind": "propagation", "file": "src/util.go", "line": 7 }
+    ],
+    "execution": { "attacker_perspective": "A user sends a quote in the term.", "observed_result": "The query returned all rows." },
+    "remediation": { "strategy": "Use a bound parameter." },
+    "severity": { "overall_severity": "high" },
+    "confidence": { "score": "high" }
+  },
+  {
+    "verdict": "needs_validation",
+    "fingerprint": "fp-open-2",
+    "title": "Possible path traversal in the export",
+    "description": "The file name may reach the disk path.",
+    "trace": [
+      { "kind": "entrypoint", "file": "src/export.go", "line": 5 }
+    ],
+    "validation_plan": { "local": "Run the export with a dotted name.", "deployment": "Check the live bucket policy." }
+  },
+  {
+    "verdict": "rejected",
+    "fingerprint": "fp-gone-3",
+    "title": "Weak hash in the cache key"
+  }
+]

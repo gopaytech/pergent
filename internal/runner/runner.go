@@ -65,6 +65,17 @@ type Options struct {
 	// LogPrefix, when set, is written as "<prefix> " before every progress
 	// line of the run.
 	LogPrefix string
+	// DataDir, when set, is opencode's XDG_DATA_HOME for every attempt. The
+	// caller owns it: Run uses it as it is and never removes it, so the caller
+	// can read the database afterwards (see ReadStats). "" gives each attempt
+	// a new directory that is removed after it.
+	DataDir string
+	// Once makes the run one attempt: a transient error is not retried.
+	Once bool
+	// OnUsage, when set, is called after each finished step of the main
+	// session with the attempt's running total of tokens. A sub-agent's
+	// tokens are not in it: opencode's output carries the main session only.
+	OnUsage func(total Usage)
 }
 
 // logPrefix returns the text written before each progress line. It is spliced
@@ -94,12 +105,19 @@ func withoutEnv(env, exclude []string) []string {
 // allowedEnvNames are the inherited variables a generated-config run keeps:
 // process basics, proxies, certificates, config and cache directories, and
 // pergent's own key variable.
-var allowedEnvNames = []string{
+var allowedEnvNames = append([]string{
 	"PATH", "HOME", "USER", "USERNAME", "LOGNAME", "SHELL", "TMPDIR", "TMP", "TEMP", "LANG", "TZ", "TERM",
-	"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "no_proxy", "all_proxy",
-	"SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS", "NODE_USE_SYSTEM_CA", "NODE_USE_ENV_PROXY", "NODE_TLS_REJECT_UNAUTHORIZED",
+	"SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS", "NODE_USE_SYSTEM_CA", "NODE_TLS_REJECT_UNAUTHORIZED",
 	"XDG_CONFIG_HOME", "XDG_CACHE_HOME",
 	"OPENCODE_API_KEY",
+}, ProxyEnvNames...)
+
+// ProxyEnvNames are the proxy variables a run passes on to opencode (and a
+// scan's tools can pass on): the usual names in both cases, and the switch
+// that makes node read them.
+var ProxyEnvNames = []string{
+	"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "no_proxy", "all_proxy",
+	"NODE_USE_ENV_PROXY",
 }
 
 // CloudEnvPrefixes are the cloud-provider prefixes a run keeps, so a provider
@@ -276,7 +294,7 @@ func Run(ctx context.Context, opts Options) RunResult {
 		// A quota, billing or auth error is not started again: opencode
 		// already waited out its own retries, and pergent.sh moves the review
 		// to another model for these.
-		retry := cause.Kind == CauseOpencodeError && e != nil && e.Transient() && !Classify(*e).Fallback() && n <= limit
+		retry := !opts.Once && cause.Kind == CauseOpencodeError && e != nil && e.Transient() && !Classify(*e).Fallback() && n <= limit
 		if retry {
 			if deadline, _ := ctx.Deadline(); time.Until(deadline) <= backoff {
 				fmt.Fprintf(os.Stderr, prefix+"  Transient error, but not enough time left to retry: %s\n", redact.String(cause.Message()))
@@ -309,11 +327,15 @@ func runAttempt(ctx context.Context, opts Options) attempt {
 	defer stop()
 	cmd := BuildCommand(runCtx, opts.ConfigPath, opts.Files, opts.Message, opts.RepoPath)
 
-	dataDir, err := newDataDir()
-	if err != nil {
-		return attempt{runErr: err}
+	dataDir := opts.DataDir
+	if dataDir == "" {
+		var err error
+		dataDir, err = NewDataDir()
+		if err != nil {
+			return attempt{runErr: err}
+		}
+		defer os.RemoveAll(dataDir)
 	}
-	defer os.RemoveAll(dataDir)
 	// A state directory of its own keeps the run from finding a shared
 	// server's service.json, besides --standalone.
 	stateDir, err := newStateDir()
@@ -325,7 +347,7 @@ func runAttempt(ctx context.Context, opts Options) attempt {
 		"XDG_DATA_HOME="+dataDir, "XDG_STATE_HOME="+stateDir)
 	cmd.Env = append(cmd.Env, opts.Env...)
 
-	pw := &progressWriter{buf: &bytes.Buffer{}, w: os.Stderr, prefix: opts.logPrefix()}
+	pw := &progressWriter{buf: &bytes.Buffer{}, w: os.Stderr, prefix: opts.logPrefix(), onUsage: opts.OnUsage}
 	if opts.StepLimit > 0 {
 		pw.onStep = func(step int) {
 			if step == opts.StepLimit+1 {
@@ -414,7 +436,7 @@ func stopReason(ctx context.Context) string {
 	return "the review was cancelled"
 }
 
-// newDataDir returns a new, empty directory for one opencode run's
+// NewDataDir returns a new, empty directory for one opencode run's
 // XDG_DATA_HOME. opencode keeps its SQLite database there and creates it on
 // first start; runs started at once in a shared, fresh directory (a new CI
 // container) race on that and the losers exit 1 before the first step. The
@@ -424,7 +446,7 @@ func stopReason(ctx context.Context) string {
 // reach a run: keys must come from OPENCODE_API_KEY (generated config) or the
 // provider's env or config (opencode's own config). `opencode auth export`
 // prints a list that the import does not read.
-func newDataDir() (string, error) {
+func NewDataDir() (string, error) {
 	dir, err := os.MkdirTemp("", config.DataDirPrefix)
 	if err != nil {
 		return "", fmt.Errorf("creating opencode's data directory: %w", err)

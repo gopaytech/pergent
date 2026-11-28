@@ -36,6 +36,10 @@ func main() {
 		agentMain(os.Args[2:])
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "scan" {
+		scanMain(os.Args[2:])
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "graph" {
 		os.Exit(graphMain(os.Args[2:], os.Stderr))
 	}

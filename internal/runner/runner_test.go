@@ -106,9 +106,9 @@ func TestBuildCommand_PlatformTokens(t *testing.T) {
 // The config's "pergent-*" rule allows reading everything under a directory it
 // matches, so opencode's data directory (auth.json) must not start that way.
 func TestNewDataDir_OutsideTheTempAllowRule(t *testing.T) {
-	dir, err := newDataDir()
+	dir, err := NewDataDir()
 	if err != nil {
-		t.Fatalf("newDataDir() error: %v", err)
+		t.Fatalf("NewDataDir() error: %v", err)
 	}
 	defer os.RemoveAll(dir)
 	if name := filepath.Base(dir); strings.HasPrefix(name, "pergent-") || !strings.HasPrefix(name, config.DataDirPrefix) {
@@ -1224,5 +1224,83 @@ func TestRunEnvIsAddedLast(t *testing.T) {
 	env := string(data)
 	if !strings.Contains(env, "OPENCODE_API_KEY=key-b\n") || strings.Contains(env, "key-a") || strings.Contains(env, "OTHER_API_KEY") {
 		t.Fatalf("env:\n%s", env)
+	}
+}
+
+// fakeSeen puts an `opencode` on PATH that appends its XDG_DATA_HOME to a file
+// and prints stdout, exits code. It returns that file.
+func fakeSeen(t *testing.T, stdout string, code int) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fake opencode is a shell script")
+	}
+	dir := t.TempDir()
+	seen := filepath.Join(dir, "seen")
+	out := filepath.Join(dir, "out")
+	os.WriteFile(out, []byte(stdout), 0o644)
+	script := fmt.Sprintf("#!/bin/sh\necho \"$XDG_DATA_HOME\" >> %q\ncat %q\nexit %d\n", seen, out, code)
+	bin := filepath.Join(dir, "bin")
+	os.Mkdir(bin, 0o755)
+	if err := os.WriteFile(filepath.Join(bin, "opencode"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return seen
+}
+
+func TestRun_CallerDataDirKept(t *testing.T) {
+	seen := fakeSeen(t, `{"type":"step_start","part":{"type":"step-start"}}`+"\n"+
+		`{"type":"text","part":{"type":"text","text":"ok"}}`+"\n"+
+		`{"type":"step_finish","part":{"type":"step-finish","reason":"stop"}}`+"\n", 0)
+	data := t.TempDir()
+	opts := testOptions(time.Minute)
+	opts.DataDir = data
+	if got := Run(context.Background(), opts); got.Status != StatusCompleted {
+		t.Fatalf("Run() = %+v, want completed", got)
+	}
+	out, err := os.ReadFile(seen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(out)); got != data {
+		t.Errorf("XDG_DATA_HOME = %q, want the caller's %q", got, data)
+	}
+	if _, err := os.Stat(data); err != nil {
+		t.Errorf("the caller's data directory is gone after Run: %v", err)
+	}
+}
+
+func TestRun_OnceNoRetry(t *testing.T) {
+	shortBackoff(t)
+	count := fakeOpencode(t, fakeAttempt{fixture: "fetch_failed.ndjson", code: 1})
+	opts := testOptions(time.Minute)
+	opts.Once = true
+	got := Run(context.Background(), opts)
+	if got.Status != StatusFailed || got.Cause.Attempts != 1 {
+		t.Errorf("Run() = %+v, want one failed attempt", got)
+	}
+	if n := runCount(t, count); n != 1 {
+		t.Errorf("opencode ran %d times, want 1", n)
+	}
+}
+
+func TestRun_OnUsage(t *testing.T) {
+	fakeSeen(t, `{"type":"step_start","part":{"type":"step-start"}}`+"\n"+
+		`{"type":"step_finish","part":{"type":"step-finish","reason":"tool-calls","tokens":{"input":10,"output":2,"reasoning":1,"cache":{"read":5,"write":3}}}}`+"\n"+
+		`{"type":"step_start","part":{"type":"step-start"}}`+"\n"+
+		`{"type":"text","part":{"type":"text","text":"ok"}}`+"\n"+
+		`{"type":"step_finish","part":{"type":"step-finish","reason":"stop","tokens":{"input":20,"output":4,"reasoning":0,"cache":{"read":6,"write":0}}}}`+"\n", 0)
+	var got []Usage
+	opts := testOptions(time.Minute)
+	opts.OnUsage = func(total Usage) { got = append(got, total) }
+	if r := Run(context.Background(), opts); r.Status != StatusCompleted {
+		t.Fatalf("Run() = %+v, want completed", r)
+	}
+	want := []Usage{
+		{Input: 10, Output: 2, Reasoning: 1, CacheRead: 5, CacheWrite: 3},
+		{Input: 30, Output: 6, Reasoning: 1, CacheRead: 11, CacheWrite: 3},
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("OnUsage totals = %+v, want %+v", got, want)
 	}
 }

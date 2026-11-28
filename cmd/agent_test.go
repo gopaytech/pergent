@@ -1606,3 +1606,85 @@ func TestPrepareAgent_MRDismissalsBad(t *testing.T) {
 		})
 	}
 }
+
+func TestParseAgent_SecurityFindingsFromEnv(t *testing.T) {
+	sha := strings.Repeat("a", 40)
+	args := []string{"--repo-path", "/r", "--base", sha, "--head", sha, "--skills-dir", "/s", "--result", "-"}
+	env := agentEnv(map[string]string{"PERGENT_SECURITY_FINDINGS": "/env/sec.md"})
+
+	in, e := parseAgent(args, env)
+	if e != nil {
+		t.Fatalf("parseAgent() error: %+v", e)
+	}
+	if in.securityPath != "/env/sec.md" {
+		t.Errorf("securityPath = %q, want the PERGENT_SECURITY_FINDINGS path", in.securityPath)
+	}
+	in, e = parseAgent(append(args, "--security-findings", "/flag/sec.md"), env)
+	if e != nil {
+		t.Fatalf("parseAgent() error: %+v", e)
+	}
+	if in.securityPath != "/flag/sec.md" {
+		t.Errorf("securityPath = %q, want the flag to win", in.securityPath)
+	}
+}
+
+func TestPrepareAgent_SecurityFindings(t *testing.T) {
+	repo, base, head := agentRepo(t, nil)
+	dir := t.TempDir()
+	writeFile(t, dir, "sec.md", "x.go:3 sqli\n")
+
+	in := mustParse(t, agentArgs(repo, base, head, oneSkill(t), "--security-findings", filepath.Join(dir, "sec.md")))
+	logger, logs := bufferLog()
+	if e := prepareAgent(&in, logger); e != nil {
+		t.Fatalf("prepareAgent() error: %+v", e)
+	}
+	if want := "x.go:3 sqli\n"; in.SecurityFindings != want {
+		t.Errorf("SecurityFindings = %q, want %q", in.SecurityFindings, want)
+	}
+	if !strings.Contains(logs.String(), "security findings: 12 bytes") {
+		t.Errorf("logged %q, want the size", logs.String())
+	}
+}
+
+func TestPrepareAgent_SecurityFindingsMissing(t *testing.T) {
+	repo, base, head := agentRepo(t, nil)
+	logger, logs := bufferLog()
+	in := mustParse(t, agentArgs(repo, base, head, oneSkill(t), "--security-findings", filepath.Join(t.TempDir(), "missing.md")))
+	if e := prepareAgent(&in, logger); e != nil {
+		t.Fatalf("prepareAgent() error: %+v, want the review to go on without it", e)
+	}
+	if in.SecurityFindings != "" {
+		t.Errorf("SecurityFindings = %q, want none", in.SecurityFindings)
+	}
+	if !strings.Contains(logs.String(), "warning: ignoring --security-findings:") {
+		t.Errorf("no warning logged: %q", logs.String())
+	}
+}
+
+func TestPrepareAgent_SecurityFindingsInsideRepo(t *testing.T) {
+	repo, base, head := agentRepo(t, nil)
+	writeFile(t, repo, "inside/sec.md", "x\n")
+	defer os.RemoveAll(filepath.Join(repo, "inside"))
+	in := mustParse(t, agentArgs(repo, base, head, oneSkill(t), "--security-findings", filepath.Join(repo, "inside", "sec.md")))
+	e := prepareAgent(&in, quietLog)
+	if e == nil || e.Code != result.CodeUsage || !strings.Contains(e.Message, "--security-findings") {
+		t.Errorf("prepareAgent() error = %+v, want a usage error naming --security-findings", e)
+	}
+}
+
+func TestParseAgent_MultiReviewRefusesSecurityFindings(t *testing.T) {
+	args := append(multiArgs("--multi-review", "--reviewer", "a.json", "--security-findings"), "x")
+	_, e := parseAgent(args, agentEnv(nil))
+	if e == nil || e.Code != result.CodeUsage || e.Message != "--security-findings can't be used with --multi-review" {
+		t.Errorf("error = %+v", e)
+	}
+	// An env default is cleared, not refused.
+	env := agentEnv(map[string]string{"PERGENT_SECURITY_FINDINGS": "/env/sec.md"})
+	in, e := parseAgent(multiArgs("--multi-review", "--reviewer", "a.json", "--mr-dismissals", "m.json"), env)
+	if e != nil {
+		t.Fatalf("env default: error = %+v", e)
+	}
+	if in.securityPath != "" {
+		t.Errorf("securityPath = %q, want it cleared", in.securityPath)
+	}
+}

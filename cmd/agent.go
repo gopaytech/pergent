@@ -58,6 +58,9 @@ type agentInputs struct {
 	// CIResults is the CI output from running the change, "" when none was
 	// given. The path is trusted; the text is data.
 	CIResults string
+	// SecurityFindings is the open security findings in the changed files, ""
+	// when none were given. The path is trusted; the text is data.
+	SecurityFindings string
 	// Linked are the linked repositories the caller cloned, scrubbed. An entry
 	// with an Error is not to be read.
 	Linked []review.LinkedRepo
@@ -87,6 +90,9 @@ type agentInputs struct {
 	changePath string
 	// ciPath is --ci-results, or $PERGENT_CI_RESULTS without the flag.
 	ciPath string
+	// securityPath is --security-findings, or $PERGENT_SECURITY_FINDINGS
+	// without the flag.
+	securityPath string
 	// linkedPath is --linked-repos, or $PERGENT_LINKED_REPOS without the flag.
 	linkedPath string
 	// graphPath is --graph, or $PERGENT_GRAPH without the flag.
@@ -125,7 +131,7 @@ func (r *reviewerFlag) Set(value string) error {
 
 // multiReviewRefused are the review inputs a multi review merge step does
 // not take.
-var multiReviewRefused = []string{"previous", "carried", "ci-results", "change-description", "linked-repos", "graph", "no-skill-verify"}
+var multiReviewRefused = []string{"previous", "carried", "ci-results", "security-findings", "change-description", "linked-repos", "graph", "no-skill-verify"}
 
 // ciOnlyFlags are CI-mode flags that agent mode refuses.
 var ciOnlyFlags = map[string]bool{"local": true, "platform": true, "previous-review": true, "base-branch": true}
@@ -320,6 +326,7 @@ func reviewChange(ctx context.Context, in *agentInputs, meta result.Meta, run re
 	req.Carried = in.Carried
 	req.Description = in.Description
 	req.CIResults = in.CIResults
+	req.SecurityFindings = in.SecurityFindings
 	req.SkipSkillVerify = in.skipSkillVerify
 	req.Linked = in.Linked
 	req.Graph = in.Graph
@@ -423,6 +430,7 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 	flags.StringVar(&in.previousPath, "previous", "", "A previous agent result whose findings are attached per skill")
 	flags.StringVar(&in.carriedPath, "carried", "", "A JSON file {\"<skill>\": [\"path\", ...]} of files a previous review covers, left out of this review")
 	flags.StringVar(&in.dismissalsPath, "dismissals", getenv("PERGENT_DISMISSALS"), "A JSON file {\"<skill>\": [{\"file\", \"title\", \"severity\", \"reason\"}, ...]} of findings people rejected earlier, attached to the runs")
+	flags.StringVar(&in.securityPath, "security-findings", getenv("PERGENT_SECURITY_FINDINGS"), "A file of the open security findings in the files of the change, attached to the review runs as data")
 	flags.StringVar(&in.ciPath, "ci-results", getenv("PERGENT_CI_RESULTS"), "A file of the CI job results of the change, attached to the review runs as data")
 	flags.StringVar(&in.graphPath, "graph", getenv("PERGENT_GRAPH"), "A pergent-graph/v1 file of the default branch, outside --repo-path")
 	flags.StringVar(&in.rulesPath, "rules", getenv("PERGENT_RULES"), "A JSON list of path rules [{\"source\", \"path\", \"rule\" or \"off\"}, ...], outside --repo-path")
@@ -492,7 +500,7 @@ func parseAgent(args []string, getenv func(string) string) (agentInputs, *result
 			}
 		}
 		// An env default is not the caller's choice for a judge Job.
-		in.changePath, in.ciPath, in.linkedPath, in.graphPath = "", "", "", ""
+		in.changePath, in.ciPath, in.securityPath, in.linkedPath, in.graphPath = "", "", "", "", ""
 		switch n := len(in.reviewerPaths); {
 		case n == 0:
 			return usage("--multi-review requires at least one --reviewer")
@@ -682,6 +690,7 @@ func prepareAgent(in *agentInputs, logger *log.Logger) *result.Error {
 		in.Description = readChangeDescription(in.changePath, logger)
 	}
 	in.CIResults = readCIResults(in.ciPath, logger)
+	in.SecurityFindings = readSecurityFindings(in.securityPath, logger)
 	in.Graph = readGraph(in.graphPath, logger)
 	// The rule list is trusted and checked like the skills: one that can't
 	// be used stops the review, which must never run without its rules.
@@ -739,7 +748,8 @@ func gitVersionError(version string, major, minor int, err error) *result.Error 
 
 // trustedInputsOutside refuses a trusted input (--instructions, --skills-dir,
 // a path --skill, --previous, --carried, --dismissals, --change-description,
-// --ci-results, --linked-repos, --graph, --rules, each --reviewer,
+// --ci-results, --security-findings, --linked-repos, --graph, --rules,
+// each --reviewer,
 // --mr-dismissals) that resolves to somewhere inside the checkout:
 // the change under review could have written it. A --skills-dir above the
 // checkout is refused too, since LoadDir would read the checkout's top-level
@@ -802,6 +812,9 @@ func trustedInputs(in *agentInputs) []trustedInput {
 	}
 	if in.ciPath != "" {
 		inputs = append(inputs, trustedInput{"--ci-results", in.ciPath})
+	}
+	if in.securityPath != "" {
+		inputs = append(inputs, trustedInput{"--security-findings", in.securityPath})
 	}
 	if in.linkedPath != "" {
 		inputs = append(inputs, trustedInput{"--linked-repos", in.linkedPath})
@@ -1206,6 +1219,21 @@ func readCIResults(path string, logger *log.Logger) string {
 		return ""
 	}
 	logger.Printf("ci results: %d bytes", len(data))
+	return string(data)
+}
+
+// readSecurityFindings reads the security findings the caller wrote. A review
+// is still worth running without them, so a failure is a warning.
+func readSecurityFindings(path string, logger *log.Logger) string {
+	if path == "" {
+		return ""
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		logger.Printf("warning: ignoring --security-findings: %v", err)
+		return ""
+	}
+	logger.Printf("security findings: %d bytes", len(data))
 	return string(data)
 }
 
