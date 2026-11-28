@@ -487,6 +487,50 @@ func TestOpencodeE2E_ProviderErrors(t *testing.T) {
 	}
 }
 
+// Replies cut at the max output end the run with the fixed reason. opencode
+// fails the run after 3 replies in a row end with finish "length" (the reply
+// and 2 continuations). The review run sends --output-limit to the provider.
+func TestOpencodeE2E_OutputLimitReason(t *testing.T) {
+	requireOpencode(t)
+	t.Run("review", func(t *testing.T) {
+		m := newFakeModel(t, nil, "length")
+		useFakeModel(t, m)
+		repo, base, head := e2eRepo(t, map[string]string{"b.go": "package a\n"})
+		res, stderr := runAgentE2E(t, repo, base, head, "--output-limit", "2000")
+
+		if len(res.Skills) != 1 || res.Skills[0].Verdict != "failed" || len(res.Skills[0].Failures) == 0 {
+			t.Fatalf("result = %+v, want one failed skill\nstderr:\n%s", res.Skills, stderr)
+		}
+		c := res.Skills[0].Failures[0].Cause
+		if c == nil || c.Kind != "opencode_error" || c.Message != runner.OutputLimitReason+"." {
+			t.Errorf("cause = %+v, want opencode_error with the output-limit reason\nstderr:\n%s", c, stderr)
+		}
+		if n := m.LengthReplies(); n < 3 {
+			t.Errorf("length replies = %d, want at least 3", n)
+		}
+		for _, r := range m.Requests() {
+			if len(r.Tools) > 0 && r.MaxTokens != 2000 {
+				t.Errorf("a request with tools had max tokens %d, want 2000", r.MaxTokens)
+			}
+		}
+	})
+	t.Run("scan", func(t *testing.T) {
+		m := newFakeModel(t, nil, "length")
+		s := newScanE2E(t, m)
+		res := runner.Run(context.Background(), s.options(nil))
+
+		if res.Status != runner.StatusFailed {
+			t.Fatalf("the scan run ended %v, want failed; cause %+v", res.Status, res.Cause)
+		}
+		if res.Cause == nil || !res.Cause.OutputLimited() {
+			t.Errorf("cause = %+v, want an output limit", res.Cause)
+		}
+		if n := m.LengthReplies(); n < 3 {
+			t.Errorf("length replies = %d, want at least 3", n)
+		}
+	})
+}
+
 // A used-up quota reaches the result as provider_error quota, and pergent
 // stops opencode on it and never starts the run again.
 func TestOpencodeE2E_QuotaErrorIsClassified(t *testing.T) {

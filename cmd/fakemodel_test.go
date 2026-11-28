@@ -27,6 +27,9 @@ type fakeRequest struct {
 	System      string
 	ToolResults map[string]string // by tool-call ID
 	Raw         string            // the whole request body
+	// MaxTokens is the request's max_tokens, else max_completion_tokens; 0
+	// when it has neither.
+	MaxTokens int
 }
 
 // fakeModel is a scripted OpenAI-compatible server for the real-opencode
@@ -50,6 +53,8 @@ type fakeModel struct {
 	hold map[int]chan struct{}
 	mu   sync.Mutex
 	reqs []fakeRequest
+	// lengthReplies counts the replies the "length" mode cut.
+	lengthReplies int
 }
 
 const fakeFinal = "Reviewed.\n\n```json\n{\"summary\":\"ok\",\"confidence\":5,\"confidence_reason\":\"small\",\"findings\":[]}\n```\n"
@@ -63,8 +68,9 @@ func newFakeModelFor(t *testing.T, only string, turns [][]fakeCall) *fakeModel {
 	return m
 }
 
-// newFakeModel starts the server. mode is "", "error500", "overflow", "quota" or
-// "hang" (never answers until the request's context ends).
+// newFakeModel starts the server. mode is "", "error500", "overflow", "quota",
+// "length" (every request with tools gets a text reply cut at the max output)
+// or "hang" (never answers until the request's context ends).
 func newFakeModel(t *testing.T, turns [][]fakeCall, mode string) *fakeModel {
 	t.Helper()
 	m := &fakeModel{t: t}
@@ -83,6 +89,13 @@ func (m *fakeModel) Requests() []fakeRequest {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return append([]fakeRequest(nil), m.reqs...)
+}
+
+// LengthReplies is how many replies the "length" mode has cut so far.
+func (m *fakeModel) LengthReplies() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.lengthReplies
 }
 
 func fakeContentText(c any) string {
@@ -123,6 +136,9 @@ func (m *fakeModel) handle(w http.ResponseWriter, r *http.Request, turns [][]fak
 		Stream   bool             `json:"stream"`
 		Tools    []map[string]any `json:"tools"`
 		Messages []map[string]any `json:"messages"`
+
+		MaxTokens           int `json:"max_tokens"`
+		MaxCompletionTokens int `json:"max_completion_tokens"`
 	}
 	if err := json.Unmarshal(raw, &req); err != nil {
 		if len(bytes.TrimSpace(raw)) == 0 && r.Context().Err() != nil {
@@ -148,6 +164,10 @@ func (m *fakeModel) handle(w http.ResponseWriter, r *http.Request, turns [][]fak
 		}
 	}
 	rec.System = strings.Join(sys, "\n")
+	rec.MaxTokens = req.MaxTokens
+	if rec.MaxTokens == 0 {
+		rec.MaxTokens = req.MaxCompletionTokens
+	}
 	for _, tl := range req.Tools {
 		if fn, ok := tl["function"].(map[string]any); ok {
 			if name, ok := fn["name"].(string); ok {
@@ -220,6 +240,35 @@ func (m *fakeModel) handle(w http.ResponseWriter, r *http.Request, turns [][]fak
 				"function": map[string]any{"name": c.Name, "arguments": string(args)}})
 		}
 		return out
+	}
+
+	// "length": a request with tools gets a short text reply that ends cut at
+	// the max output. The title agent (no tools) answers as usual.
+	if mode == "length" && len(req.Tools) > 0 {
+		m.mu.Lock()
+		m.lengthReplies++
+		m.mu.Unlock()
+		if !req.Stream {
+			body := map[string]any{"id": "c1", "object": "chat.completion", "created": time.Now().Unix(), "model": "fake-model",
+				"choices": []any{map[string]any{"index": 0, "message": map[string]any{"role": "assistant", "content": "partial"}, "finish_reason": "length"}}, "usage": usage}
+			w.Header().Set("content-type", "application/json")
+			_ = json.NewEncoder(w).Encode(body)
+			return
+		}
+		w.Header().Set("content-type", "text/event-stream")
+		w.Header().Set("cache-control", "no-cache")
+		for _, c := range []map[string]any{
+			chunk(map[string]any{"role": "assistant", "content": "partial"}, nil, false),
+			chunk(map[string]any{}, "length", true),
+		} {
+			b, _ := json.Marshal(c)
+			fmt.Fprintf(w, "data: %s\n\n", b)
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+		}
+		io.WriteString(w, "data: [DONE]\n\n")
+		return
 	}
 
 	if !req.Stream {
