@@ -86,6 +86,8 @@ type fakeScan struct {
 	block   bool
 	started chan struct{}
 	check   func(o runner.Options)
+	// result, when set, is what run returns after it copies the files.
+	result *runner.RunResult
 
 	calls atomic.Int32
 	seen  runner.Options
@@ -127,6 +129,9 @@ func (f *fakeScan) run(t *testing.T) func(context.Context, runner.Options) runne
 				reason = sr.StopReason()
 			}
 			return runner.RunResult{Status: runner.StatusFailed, Cause: &runner.Cause{Kind: runner.CauseCancelled, StopReason: reason}}
+		}
+		if f.result != nil {
+			return *f.result
 		}
 		return runner.RunResult{Status: runner.StatusCompleted, Output: "done"}
 	}
@@ -226,6 +231,25 @@ func TestScanComplete(t *testing.T) {
 	}
 	if _, err := os.Stat(f.seen.DataDir); !os.IsNotExist(err) {
 		t.Errorf("the data dir is still there: %v", err)
+	}
+}
+
+func TestScanOutputLimitReason(t *testing.T) {
+	scanEnv(t, nil)
+	repo, _ := scanClone(t, nil)
+	out := resultFile(t)
+	f := &fakeScan{files: allFixtures, result: &runner.RunResult{Status: runner.StatusFailed, Cause: &runner.Cause{
+		Kind: runner.CauseOpencodeError, ErrorName: "output-limit",
+		ErrorMessage: "Response still truncated after two output token limit continuations"}}}
+	st := newScanTest()
+	code := runScan(context.Background(), []string{"--repo-path", repo, "--skill", scanSkillDir(t), "--result", out},
+		st.deps(f.run(t), fixedStats(70)))
+	if code != 0 {
+		t.Fatalf("exit %d, want 0; stderr:\n%s", code, st.stderr.String())
+	}
+	env := readEnvelope(t, out)
+	if env.Status != "partial" || env.Reason != runner.OutputLimitReason {
+		t.Errorf("status %q reason %q, want partial and the output limit reason", env.Status, env.Reason)
 	}
 }
 

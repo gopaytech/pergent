@@ -17,6 +17,15 @@ const (
 	StatusFailed Status = "failed"
 )
 
+// OutputLimitReason is why a run ends when the model's replies are cut at the
+// max output again and again. pergent.sh shows it, so the words are a
+// contract: change them only together with pergent.sh.
+const OutputLimitReason = "the model's replies were cut at the max output: set Max output on the model entry"
+
+// outputLimitType is opencode 2.3.2's error type when a reply is still cut
+// after two output token limit continuations.
+const outputLimitType = "output-limit"
+
 // CauseKind identifies why a run failed.
 type CauseKind string
 
@@ -130,6 +139,9 @@ func (c Cause) Message() string {
 		msg += "."
 
 	case CauseOpencodeError:
+		if c.OutputLimited() {
+			return OutputLimitReason + "."
+		}
 		name := c.ErrorName
 		if name == "" {
 			name = "error"
@@ -183,6 +195,12 @@ func (c Cause) Message() string {
 		msg = "The review failed for an unknown reason."
 	}
 	return msg
+}
+
+// OutputLimited reports whether opencode ended the run because the model's
+// replies were cut at the max output.
+func (c Cause) OutputLimited() bool {
+	return c.Kind == CauseOpencodeError && c.ErrorName == outputLimitType
 }
 
 func (c Cause) atStep() string {

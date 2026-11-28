@@ -435,13 +435,14 @@ func (s *scanner) scan(ctx context.Context) int {
 	stop, kind := scanStop(res, budgetHit)
 	stats, source := s.finalStats(pending, last, dataDir)
 	body, env := scan.Build(scan.EndInput{
-		Commit:   s.commit,
-		Stop:     stop,
-		FailKind: kind,
-		Out:      scan.Convert(m, in.skillDir, outDir),
-		State:    scan.ReadState(m, outDir),
-		Usage:    scan.UsageFrom(stats, source, stream),
-		Manifest: m,
+		Commit:        s.commit,
+		Stop:          stop,
+		FailKind:      kind,
+		OutputLimited: res.Cause != nil && res.Cause.OutputLimited(),
+		Out:           scan.Convert(m, in.skillDir, outDir),
+		State:         scan.ReadState(m, outDir),
+		Usage:         scan.UsageFrom(stats, source, stream),
+		Manifest:      m,
 	})
 	s.logger.Printf("scan: %s: %s; usage from %s, %d results", env.Status, env.Reason, env.Usage.Source, len(env.SARIF.Runs[0].Results))
 	if !s.send(body) {

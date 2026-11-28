@@ -81,6 +81,14 @@ func TestClassify_Fixtures(t *testing.T) {
 			message: "The model's context window overflowed after 1 step: the last completed step used 12,300 tokens (limit: the model's context window as known to opencode). provider.invalid-request: This model's maximum context length is 8192 tokens. However, your messages resulted in 9100 tokens.",
 		},
 		{
+			name:    "replies cut at the max output",
+			fixture: "output_limit.ndjson",
+			attempt: attempt{runErr: exit1, exitCode: 1},
+			status:  StatusFailed,
+			kind:    CauseOpencodeError,
+			message: OutputLimitReason + ".",
+		},
+		{
 			name:    "provider error",
 			fixture: "rate_limited.ndjson",
 			attempt: attempt{runErr: exit1, exitCode: 1},
@@ -284,6 +292,7 @@ func TestEventError_Transient(t *testing.T) {
 		want bool
 	}{
 		{EventError{Name: "provider.internal", StatusCode: 500, Message: "Internal Server Error"}, true},
+		{EventError{Name: "output-limit", Message: "Response still truncated after two output token limit continuations"}, false},
 		{EventError{Name: "provider.rate-limit", StatusCode: 429, Message: "Too Many Requests"}, true},
 		{EventError{Name: "provider.internal", StatusCode: 529, Message: "Overloaded"}, true},
 		{EventError{Name: "provider.transport", Message: "Cannot connect to API: ECONNREFUSED"}, true},
@@ -472,5 +481,47 @@ func TestClassify_ProviderClassFromRootError(t *testing.T) {
 	a = attempt{transcript: ParseOutput(readFixture(t, "auth_error.ndjson")), runErr: errors.New("exit status 1"), exitCode: 1}
 	if _, cause := classify(a, Options{Timeout: time.Minute}, 0); cause.ProviderClass != ClassAuth {
 		t.Errorf("cause = %+v, want auth", cause)
+	}
+}
+
+func TestCauseMessage_OutputLimit(t *testing.T) {
+	tests := []struct {
+		name    string
+		cause   Cause
+		limited bool
+		message string
+		prefix  string
+	}{
+		{
+			name: "output limit",
+			cause: Cause{Kind: CauseOpencodeError, ErrorName: "output-limit", ErrorMessage: "Response still truncated after two output token limit continuations",
+				OtherErrors: []string{"unknown: x"}, Attempts: 2},
+			limited: true,
+			message: OutputLimitReason + ".",
+		},
+		{
+			name:   "other opencode error",
+			cause:  Cause{Kind: CauseOpencodeError, ErrorName: "provider.invalid-request"},
+			prefix: "opencode reported provider.invalid-request",
+		},
+		{
+			name:   "no answer",
+			cause:  Cause{Kind: CauseNoAnswer, FinishReason: "length"},
+			prefix: "The model's answer was cut off",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.cause.OutputLimited(); got != tt.limited {
+				t.Errorf("OutputLimited() = %v, want %v", got, tt.limited)
+			}
+			got := tt.cause.Message()
+			if tt.message != "" && got != tt.message {
+				t.Errorf("Message() = %q, want %q", got, tt.message)
+			}
+			if tt.prefix != "" && !strings.HasPrefix(got, tt.prefix) {
+				t.Errorf("Message() = %q, want prefix %q", got, tt.prefix)
+			}
+		})
 	}
 }
